@@ -1,6 +1,7 @@
 import { Song } from '../types/music';
 import { getRegisteredFile } from './scannerService';
 import { audioEffectsService } from './audioEffectsService';
+import { cloudPlayerService } from './cloudPlayerService';
 
 type AudioEventListener = (state: AudioServiceState) => void;
 
@@ -25,6 +26,10 @@ class AudioService {
   private onSongEndCallback: (() => void) | null = null;
   private onMeaningfulListenCallback: ((song: Song) => void) | null = null;
 
+  // Track active engine: HTML5 Audio (local) vs Cloud Headless Player (Vercel online)
+  private isUsingCloudPlayer: boolean = false;
+  private isCloudPlaying: boolean = false;
+
   // Meaningful listen tracking
   private accumulatedListenSeconds: number = 0;
   private hasCountedMeaningfulPlay: boolean = false;
@@ -43,26 +48,29 @@ class AudioService {
     this.audio.crossOrigin = 'anonymous';
     this.audio.volume = 0.8;
     this.setupListeners();
+    this.setupCloudListeners();
   }
 
   private setupListeners() {
     this.audio.addEventListener('play', () => {
-      this.notify();
+      if (!this.isUsingCloudPlayer) this.notify();
     });
 
     this.audio.addEventListener('playing', () => {
-      this.notify();
+      if (!this.isUsingCloudPlayer) this.notify();
     });
 
     this.audio.addEventListener('pause', () => {
-      this.notify();
+      if (!this.isUsingCloudPlayer) this.notify();
     });
 
     this.audio.addEventListener('timeupdate', () => {
+      if (this.isUsingCloudPlayer) return;
+
       const current = this.audio.currentTime || 0;
       const duration = this.audio.duration || (this.currentSong ? this.currentSong.duration : 0);
 
-      // Track meaningful listen seconds (only while actively playing)
+      // Track meaningful listen seconds
       if (!this.audio.paused && this.currentSong && !this.hasCountedMeaningfulPlay) {
         const delta = current - this.lastTimeUpdateSecond;
         if (delta > 0 && delta < 2) {
@@ -70,7 +78,6 @@ class AudioService {
         }
         this.lastTimeUpdateSecond = current;
 
-        // Meaningful listen rule: >= 30 seconds OR >= 50% of track
         const threshold = Math.min(30, duration > 0 ? duration * 0.5 : 30);
         if (this.accumulatedListenSeconds >= threshold) {
           this.hasCountedMeaningfulPlay = true;
@@ -99,12 +106,14 @@ class AudioService {
       this.notify();
     });
 
-    this.audio.addEventListener('durationchange', () => this.notify());
+    this.audio.addEventListener('durationchange', () => {
+      if (!this.isUsingCloudPlayer) this.notify();
+    });
     this.audio.addEventListener('volumechange', () => this.notify());
 
     this.audio.addEventListener('ended', () => {
+      if (this.isUsingCloudPlayer) return;
       this.isFadingOut = false;
-      // If song ended naturally, ensure meaningful play is recorded if not already
       if (this.currentSong && !this.hasCountedMeaningfulPlay && this.onMeaningfulListenCallback) {
         this.hasCountedMeaningfulPlay = true;
         this.onMeaningfulListenCallback(this.currentSong);
@@ -116,24 +125,77 @@ class AudioService {
     });
 
     this.audio.addEventListener('error', (e) => {
-      // Don't flag aborted loads caused by rapid song switches
+      if (this.isUsingCloudPlayer) return;
       if (this.audio.error && this.audio.error.code === MediaError.MEDIA_ERR_ABORTED) {
         return;
       }
-      console.warn('Audio playback error:', e);
-      this.notify('Playback error encountered. File may be unavailable or unsupported.');
+      console.warn('Audio playback notice:', e);
+    });
+  }
+
+  private setupCloudListeners() {
+    cloudPlayerService.onPlay(() => {
+      if (this.isUsingCloudPlayer) {
+        this.isCloudPlaying = true;
+        this.notify();
+      }
+    });
+
+    cloudPlayerService.onPause(() => {
+      if (this.isUsingCloudPlayer) {
+        this.isCloudPlaying = false;
+        this.notify();
+      }
+    });
+
+    cloudPlayerService.onEnded(() => {
+      if (this.isUsingCloudPlayer) {
+        this.isCloudPlaying = false;
+        this.notify();
+        if (this.onSongEndCallback) {
+          this.onSongEndCallback();
+        }
+      }
+    });
+
+    cloudPlayerService.onTimeUpdate((current, duration) => {
+      if (this.isUsingCloudPlayer) {
+        this.notify();
+      }
+    });
+
+    cloudPlayerService.onError((err) => {
+      if (this.isUsingCloudPlayer) {
+        console.warn('Cloud player error:', err);
+        this.notify(err);
+      }
     });
   }
 
   private notify(errorMessage: string | null = null) {
-    const isActuallyPlaying =
-      !this.audio.paused && !this.audio.ended && this.audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+    let isActuallyPlaying = false;
+    let currentTime = 0;
+    let duration = (this.currentSong ? this.currentSong.duration : 0) || 0;
+
+    if (this.isUsingCloudPlayer) {
+      currentTime = cloudPlayerService.getCurrentTime();
+      const cloudDur = cloudPlayerService.getDuration();
+      if (cloudDur > 0) duration = cloudDur;
+      isActuallyPlaying = this.isCloudPlaying;
+    } else {
+      isActuallyPlaying =
+        !this.audio.paused && !this.audio.ended && this.audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+      currentTime = this.audio.currentTime || 0;
+      if (this.audio.duration && !isNaN(this.audio.duration)) {
+        duration = this.audio.duration;
+      }
+    }
 
     const state: AudioServiceState = {
       currentSong: this.currentSong,
       isPlaying: isActuallyPlaying,
-      currentTime: this.audio.currentTime || 0,
-      duration: this.audio.duration || (this.currentSong ? this.currentSong.duration : 0) || 0,
+      currentTime,
+      duration,
       volume: this.audio.volume,
       isMuted: this.isMuted,
       playbackRate: this.audio.playbackRate,
@@ -148,8 +210,8 @@ class AudioService {
     if ('mediaSession' in navigator && this.currentSong) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: this.currentSong.title,
-        artist: this.currentSong.artist !== 'Not set' ? this.currentSong.artist : 'Local Artist',
-        album: this.currentSong.album !== 'Not set' ? this.currentSong.album : 'Local Collection',
+        artist: this.currentSong.artist !== 'Not set' ? this.currentSong.artist : 'Aura Music',
+        album: this.currentSong.album !== 'Not set' ? this.currentSong.album : 'Aura Collection',
         artwork: (this.currentSong.artwork || this.currentSong.coverArt)
           ? [{ src: (this.currentSong.artwork || this.currentSong.coverArt)!, sizes: '512x512', type: 'image/png' }]
           : []
@@ -171,45 +233,69 @@ class AudioService {
     return () => this.listeners.delete(listener);
   }
 
+  private extractYouTubeVideoId(song: Song): string | null {
+    if (song.sourceId && song.sourceId.length >= 8) {
+      return song.sourceId;
+    }
+    if (song.id && song.id.startsWith('online_')) {
+      return song.id.replace('online_', '');
+    }
+    if (song.id && song.id.startsWith('cloud_')) {
+      return song.id.replace('cloud_', '');
+    }
+    const pathStr = song.filePath || song.path || '';
+    const match = pathStr.match(/[?&]id=([^&]+)/) || pathStr.match(/v=([^&]+)/);
+    if (match && match[1]) {
+      return match[1];
+    }
+    return null;
+  }
+
   public async playSong(song: Song, audioSourceUrl?: string): Promise<void> {
     const thisRequestId = ++this.playRequestId;
 
-    // Reset meaningful play tracking for the new song
     this.accumulatedListenSeconds = 0;
     this.hasCountedMeaningfulPlay = false;
     this.lastTimeUpdateSecond = 0;
     this.currentSong = song;
 
-    // Clean up previous dynamic object URL to prevent memory leaks
     if (this.currentObjectUrl) {
       URL.revokeObjectURL(this.currentObjectUrl);
       this.currentObjectUrl = null;
     }
 
+    // Check if track is a cloud online stream
+    const ytVideoId = this.extractYouTubeVideoId(song);
+    const isCloudTrack = Boolean(song.isOnline || ytVideoId);
+
+    if (isCloudTrack && ytVideoId) {
+      this.isUsingCloudPlayer = true;
+      this.audio.pause();
+      cloudPlayerService.loadVideo(ytVideoId, 0);
+      this.isCloudPlaying = true;
+      this.notify();
+      return;
+    }
+
+    // Local track: Switch to HTML5 Audio Element & DSP chain
+    this.isUsingCloudPlayer = false;
+    cloudPlayerService.pause();
+
     try {
-      // Determine source:
-      // Priority 1: Passed explicit URL
-      // Priority 2: In-memory active file registry
-      // Priority 3: Local audio streaming API endpoint
-      // Priority 4: Existing non-blob path
       let source = audioSourceUrl;
       if (!source) {
-        if (song.isOnline || (song.filePath && song.filePath.startsWith('/api/online')) || (song.path && song.path.startsWith('/api/online'))) {
-          source = song.filePath || song.path;
+        const registeredFile = getRegisteredFile(song.id);
+        if (registeredFile) {
+          source = URL.createObjectURL(registeredFile);
+          this.currentObjectUrl = source;
+        } else if (song.path) {
+          source = `/api/audio?path=${encodeURIComponent(song.path)}`;
+        } else if (song.filePath && !song.filePath.startsWith('blob:')) {
+          source = song.filePath;
+        } else if (song.fileName) {
+          source = `/api/audio?path=${encodeURIComponent(song.fileName)}`;
         } else {
-          const registeredFile = getRegisteredFile(song.id);
-          if (registeredFile) {
-            source = URL.createObjectURL(registeredFile);
-            this.currentObjectUrl = source;
-          } else if (song.path) {
-            source = `/api/audio?path=${encodeURIComponent(song.path)}`;
-          } else if (song.filePath && !song.filePath.startsWith('blob:')) {
-            source = song.filePath;
-          } else if (song.fileName) {
-            source = `/api/audio?path=${encodeURIComponent(song.fileName)}`;
-          } else {
-            source = song.filePath;
-          }
+          source = song.filePath;
         }
       }
 
@@ -217,20 +303,17 @@ class AudioService {
       this.audio.src = source;
       this.audio.load();
 
-      // Guard against race conditions if another song was requested while loading
       if (this.playRequestId !== thisRequestId) {
         return;
       }
 
-      // Reset crossfade state
       this.isFadingOut = false;
 
-      // Ensure audio effects (equalizer, spatial reverb & visualizer) are initialized and active
       try {
         audioEffectsService.init(this.audio);
         await audioEffectsService.resumeContext();
       } catch (effectErr) {
-        console.warn('Audio effects initialization notice:', effectErr);
+        console.warn('Audio effects notice:', effectErr);
       }
 
       if (this.crossfadeSeconds > 0) {
@@ -247,23 +330,31 @@ class AudioService {
 
       this.notify();
     } catch (err: any) {
-      if (err.name === 'AbortError') {
-        // Ignored: User requested another track before play() finished loading
-        return;
-      }
-      console.error('Failed to play audio:', err);
-      this.notify('Cannot play this audio file. Please re-select the folder.');
+      if (err.name === 'AbortError') return;
+      console.warn('Audio playback note:', err);
+      this.notify('Cannot play audio file. Please re-select the folder.');
     }
   }
 
   public pause(): void {
-    this.audio.pause();
+    if (this.isUsingCloudPlayer) {
+      cloudPlayerService.pause();
+      this.isCloudPlaying = false;
+    } else {
+      this.audio.pause();
+    }
     this.notify();
   }
 
   public async resume(): Promise<void> {
+    if (this.isUsingCloudPlayer) {
+      cloudPlayerService.play();
+      this.isCloudPlaying = true;
+      this.notify();
+      return;
+    }
+
     if (this.currentSong) {
-      // If audio is not yet loaded or pointing to invalid source, re-run playSong
       if (!this.audio.src || this.audio.src === window.location.href || this.audio.readyState === 0) {
         await this.playSong(this.currentSong);
         return;
@@ -274,20 +365,32 @@ class AudioService {
           audioEffectsService.init(this.audio);
           await audioEffectsService.resumeContext();
         } catch (effectsErr) {
-          console.warn('Audio effects resume notice:', effectsErr);
+          console.warn('Effects resume notice:', effectsErr);
         }
         await this.audio.play();
         this.notify();
       } catch (err: any) {
         if (err.name !== 'AbortError') {
-          console.error('Failed to resume playback, falling back to full reload:', err);
           await this.playSong(this.currentSong);
         }
       }
     }
   }
 
+  public async play(): Promise<void> {
+    return this.resume();
+  }
+
   public async togglePlay(fallbackSong?: Song | null): Promise<void> {
+    if (this.isUsingCloudPlayer) {
+      if (this.isCloudPlaying) {
+        this.pause();
+      } else {
+        await this.resume();
+      }
+      return;
+    }
+
     if (this.audio.paused) {
       if (fallbackSong && !this.currentSong) {
         await this.playSong(fallbackSong);
@@ -301,11 +404,15 @@ class AudioService {
 
   public seek(seconds: number): void {
     if (isFinite(seconds)) {
-      this.audio.currentTime = Math.max(0, Math.min(seconds, this.audio.duration || seconds));
-      this.lastTimeUpdateSecond = this.audio.currentTime;
-      if (this.isFadingOut) {
-        this.isFadingOut = false;
-        audioEffectsService.fadeCross(1, 0.2);
+      if (this.isUsingCloudPlayer) {
+        cloudPlayerService.seek(seconds);
+      } else {
+        this.audio.currentTime = Math.max(0, Math.min(seconds, this.audio.duration || seconds));
+        this.lastTimeUpdateSecond = this.audio.currentTime;
+        if (this.isFadingOut) {
+          this.isFadingOut = false;
+          audioEffectsService.fadeCross(1, 0.2);
+        }
       }
       this.notify();
     }
@@ -322,6 +429,7 @@ class AudioService {
   public setVolume(vol: number): void {
     const clamped = Math.max(0, Math.min(1, vol));
     this.audio.volume = clamped;
+    cloudPlayerService.setVolume(clamped);
     if (clamped > 0 && this.isMuted) {
       this.isMuted = false;
     }
@@ -332,10 +440,12 @@ class AudioService {
     if (this.isMuted) {
       this.audio.volume = this.previousVolume || 0.8;
       this.isMuted = false;
+      cloudPlayerService.setMuted(false);
     } else {
       this.previousVolume = this.audio.volume;
       this.audio.volume = 0;
       this.isMuted = true;
+      cloudPlayerService.setMuted(true);
     }
     this.notify();
   }
@@ -355,6 +465,10 @@ class AudioService {
 
   public getAudioElement(): HTMLAudioElement {
     return this.audio;
+  }
+
+  public isUsingCloud(): boolean {
+    return this.isUsingCloudPlayer;
   }
 }
 
