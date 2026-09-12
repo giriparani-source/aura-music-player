@@ -67,7 +67,9 @@ export const HomeView: React.FC = () => {
             playBatch(favorites);
           } else {
             // Open Top 50 if no local favorites yet
-            setSelectedInbuiltPlaylist(INBUILT_PLAYLISTS[0]);
+            if (INBUILT_PLAYLISTS[0]) {
+              setSelectedInbuiltPlaylist(INBUILT_PLAYLISTS[0]);
+            }
           }
         }
       },
@@ -75,7 +77,7 @@ export const HomeView: React.FC = () => {
         id: 'daily_mix_1',
         title: 'Daily Mix 1',
         subtitle: 'Anirudh, Harris & Rahman',
-        coverArt: INBUILT_PLAYLISTS[1].coverArt,
+        coverArt: INBUILT_PLAYLISTS[1]?.coverArt || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300',
         gradient: 'from-indigo-600 to-blue-900',
         playlist: INBUILT_PLAYLISTS[1] // Daily Mix 1 with 12 songs
       },
@@ -83,7 +85,7 @@ export const HomeView: React.FC = () => {
         id: 'top_50_india',
         title: 'Top 50 – India Hits',
         subtitle: '50 Blockbusters • Trending',
-        coverArt: INBUILT_PLAYLISTS[0].coverArt,
+        coverArt: INBUILT_PLAYLISTS[0]?.coverArt || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300',
         gradient: 'from-amber-600 to-orange-900',
         playlist: INBUILT_PLAYLISTS[0] // Top 50 India Hits with 50 tracks!
       },
@@ -91,7 +93,7 @@ export const HomeView: React.FC = () => {
         id: 'midnight_chill',
         title: 'Midnight Chill',
         subtitle: 'Lo-Fi, Calm & Rain',
-        coverArt: INBUILT_PLAYLISTS[5].coverArt,
+        coverArt: INBUILT_PLAYLISTS[5]?.coverArt || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=300',
         gradient: 'from-emerald-700 to-slate-950',
         playlist: INBUILT_PLAYLISTS[5] // Midnight Chill with 10 songs
       },
@@ -99,7 +101,7 @@ export const HomeView: React.FC = () => {
         id: 'beast_workout',
         title: 'Beast Workout',
         subtitle: 'High BPM Gym Hype',
-        coverArt: INBUILT_PLAYLISTS[6].coverArt,
+        coverArt: INBUILT_PLAYLISTS[6]?.coverArt || 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300',
         gradient: 'from-rose-600 to-red-950',
         playlist: INBUILT_PLAYLISTS[6] // Beast Workout with 10 songs
       },
@@ -153,14 +155,14 @@ export const HomeView: React.FC = () => {
         role: 'Isaignani • Living Legend',
         image: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=300',
         query: 'Ilaiyaraaja',
-        seedSong: INBUILT_PLAYLISTS[2].tracks[0] // Ilaya Nila
+        seedSong: INBUILT_PLAYLISTS[4]?.tracks[0] || PRESET_SAAVN_320K_HITS[0] // Ilaya Nila
       },
       {
         name: 'S.P. Balasubrahmanyam',
         role: 'Padma Vibhushan • Voice of Soul',
         image: 'https://images.unsplash.com/photo-1487180144351-b8472da7d491?w=300',
         query: 'S.P. Balasubrahmanyam',
-        seedSong: INBUILT_PLAYLISTS[2].tracks[1] // Mandram Vantha
+        seedSong: INBUILT_PLAYLISTS[4]?.tracks[1] || PRESET_SAAVN_320K_HITS[5] // Mandram Vantha
       }
     ];
   }, []);

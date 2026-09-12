@@ -13,11 +13,15 @@ class PwaService {
 
   private checkStandaloneMode() {
     if (typeof window === 'undefined') return;
-    const isStandalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as any).standalone === true ||
-      document.referrer.includes('android-app://');
-    this.isInstalled = isStandalone;
+    try {
+      const isStandalone =
+        (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches) ||
+        (window.navigator as any)?.standalone === true ||
+        (typeof document !== 'undefined' && typeof document.referrer === 'string' && document.referrer.includes('android-app://'));
+      this.isInstalled = !!isStandalone;
+    } catch {
+      this.isInstalled = false;
+    }
   }
 
   private setupListeners() {

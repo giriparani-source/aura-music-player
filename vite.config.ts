@@ -596,27 +596,7 @@ export default defineConfig({
     open: false,
   },
   build: {
-    rollupOptions: {
-      output: {
-        manualChunks(id: string) {
-          if (id.includes('node_modules')) {
-            if (id.includes('react') || id.includes('zustand')) {
-              return 'vendor';
-            }
-            if (id.includes('lucide-react')) {
-              return 'icons';
-            }
-            if (id.includes('peerjs')) {
-              return 'peerjs';
-            }
-            if (id.includes('idb')) {
-              return 'idb';
-            }
-          }
-        }
-      }
-    },
-    chunkSizeWarningLimit: 1000
+    chunkSizeWarningLimit: 1500
   }
 });
 

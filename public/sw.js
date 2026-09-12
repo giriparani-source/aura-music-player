@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aura-music-pwa-v3';
+const CACHE_NAME = 'aura-music-pwa-v4';
 const STATIC_ASSETS = [
   '/music-icon.svg',
   '/favicon.svg',
@@ -55,25 +55,29 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache-First for versioned static assets
+  // Cache-First for versioned static assets with graceful fallback
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
         return cachedResponse;
       }
-      return fetch(event.request).then((networkResponse) => {
-        if (
-          networkResponse &&
-          networkResponse.status === 200 &&
-          networkResponse.type === 'basic'
-        ) {
-          const responseClone = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
-        }
-        return networkResponse;
-      });
+      return fetch(event.request)
+        .then((networkResponse) => {
+          if (
+            networkResponse &&
+            networkResponse.status === 200 &&
+            networkResponse.type === 'basic'
+          ) {
+            const responseClone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseClone);
+            });
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          return new Response('Asset unavailable offline', { status: 408 });
+        });
     })
   );
 });
