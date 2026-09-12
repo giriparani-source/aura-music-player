@@ -120,7 +120,7 @@ export const INBUILT_PLAYLISTS: InbuiltPlaylist[] = [
     id: 'top_50_tamil',
     title: 'Top 50 – Tamil Blockbusters',
     subtitle: '50 Kollywood Hits • Anirudh, Rahman, Yuvan, Harris',
-    description: 'The definitive ranking of the 50 biggest hits in Tamil cinema history. From modern bass drops to evergreen melodies in 320kbps Studio Master quality.',
+    description: 'The definitive ranking of the 50 biggest hits in Tamil cinema history. From modern bass drops to evergreen melodies in 320kbps High-Definition quality.',
     coverArt: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&auto=format&fit=crop&q=80',
     gradient: 'from-amber-600/50 via-orange-700/40 to-neutral-950/90',
     accentColor: '#f59e0b',

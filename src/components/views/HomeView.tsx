@@ -34,7 +34,7 @@ export const HomeView: React.FC = () => {
   const { songs: localSongs, playlists, stats, setActiveTab } = useLibraryStore();
   const { currentSong, isPlaying, playSong, togglePlay, playBatch } = usePlayerStore();
 
-  const [activeFilter, setActiveFilter] = useState<'all' | 'playlists' | 'saavn' | 'radio'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'playlists' | 'radio'>('all');
   const [selectedInbuiltPlaylist, setSelectedInbuiltPlaylist] = useState<InbuiltPlaylist | null>(null);
 
   // Dynamic Contextual Time Greeting
@@ -218,18 +218,6 @@ export const HomeView: React.FC = () => {
           >
             <Sparkles size={13} className="text-amber-400" />
             <span>Curated Playlists</span>
-          </button>
-
-          <button
-            onClick={() => setActiveFilter('saavn')}
-            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer border shrink-0 flex items-center gap-1.5 ${
-              activeFilter === 'saavn'
-                ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30'
-                : 'bg-white/5 text-neutral-300 border-white/10 hover:bg-white/10 hover:text-white'
-            }`}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>320k Master Hits</span>
           </button>
 
           <button
@@ -443,21 +431,21 @@ export const HomeView: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* ZONE 3 - SHELF 3: Trending Studio Master Hits (320k HD)                   */}
-      {/* Direct Blockbusters with High-Bitrate AAC Audio                           */}
+      {/* ZONE 3 - SHELF 3: Trending Tamil Hits • Kollywood Chartbusters            */}
+      {/* Direct Blockbusters with High-Bitrate Audio                               */}
       {/* ========================================================================= */}
-      {(activeFilter === 'all' || activeFilter === 'saavn') && (
+      {activeFilter === 'all' && (
         <section className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
-                <span>Kollywood Studio Masters (320k HD)</span>
-                <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  Lossless AAC
+                <span>Trending Tamil Hits</span>
+                <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  Kollywood
                 </span>
               </h3>
               <p className="text-xs text-neutral-400 mt-0.5">
-                Official Kollywood master tracks streamed directly from studio audio CDNs in ultra-crisp 320kbps.
+                Most popular Tamil movie hits, energetic dance anthems, and viral chartbusters.
               </p>
             </div>
           </div>
@@ -479,8 +467,8 @@ export const HomeView: React.FC = () => {
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
 
-                    <span className="absolute top-2 right-2 px-1.5 py-0.5 text-[9px] font-black rounded bg-emerald-600/80 backdrop-blur-md text-white shadow-sm">
-                      320K
+                    <span className="absolute top-2 right-2 px-1.5 py-0.5 text-[9px] font-black rounded bg-indigo-600/80 backdrop-blur-md text-white shadow-sm">
+                      TOP HIT
                     </span>
 
                     <button
