@@ -74,20 +74,20 @@ export const HomeView: React.FC = () => {
         }
       },
       {
-        id: 'daily_mix_1',
-        title: 'Daily Mix 1',
-        subtitle: 'Anirudh, Harris & Rahman',
-        coverArt: INBUILT_PLAYLISTS[1]?.coverArt || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300',
-        gradient: 'from-indigo-600 to-blue-900',
-        playlist: INBUILT_PLAYLISTS[1] // Daily Mix 1 with 12 songs
-      },
-      {
-        id: 'top_50_india',
-        title: 'Top 50 – India Hits',
+        id: 'top_50_tamil',
+        title: 'Top 50 – Tamil Hits',
         subtitle: '50 Blockbusters • Trending',
         coverArt: INBUILT_PLAYLISTS[0]?.coverArt || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300',
         gradient: 'from-amber-600 to-orange-900',
-        playlist: INBUILT_PLAYLISTS[0] // Top 50 India Hits with 50 tracks!
+        playlist: INBUILT_PLAYLISTS[0] // Top 50 Tamil Blockbusters with 50 tracks!
+      },
+      {
+        id: 'daily_mix_1',
+        title: 'Anirudh Mass & Kuthu',
+        subtitle: 'Hukum, Naa Ready & Beast',
+        coverArt: INBUILT_PLAYLISTS[1]?.coverArt || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300',
+        gradient: 'from-indigo-600 to-blue-900',
+        playlist: INBUILT_PLAYLISTS[1] // Anirudh Mass Anthems
       },
       {
         id: 'midnight_chill',
@@ -205,7 +205,7 @@ export const HomeView: React.FC = () => {
                 : 'bg-white/5 text-neutral-300 border-white/10 hover:bg-white/10 hover:text-white'
             }`}
           >
-            All Music
+            Tamil Hits (All)
           </button>
 
           <button
@@ -310,13 +310,13 @@ export const HomeView: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
-                <span>Made For You • Inbuilt Playlists</span>
+                <span>Top Tamil Playlists • Curated Blockbusters</span>
                 <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                  Spotify-Grade
+                  Kollywood
                 </span>
               </h3>
               <p className="text-xs text-neutral-400 mt-0.5">
-                Curated studio master playlists with verified 320kbps audio. Tap to view tracklist or play instantly.
+                Official Tamil blockbusters, Anirudh mass anthems, and evergreen Rahman melodies in verified 320kbps audio.
               </p>
             </div>
           </div>
@@ -451,13 +451,13 @@ export const HomeView: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
-                <span>Studio Master 320k Hits</span>
+                <span>Kollywood Studio Masters (320k HD)</span>
                 <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   Lossless AAC
                 </span>
               </h3>
               <p className="text-xs text-neutral-400 mt-0.5">
-                Official master tracks streamed directly from studio audio CDNs in ultra-crisp 320kbps.
+                Official Kollywood master tracks streamed directly from studio audio CDNs in ultra-crisp 320kbps.
               </p>
             </div>
           </div>
@@ -523,7 +523,7 @@ export const HomeView: React.FC = () => {
       {activeFilter === 'all' && (
         <section className="space-y-4 pt-2">
           <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-            Top Artists
+            Top Tamil Music Directors & Legends
           </h3>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">

@@ -42,95 +42,115 @@ interface FeaturedHit {
 
 const FEATURED_HITS: FeaturedHit[] = [
   {
-    title: 'Arabic Kuthu',
-    artist: 'Anirudh Ravichander • Beast',
-    query: 'Arabic Kuthu Beast song',
-    tag: 'Tamil Blockbuster',
-    gradient: 'from-amber-600/30 to-rose-600/20',
-    sourceId: 'KUN5Uf9mObQ',
-    thumbnail: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300'
-  },
-  {
     title: 'Hukum - Thalaivar Alappara',
     artist: 'Anirudh Ravichander • Jailer',
     query: 'Hukum Jailer Anirudh',
     tag: 'Superstar Anthem',
     gradient: 'from-orange-600/30 to-amber-600/20',
     sourceId: '1F3hm6MfR1k',
-    thumbnail: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300'
-  },
-  {
-    title: 'Illuminati',
-    artist: 'Sushin Shyam • Aavesham',
-    query: 'Illuminati Aavesham song',
-    tag: 'Trending Viral',
-    gradient: 'from-emerald-600/30 to-teal-600/20',
-    sourceId: 'tOM-nWPcR4U',
-    thumbnail: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300'
+    thumbnail: 'https://c.saavncdn.com/435/Jailer-Telugu-2023-20230810132954-500x500.jpg'
   },
   {
     title: 'Naa Ready',
-    artist: 'Vijay, Anirudh • Leo',
+    artist: 'Thalapathy Vijay, Anirudh • Leo',
     query: 'Naa Ready Leo song',
     tag: 'Dance Blast',
     gradient: 'from-red-600/30 to-purple-600/20',
     sourceId: 'szvt1vD0Uug',
-    thumbnail: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=300'
+    thumbnail: 'https://c.saavncdn.com/393/Leo-Tamil-2023-20231019205513-500x500.jpg'
+  },
+  {
+    title: 'Arabic Kuthu',
+    artist: 'Anirudh Ravichander, Jonita • Beast',
+    query: 'Arabic Kuthu Beast song',
+    tag: 'Tamil Blockbuster',
+    gradient: 'from-amber-600/30 to-rose-600/20',
+    sourceId: 'KUN5Uf9mObQ',
+    thumbnail: 'https://c.saavncdn.com/768/Beast-Tamil-2022-20220504143439-500x500.jpg'
+  },
+  {
+    title: 'Matta',
+    artist: 'Thalapathy Vijay, Yuvan Shankar Raja • GOAT',
+    query: 'Matta GOAT song',
+    tag: 'Party Anthem',
+    gradient: 'from-fuchsia-600/30 to-pink-600/20',
+    sourceId: 'Msq_b31oZl4',
+    thumbnail: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300'
   },
   {
     title: 'Manasilaayo',
-    artist: 'Anirudh • Vettaiyan',
+    artist: 'Anirudh, Malaysia Vasudevan • Vettaiyan',
     query: 'Manasilaayo Vettaiyan song',
-    tag: 'Latest Hit',
+    tag: 'Trending Kollywood',
     gradient: 'from-indigo-600/30 to-blue-600/20',
     sourceId: 'yWb9Cq7E6_k',
+    thumbnail: 'https://c.saavncdn.com/284/Vettaiyan-Tamil-2024-20240916174547-500x500.jpg'
+  },
+  {
+    title: 'Kadharalz',
+    artist: 'Kamal Haasan, Anirudh • Indian 2',
+    query: 'Kadharalz Indian 2 song',
+    tag: 'Senapathy Energy',
+    gradient: 'from-emerald-600/30 to-teal-600/20',
+    sourceId: '3L3dVIHy5xc',
     thumbnail: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=300'
   },
   {
     title: 'Vaseegara',
-    artist: 'Bombay Jayashri • Minnale',
+    artist: 'Bombay Jayashri, Harris Jayaraj • Minnale',
     query: 'Vaseegara Minnale song',
     tag: 'Evergreen Melody',
     gradient: 'from-pink-600/30 to-rose-600/20',
     sourceId: '7Z_mQ3l_0Yw',
-    thumbnail: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=300'
+    thumbnail: 'https://c.saavncdn.com/712/Minnale-Tamil-2001-20200424163013-500x500.jpg'
+  },
+  {
+    title: 'Badass',
+    artist: 'Anirudh Ravichander • Leo',
+    query: 'Badass Leo Anirudh',
+    tag: 'Rolex & Leo Vibe',
+    gradient: 'from-rose-600/30 to-red-600/20',
+    sourceId: '3mY455_4c9A',
+    thumbnail: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300'
   }
 ];
 
 const QUICK_TRENDING_CHIPS = [
-  'Arabic Kuthu',
   'Hukum',
-  'Illuminati',
   'Naa Ready',
-  'Badass Leo',
-  'Kaavaalaa',
+  'Arabic Kuthu',
+  'Matta GOAT',
   'Manasilaayo',
+  'Kadharalz',
   'Vaseegara',
-  'Nenjame Doctor',
-  'Starboy The Weeknd'
+  'Badass Leo',
+  'Spark GOAT',
+  'Kaavaalaa',
+  'Whistle Podu',
+  'Anirudh Hits'
 ];
 
 const JIOSAAVN_QUICK_CHIPS = [
   'Hukum',
-  'Arabic Kuthu',
   'Naa Ready',
-  'Illuminati',
+  'Arabic Kuthu',
+  'Matta',
   'Manasilaayo',
   'Vaseegara',
   'Anirudh',
   'A.R. Rahman',
-  'Yuvan',
+  'Yuvan Shankar Raja',
   'Harris Jayaraj',
-  'Sid Sriram',
-  'Leo'
+  'Ilaiyaraaja',
+  'Sid Sriram'
 ];
 
 export const SearchView: React.FC = () => {
   const { songs, artists, albums } = useLibraryStore();
   const { playBatch, playSong, currentSong, isPlaying } = usePlayerStore();
 
-  // Mode switcher: 'saavn' | 'radio' | 'online' | 'local'
-  const [searchMode, setSearchMode] = useState<'saavn' | 'radio' | 'online' | 'local'>('saavn');
+  // Primary streaming source defaults to YouTube Music ('online')
+  const [searchMode, setSearchMode] = useState<'online' | 'saavn' | 'radio' | 'local'>('online');
 
   // JioSaavn 320k Search State
   const [saavnQuery, setSaavnQuery] = useState('');
@@ -205,7 +225,7 @@ export const SearchView: React.FC = () => {
     try {
       let results: Song[] = [];
 
-      // 1. Try local server endpoint if active (localhost mode)
+      // 1. Query YouTube Music search endpoint (Vercel Serverless Function & Local Dev)
       try {
         const res = await fetch(`/api/online/search?q=${encodeURIComponent(q)}`);
         const contentType = res.headers.get('content-type') || '';
@@ -216,10 +236,20 @@ export const SearchView: React.FC = () => {
           }
         }
       } catch (backendErr) {
-        // Backend not available (Vercel mode)
+        // Backend not available or network error
       }
 
-      // 2. If backend didn't return (e.g. running on Vercel), provide matching cloud hits
+      // 2. If YouTube search returned empty, seamlessly fallback to Studio Master audio search
+      if (results.length === 0) {
+        try {
+          const saavnHits = await searchJioSaavn(q);
+          if (saavnHits && saavnHits.length > 0) {
+            results = saavnHits;
+          }
+        } catch {}
+      }
+
+      // 3. If still empty, provide matching curated Tamil blockbusters
       if (results.length === 0) {
         const lower = q.toLowerCase();
         const matches = FEATURED_HITS.filter(
@@ -232,7 +262,7 @@ export const SearchView: React.FC = () => {
           sourceId: hit.sourceId,
           title: hit.title,
           artist: hit.artist,
-          album: 'Aura Cloud Stream',
+          album: 'YouTube Music Stream',
           duration: 240,
           format: 'STREAM',
           path: `https://www.youtube.com/watch?v=${hit.sourceId}`,
@@ -395,20 +425,20 @@ export const SearchView: React.FC = () => {
         <div>
           <div className="flex items-center gap-2.5 mb-1">
             <h2 className="text-3xl font-extrabold tracking-tight text-white">Search Music</h2>
-            {searchMode === 'saavn' ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm animate-fade-in">
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            {searchMode === 'online' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-500/20 text-red-300 border border-red-500/40 shadow-sm animate-fade-in">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                YouTube Music • Primary Streaming
+              </span>
+            ) : searchMode === 'saavn' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm animate-fade-in">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 320 kbps Studio Master HD
               </span>
             ) : searchMode === 'radio' ? (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm animate-fade-in">
                 <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" />
                 24/7 Live FM Broadcast • ON AIR
-              </span>
-            ) : searchMode === 'online' ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 shadow-sm animate-fade-in">
-                <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-                Universal Cloud Mode
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
@@ -418,18 +448,30 @@ export const SearchView: React.FC = () => {
             )}
           </div>
           <p className="text-sm text-neutral-400">
-            {searchMode === 'saavn'
+            {searchMode === 'online'
+              ? 'Primary Cloud Engine: Stream millions of Tamil & Kollywood songs from YouTube Music with instant studio backup'
+              : searchMode === 'saavn'
               ? 'Stream official 320 kbps studio master Tamil, Bollywood & Indian cinema tracks with 10-Band EQ'
               : searchMode === 'radio'
               ? 'Listen to non-stop 24/7 live web radio stations with zero buffer and live on-air badge'
-              : searchMode === 'online'
-              ? 'Stream millions of Tamil, English & Global songs instantly without downloading'
               : 'Fast fuzzy search across your local drive songs, albums, artists and folders'}
           </p>
         </div>
 
         {/* Mode Switcher Tabs */}
         <div className="flex items-center p-1 bg-white/5 border border-white/10 rounded-2xl shrink-0 overflow-x-auto scrollbar-none gap-1">
+          <button
+            onClick={() => setSearchMode('online')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              searchMode === 'online'
+                ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 border border-red-500/50'
+                : 'text-neutral-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <PlaySquare size={15} className={searchMode === 'online' ? 'text-white' : 'text-red-400'} />
+            <span>YouTube Music (Primary)</span>
+          </button>
+
           <button
             onClick={() => setSearchMode('saavn')}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
@@ -439,7 +481,7 @@ export const SearchView: React.FC = () => {
             }`}
           >
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>JioSaavn 320k HD</span>
+            <span>Studio Master 320k</span>
           </button>
 
           <button
@@ -452,18 +494,6 @@ export const SearchView: React.FC = () => {
           >
             <Radio size={15} className={searchMode === 'radio' ? 'text-white' : 'text-rose-400'} />
             <span>24/7 Live Radio</span>
-          </button>
-
-          <button
-            onClick={() => setSearchMode('online')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              searchMode === 'online'
-                ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30 border border-purple-500/50'
-                : 'text-neutral-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Cloud size={15} />
-            <span>Universal Cloud</span>
           </button>
 
           <button

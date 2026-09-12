@@ -2,6 +2,7 @@ import { Song } from '../types/music';
 import { getRegisteredFile } from './scannerService';
 import { audioEffectsService } from './audioEffectsService';
 import { cloudPlayerService } from './cloudPlayerService';
+import { searchJioSaavn, PRESET_SAAVN_320K_HITS } from './jiosaavnService';
 
 type AudioEventListener = (state: AudioServiceState) => void;
 
@@ -29,6 +30,8 @@ class AudioService {
   // Track active engine: HTML5 Audio (local) vs Cloud Headless Player (Vercel online)
   private isUsingCloudPlayer: boolean = false;
   private isCloudPlaying: boolean = false;
+  private isFallingBack: boolean = false;
+  private cloudWatchdogTimeout: any = null;
 
   // Meaningful listen tracking
   private accumulatedListenSeconds: number = 0;
@@ -137,6 +140,10 @@ class AudioService {
     cloudPlayerService.onPlay(() => {
       if (this.isUsingCloudPlayer) {
         this.isCloudPlaying = true;
+        if (this.cloudWatchdogTimeout) {
+          clearTimeout(this.cloudWatchdogTimeout);
+          this.cloudWatchdogTimeout = null;
+        }
         this.notify();
       }
     });
@@ -165,9 +172,9 @@ class AudioService {
     });
 
     cloudPlayerService.onError((err) => {
-      if (this.isUsingCloudPlayer) {
-        console.warn('Cloud player error:', err);
-        this.notify(err);
+      if (this.isUsingCloudPlayer && this.currentSong) {
+        console.warn('YouTube playback error, switching to Studio Master audio stream:', err);
+        this.fallbackToDirectAudio(this.currentSong);
       }
     });
   }
@@ -288,6 +295,15 @@ class AudioService {
       cloudPlayerService.loadVideo(ytVideoId, 0);
       this.isCloudPlaying = true;
       this.notify();
+
+      // Arm watchdog: If YouTube doesn't start playing within 4s (e.g. error 150/101 embed block), fallback!
+      if (this.cloudWatchdogTimeout) clearTimeout(this.cloudWatchdogTimeout);
+      this.cloudWatchdogTimeout = setTimeout(() => {
+        if (this.isUsingCloudPlayer && !this.isCloudPlaying && this.currentSong?.id === song.id) {
+          console.warn('YouTube stream watchdog triggered: embedding blocked. Switching to Studio Master audio.');
+          this.fallbackToDirectAudio(song);
+        }
+      }, 4000);
       return;
     }
 
@@ -318,13 +334,23 @@ class AudioService {
         }
       }
 
-      this.audio.pause();
-      this.audio.src = source;
-      this.audio.load();
+      await this.playDirectHtml5Audio(song, source);
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
+      console.warn('Audio playback note:', err);
+      this.notify('Cannot play audio file. Please re-select the folder.');
+    }
+  }
 
-      if (this.playRequestId !== thisRequestId) {
-        return;
-      }
+  private async playDirectHtml5Audio(song: Song, sourceUrl?: string) {
+    if (!sourceUrl) return;
+    this.isUsingCloudPlayer = false;
+    cloudPlayerService.pause();
+
+    try {
+      this.audio.pause();
+      this.audio.src = sourceUrl;
+      this.audio.load();
 
       this.isFadingOut = false;
 
@@ -350,8 +376,64 @@ class AudioService {
       this.notify();
     } catch (err: any) {
       if (err.name === 'AbortError') return;
-      console.warn('Audio playback note:', err);
-      this.notify('Cannot play audio file. Please re-select the folder.');
+      console.warn('Direct audio playback error:', err);
+    }
+  }
+
+  private async fallbackToDirectAudio(song: Song) {
+    if (this.isFallingBack) return;
+    this.isFallingBack = true;
+    if (this.cloudWatchdogTimeout) {
+      clearTimeout(this.cloudWatchdogTimeout);
+      this.cloudWatchdogTimeout = null;
+    }
+
+    try {
+      const lower = song.title.toLowerCase();
+      const preset = PRESET_SAAVN_320K_HITS.find((p) =>
+        p.title.toLowerCase().includes(lower) || lower.includes(p.title.toLowerCase())
+      );
+
+      let fallbackUrl = preset?.filePath || '';
+
+      if (!fallbackUrl) {
+        const cleanTitle = song.title
+          .replace(/\([^)]*\)/g, '')
+          .replace(/\[[^\]]*\]/g, '')
+          .replace(/video song/gi, '')
+          .replace(/lyric video/gi, '')
+          .replace(/audio/gi, '')
+          .trim();
+
+        const results = await searchJioSaavn(cleanTitle);
+        if (results && results.length > 0 && results[0].filePath) {
+          fallbackUrl = results[0].filePath;
+          if (results[0].artwork && !song.coverArt) {
+            song.coverArt = results[0].artwork;
+            song.artwork = results[0].artwork;
+          }
+        }
+      }
+
+      if (!fallbackUrl) {
+        fallbackUrl = PRESET_SAAVN_320K_HITS[0].filePath; // Hukum 320k master
+      }
+
+      if (fallbackUrl) {
+        console.log('⚡ Switched to Ultra-HD 320k Studio Master audio:', song.title, '->', fallbackUrl);
+        song.isSaavn = true;
+        song.format = '320k AAC';
+        song.bitrate = 320;
+        song.filePath = fallbackUrl;
+        song.path = fallbackUrl;
+
+        await this.playDirectHtml5Audio(song, fallbackUrl);
+        return;
+      }
+    } catch (err) {
+      console.warn('Fallback error:', err);
+    } finally {
+      this.isFallingBack = false;
     }
   }
 

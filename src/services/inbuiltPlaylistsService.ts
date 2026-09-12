@@ -108,19 +108,19 @@ const TOP_50_TRACKS: Song[] = [
   createTrack('t50_43', 'Kannazhaga', 'Dhanush, Shruti Haasan, Anirudh • 3', '3', 211, beastArt, minnaleAudio),
   createTrack('t50_44', 'Why This Kolaveri Di', 'Dhanush, Anirudh • 3', '3', 245, beastArt, beastAudio),
   createTrack('t50_45', 'Po Nee Po', 'Mohit Chauhan, Anirudh • 3', '3', 221, beastArt, vettaiyanAudio),
-  createTrack('t50_46', 'Kesariya', 'Pritam, Arijit Singh • Brahmastra', 'Brahmastra', 268, vintageArt, minnaleAudio),
-  createTrack('t50_47', 'Apna Bana Le', 'Sachin-Jigar, Arijit Singh • Bhediya', 'Bhediya', 261, vintageArt, minnaleAudio),
-  createTrack('t50_48', 'Tauba Tauba', 'Karan Aujla • Bad Newz', 'Bad Newz', 207, vintageArt, aaveshamAudio),
-  createTrack('t50_49', 'Oo Antava Oo Oo Antava', 'Indravathi Chauhan, DSP • Pushpa', 'Pushpa', 228, leoArt, beastAudio),
-  createTrack('t50_50', 'Srivalli', 'Sid Sriram, Devi Sri Prasad • Pushpa', 'Pushpa', 224, leoArt, minnaleAudio)
+  createTrack('t50_46', 'Matta', 'Thalapathy Vijay, Yuvan Shankar Raja • The GOAT', 'The Greatest of All Time', 222, yuvanArt, beastAudio),
+  createTrack('t50_47', 'Spark', 'Yuvan Shankar Raja, Vrusha Balu • The GOAT', 'The Greatest of All Time', 234, yuvanArt, beastAudio),
+  createTrack('t50_48', 'Kadharalz', 'Kamal Haasan, Anirudh Ravichander • Indian 2', 'Indian 2', 248, vettaiyanArt, vettaiyanAudio),
+  createTrack('t50_49', 'Whistle Podu', 'Thalapathy Vijay, Yuvan Shankar Raja • The GOAT', 'The Greatest of All Time', 255, leoArt, beastAudio),
+  createTrack('t50_50', 'Chinna Chinna Kangal', 'Thalapathy Vijay, Bhavani Sre, Yuvan • The GOAT', 'The Greatest of All Time', 270, minnaleArt, minnaleAudio)
 ];
 
 export const INBUILT_PLAYLISTS: InbuiltPlaylist[] = [
   {
-    id: 'top_50_india',
-    title: 'Top 50 – India Hits',
-    subtitle: '50 Blockbusters • Anirudh, Rahman, Arijit',
-    description: 'The definitive ranking of the 50 biggest hits across Tamil, Bollywood, Telugu & Malayalam. Updated daily in 320kbps Studio Master quality.',
+    id: 'top_50_tamil',
+    title: 'Top 50 – Tamil Blockbusters',
+    subtitle: '50 Kollywood Hits • Anirudh, Rahman, Yuvan, Harris',
+    description: 'The definitive ranking of the 50 biggest hits in Tamil cinema history. From modern bass drops to evergreen melodies in 320kbps Studio Master quality.',
     coverArt: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&auto=format&fit=crop&q=80',
     gradient: 'from-amber-600/50 via-orange-700/40 to-neutral-950/90',
     accentColor: '#f59e0b',
@@ -129,8 +129,8 @@ export const INBUILT_PLAYLISTS: InbuiltPlaylist[] = [
   },
   {
     id: 'daily_mix_1',
-    title: 'Daily Mix 1',
-    subtitle: 'Anirudh, Harris Jayaraj & A.R. Rahman',
+    title: 'Anirudh Mass & Kuthu Anthems',
+    subtitle: 'Rockstar Kollywood Energy & Bass Drops',
     description: 'Your personalized algorithmic daily blend featuring high-energy Kollywood beats, lush acoustic strings, and iconic melodies.',
     coverArt: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&auto=format&fit=crop&q=80',
     gradient: 'from-indigo-600/50 via-blue-700/40 to-slate-950/90',
