@@ -682,44 +682,9 @@ export const SearchView: React.FC = () => {
             </div>
           )}
 
-          {/* Empty Query State: Show Featured Trending Hits + Recent Online Searches */}
-          {!onlineQuery && !isOnlineLoading && (
+          {/* Empty Query State: Show Recent Online Searches if any */}
+          {!onlineQuery && !isOnlineLoading && onlineHistory.length > 0 && (
             <div className="space-y-8 pt-2">
-              {/* Featured 1-Click Stream Cards */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
-                    <Sparkles size={14} className="text-emerald-400" />
-                    <span>Featured 1-Click Hits</span>
-                  </h4>
-                  <span className="text-[11px] text-neutral-500 font-medium">Click to stream instantly</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  {FEATURED_HITS.map((hit) => (
-                    <div
-                      key={hit.title}
-                      onClick={() => handleTriggerOnlineChip(hit.query)}
-                      className={`p-4 rounded-2xl bg-gradient-to-br ${hit.gradient} border border-white/10 hover:border-emerald-500/40 cursor-pointer transition-all hover:scale-[1.01] flex items-center justify-between gap-3 group shadow-lg`}
-                    >
-                      <div className="min-w-0">
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-white/10 text-white/90 inline-block mb-1.5">
-                          {hit.tag}
-                        </span>
-                        <h5 className="text-sm font-extrabold text-white truncate group-hover:text-emerald-300 transition-colors">
-                          {hit.title}
-                        </h5>
-                        <p className="text-xs text-neutral-300 truncate mt-0.5">{hit.artist}</p>
-                      </div>
-
-                      <div className="w-10 h-10 rounded-full bg-emerald-500/20 group-hover:bg-emerald-500 text-emerald-300 group-hover:text-white flex items-center justify-center shrink-0 transition-all shadow-md">
-                        <Play size={16} className="fill-current ml-0.5" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
               {/* Online Recent Searches */}
               {onlineHistory.length > 0 && (
                 <div className="space-y-3">
