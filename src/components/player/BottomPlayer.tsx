@@ -74,12 +74,25 @@ export const BottomPlayer: React.FC = () => {
         </div>
 
         <div className="min-w-0 flex-1">
-          <h4
-            onClick={() => setNowPlayingOpen(true)}
-            className="text-sm font-semibold text-white truncate hover:underline cursor-pointer"
-          >
-            {currentSong.title}
-          </h4>
+          <div className="flex items-center gap-1.5">
+            <h4
+              onClick={() => setNowPlayingOpen(true)}
+              className="text-sm font-semibold text-white truncate hover:underline cursor-pointer"
+            >
+              {currentSong.title}
+            </h4>
+            {currentSong.isLiveRadio && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black bg-rose-600 text-white shrink-0 shadow">
+                <span className="w-1 h-1 rounded-full bg-white animate-ping" />
+                LIVE
+              </span>
+            )}
+            {currentSong.isSaavn && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-black bg-amber-400 text-black shrink-0 shadow">
+                320K
+              </span>
+            )}
+          </div>
           <p className="text-xs text-neutral-400 truncate mt-0.5">{currentSong.artist}</p>
         </div>
 
@@ -143,21 +156,31 @@ export const BottomPlayer: React.FC = () => {
           </button>
         </div>
 
-        {/* Seekbar */}
-        <div className="w-full flex items-center gap-2.5 text-[11px] font-mono text-neutral-400">
-          <span className="tabular-nums w-9 text-right">{formatTime(currentTime)}</span>
-          <div className="relative flex-1 flex items-center group cursor-pointer">
-            <input
-              type="range"
-              min={0}
-              max={duration || 100}
-              value={currentTime}
-              onChange={(e) => seek(Number(e.target.value))}
-              className="w-full h-1 bg-white/15 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:h-1.5 transition-all"
-            />
+        {/* Seekbar or Live Radio Broadcast Indicator */}
+        {currentSong.isLiveRadio ? (
+          <div className="w-full flex items-center justify-center gap-2 py-0.5 text-[11px] font-bold text-rose-400">
+            <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+            <span className="tracking-wider uppercase text-rose-300 text-[10px]">24/7 Live FM Stream • Zero Buffer</span>
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-rose-600 text-white shadow">
+              ON AIR
+            </span>
           </div>
-          <span className="tabular-nums w-9">{formatTime(duration)}</span>
-        </div>
+        ) : (
+          <div className="w-full flex items-center gap-2.5 text-[11px] font-mono text-neutral-400">
+            <span className="tabular-nums w-9 text-right">{formatTime(currentTime)}</span>
+            <div className="relative flex-1 flex items-center group cursor-pointer">
+              <input
+                type="range"
+                min={0}
+                max={duration || 100}
+                value={currentTime}
+                onChange={(e) => seek(Number(e.target.value))}
+                className="w-full h-1 bg-white/15 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:h-1.5 transition-all"
+              />
+            </div>
+            <span className="tabular-nums w-9">{formatTime(duration)}</span>
+          </div>
+        )}
       </div>
 
       {/* 3. Utility & Volume Controls (Right) */}

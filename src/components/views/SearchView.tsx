@@ -9,6 +9,7 @@ import {
   Cloud,
   HardDrive,
   Play,
+  Pause,
   Flame,
   Loader2,
   WifiOff,
@@ -22,9 +23,12 @@ import { SongRow } from '../common/SongRow';
 import { Song } from '../../types/music';
 import { useDebounce } from '../../utils/useDebounce';
 import { fuzzySearchSongs } from '../../utils/fuzzySearch';
+import { searchJioSaavn, PRESET_SAAVN_320K_HITS } from '../../services/jiosaavnService';
+import { LIVE_RADIO_STATIONS, getStationAsSong, RadioStation } from '../../services/radioService';
 
 const SEARCH_HISTORY_KEY = 'aura_recent_searches';
 const ONLINE_HISTORY_KEY = 'aura_online_recent_searches';
+const SAAVN_HISTORY_KEY = 'aura_saavn_recent_searches';
 
 interface FeaturedHit {
   title: string;
@@ -106,12 +110,39 @@ const QUICK_TRENDING_CHIPS = [
   'Starboy The Weeknd'
 ];
 
+const JIOSAAVN_QUICK_CHIPS = [
+  'Hukum',
+  'Arabic Kuthu',
+  'Naa Ready',
+  'Illuminati',
+  'Manasilaayo',
+  'Vaseegara',
+  'Anirudh',
+  'A.R. Rahman',
+  'Yuvan',
+  'Harris Jayaraj',
+  'Sid Sriram',
+  'Leo'
+];
+
 export const SearchView: React.FC = () => {
   const { songs, artists, albums } = useLibraryStore();
-  const { playBatch } = usePlayerStore();
+  const { playBatch, playSong, currentSong, isPlaying } = usePlayerStore();
 
-  // Mode switcher: 'online' (Spotify streaming) vs 'local' (offline files)
-  const [searchMode, setSearchMode] = useState<'online' | 'local'>('online');
+  // Mode switcher: 'saavn' | 'radio' | 'online' | 'local'
+  const [searchMode, setSearchMode] = useState<'saavn' | 'radio' | 'online' | 'local'>('saavn');
+
+  // JioSaavn 320k Search State
+  const [saavnQuery, setSaavnQuery] = useState('');
+  const debouncedSaavnQuery = useDebounce(saavnQuery, 400);
+  const [saavnResults, setSaavnResults] = useState<Song[]>([]);
+  const [isSaavnLoading, setIsSaavnLoading] = useState(false);
+  const [saavnError, setSaavnError] = useState<string | null>(null);
+  const [saavnHistory, setSaavnHistory] = useState<string[]>([]);
+
+  // Radio Filter State
+  const [radioQuery, setRadioQuery] = useState('');
+  const [selectedRadioGenre, setSelectedRadioGenre] = useState<string>('all');
 
   // Online Search State
   const [onlineQuery, setOnlineQuery] = useState('');
@@ -135,6 +166,9 @@ export const SearchView: React.FC = () => {
 
       const savedOnline = localStorage.getItem(ONLINE_HISTORY_KEY);
       if (savedOnline) setOnlineHistory(JSON.parse(savedOnline));
+
+      const savedSaavn = localStorage.getItem(SAAVN_HISTORY_KEY);
+      if (savedSaavn) setSaavnHistory(JSON.parse(savedSaavn));
     } catch {
       // ignore
     }
@@ -243,6 +277,70 @@ export const SearchView: React.FC = () => {
     }
   }, [debouncedOnlineQuery, searchMode, performOnlineSearch]);
 
+  // Execute JioSaavn 320k HD Audio Search
+  const performSaavnSearch = useCallback(async (query: string) => {
+    const q = query.trim();
+    if (!q || q.length < 2) {
+      setSaavnResults([]);
+      setIsSaavnLoading(false);
+      setSaavnError(null);
+      return;
+    }
+
+    setIsSaavnLoading(true);
+    setSaavnError(null);
+
+    try {
+      const results = await searchJioSaavn(q);
+      setSaavnResults(results);
+      if (results.length === 0) {
+        setSaavnError(`No 320k studio master tracks found for "${q}". Try another song or artist.`);
+      } else {
+        setSaavnHistory((prev) => {
+          const filtered = prev.filter((item) => item.toLowerCase() !== q.toLowerCase());
+          const updated = [q, ...filtered].slice(0, 8);
+          try {
+            localStorage.setItem(SAAVN_HISTORY_KEY, JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+      }
+    } catch (err: any) {
+      setSaavnError('Unable to connect to JioSaavn HD audio service. Please check your internet.');
+    } finally {
+      setIsSaavnLoading(false);
+    }
+  }, []);
+
+  // Trigger JioSaavn search on debounced query changes
+  useEffect(() => {
+    if (searchMode === 'saavn' && debouncedSaavnQuery.trim().length >= 2) {
+      performSaavnSearch(debouncedSaavnQuery);
+    } else if (searchMode === 'saavn' && !debouncedSaavnQuery.trim()) {
+      setSaavnResults([]);
+      setIsSaavnLoading(false);
+      setSaavnError(null);
+    }
+  }, [debouncedSaavnQuery, searchMode, performSaavnSearch]);
+
+  // Filter Live Radio Stations
+  const filteredRadioStations = useMemo(() => {
+    let list = LIVE_RADIO_STATIONS;
+    if (selectedRadioGenre !== 'all') {
+      list = list.filter((s) => s.genre.toLowerCase().includes(selectedRadioGenre.toLowerCase()));
+    }
+    if (radioQuery.trim()) {
+      const q = radioQuery.toLowerCase();
+      list = list.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.genre.toLowerCase().includes(q) ||
+          (s.description || s.tagline || '').toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [radioQuery, selectedRadioGenre]);
+
   // Local Search Fuzzy Matching
   const matchedSongs = useMemo(() => {
     if (!debouncedLocalQuery.trim()) return [];
@@ -261,8 +359,13 @@ export const SearchView: React.FC = () => {
     return albums.filter((a) => a.title.toLowerCase().includes(q));
   }, [albums, debouncedLocalQuery]);
 
-  const handleClearHistory = (type: 'online' | 'local') => {
-    if (type === 'online') {
+  const handleClearHistory = (type: 'online' | 'local' | 'saavn') => {
+    if (type === 'saavn') {
+      setSaavnHistory([]);
+      try {
+        localStorage.removeItem(SAAVN_HISTORY_KEY);
+      } catch {}
+    } else if (type === 'online') {
       setOnlineHistory([]);
       try {
         localStorage.removeItem(ONLINE_HISTORY_KEY);
@@ -280,6 +383,11 @@ export const SearchView: React.FC = () => {
     performOnlineSearch(term);
   };
 
+  const handleTriggerSaavnChip = (term: string) => {
+    setSaavnQuery(term);
+    performSaavnSearch(term);
+  };
+
   return (
     <div className="p-6 sm:p-8 space-y-6 max-w-7xl mx-auto select-none pb-28">
       {/* Header & Mode Switcher */}
@@ -287,10 +395,20 @@ export const SearchView: React.FC = () => {
         <div>
           <div className="flex items-center gap-2.5 mb-1">
             <h2 className="text-3xl font-extrabold tracking-tight text-white">Search Music</h2>
-            {searchMode === 'online' ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm shadow-emerald-500/20 animate-fade-in">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                Spotify Cloud Mode
+            {searchMode === 'saavn' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm animate-fade-in">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                320 kbps Studio Master HD
+              </span>
+            ) : searchMode === 'radio' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm animate-fade-in">
+                <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" />
+                24/7 Live FM Broadcast • ON AIR
+              </span>
+            ) : searchMode === 'online' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 shadow-sm animate-fade-in">
+                <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                Universal Cloud Mode
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
@@ -300,39 +418,406 @@ export const SearchView: React.FC = () => {
             )}
           </div>
           <p className="text-sm text-neutral-400">
-            {searchMode === 'online'
+            {searchMode === 'saavn'
+              ? 'Stream official 320 kbps studio master Tamil, Bollywood & Indian cinema tracks with 10-Band EQ'
+              : searchMode === 'radio'
+              ? 'Listen to non-stop 24/7 live web radio stations with zero buffer and live on-air badge'
+              : searchMode === 'online'
               ? 'Stream millions of Tamil, English & Global songs instantly without downloading'
               : 'Fast fuzzy search across your local drive songs, albums, artists and folders'}
           </p>
         </div>
 
         {/* Mode Switcher Tabs */}
-        <div className="flex items-center p-1 bg-white/5 border border-white/10 rounded-2xl shrink-0">
+        <div className="flex items-center p-1 bg-white/5 border border-white/10 rounded-2xl shrink-0 overflow-x-auto scrollbar-none gap-1">
           <button
-            onClick={() => setSearchMode('online')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              searchMode === 'online'
+            onClick={() => setSearchMode('saavn')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              searchMode === 'saavn'
                 ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 border border-emerald-500/50'
                 : 'text-neutral-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            <Cloud size={16} className={searchMode === 'online' ? 'animate-bounce' : ''} />
-            <span>Spotify Cloud Stream</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>JioSaavn 320k HD</span>
+          </button>
+
+          <button
+            onClick={() => setSearchMode('radio')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              searchMode === 'radio'
+                ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30 border border-rose-500/50'
+                : 'text-neutral-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Radio size={15} className={searchMode === 'radio' ? 'text-white' : 'text-rose-400'} />
+            <span>24/7 Live Radio</span>
+          </button>
+
+          <button
+            onClick={() => setSearchMode('online')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              searchMode === 'online'
+                ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30 border border-purple-500/50'
+                : 'text-neutral-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Cloud size={15} />
+            <span>Universal Cloud</span>
           </button>
 
           <button
             onClick={() => setSearchMode('local')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               searchMode === 'local'
                 ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 border border-indigo-500/50'
                 : 'text-neutral-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            <HardDrive size={16} />
+            <HardDrive size={15} />
             <span>Local Files</span>
           </button>
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* 0. JIOSAAVN 320 KBPS HD SEARCH MODE */}
+      {/* ========================================================================= */}
+      {searchMode === 'saavn' && (
+        <div className="space-y-6">
+          {/* Search Input Box */}
+          <div className="relative max-w-3xl">
+            <Search
+              size={20}
+              className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${
+                saavnQuery ? 'text-emerald-400' : 'text-neutral-400'
+              }`}
+            />
+            <input
+              type="text"
+              value={saavnQuery}
+              onChange={(e) => setSaavnQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  performSaavnSearch(saavnQuery);
+                }
+              }}
+              placeholder="Search 320 kbps Studio Master HD tracks (e.g. Hukum, Arabic Kuthu, Illuminati, Anirudh)..."
+              className="w-full pl-12 pr-28 py-3.5 bg-white/5 border border-emerald-500/30 rounded-2xl text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 shadow-xl transition-all"
+              autoFocus
+            />
+
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+              {saavnQuery && (
+                <button
+                  onClick={() => {
+                    setSaavnQuery('');
+                    setSaavnResults([]);
+                  }}
+                  className="text-neutral-500 hover:text-white p-1 cursor-pointer transition-colors"
+                  title="Clear"
+                >
+                  <X size={16} />
+                </button>
+              )}
+
+              <button
+                onClick={() => performSaavnSearch(saavnQuery)}
+                disabled={isSaavnLoading || !saavnQuery.trim()}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:hover:bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+              >
+                {isSaavnLoading ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Play size={13} className="fill-white" />
+                )}
+                <span>Search</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Trending JioSaavn Chips */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-400">
+              <span className="px-1.5 py-0.5 rounded bg-amber-400 text-black text-[10px] font-black">320K</span>
+              <span>Trending Indian & Kollywood Hits</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {JIOSAAVN_QUICK_CHIPS.map((chip) => (
+                <button
+                  key={chip}
+                  onClick={() => handleTriggerSaavnChip(chip)}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                    saavnQuery.toLowerCase() === chip.toLowerCase()
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm'
+                      : 'bg-white/5 hover:bg-emerald-500/10 border-white/5 hover:border-emerald-500/20 text-neutral-300 hover:text-white'
+                  }`}
+                >
+                  <span>{chip}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Loading Indicator */}
+          {isSaavnLoading && (
+            <div className="py-12 flex flex-col items-center justify-center gap-3 glass-card rounded-2xl border border-emerald-500/20">
+              <div className="relative">
+                <Loader2 size={36} className="text-emerald-400 animate-spin" />
+                <Music2
+                  size={16}
+                  className="text-emerald-300 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse"
+                />
+              </div>
+              <p className="text-sm font-semibold text-neutral-300">
+                Fetching Studio Master 320 kbps Streams from JioSaavn CDN...
+              </p>
+              <p className="text-xs text-neutral-500">
+                High-definition audio with full 10-Band Graphic DSP Equalizer support
+              </p>
+            </div>
+          )}
+
+          {/* Error Banner */}
+          {saavnError && !isSaavnLoading && (
+            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <WifiOff size={20} className="text-amber-400 shrink-0" />
+                <div>
+                  <h4 className="text-sm font-semibold text-amber-300">Notice</h4>
+                  <p className="text-xs text-amber-200/80">{saavnError}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => performSaavnSearch(saavnQuery)}
+                className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-bold cursor-pointer transition-all shrink-0"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* JioSaavn Search Results */}
+          {!isSaavnLoading && saavnResults.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-neutral-400">
+                    JioSaavn 320k Tracks ({saavnResults.length})
+                  </h3>
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-500 text-black font-black uppercase tracking-wider shadow">
+                    320 kbps Master HD
+                  </span>
+                </div>
+
+                <button
+                  onClick={() => playBatch(saavnResults)}
+                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 transition-all cursor-pointer"
+                >
+                  <Play size={13} className="fill-white" />
+                  <span>Play All Tracks</span>
+                </button>
+              </div>
+
+              <div className="space-y-1">
+                {saavnResults.map((song, idx) => (
+                  <SongRow
+                    key={song.id}
+                    song={song}
+                    index={idx}
+                    playlistContext={saavnResults}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Empty Query: Featured 320k Preset Hits & History */}
+          {!saavnQuery && !isSaavnLoading && (
+            <div className="space-y-8 pt-2">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
+                    <Sparkles size={14} className="text-amber-400" />
+                    <span>Featured 320 kbps Studio Master Hits</span>
+                  </h4>
+                  <span className="text-[11px] text-neutral-500 font-medium">1-Click Instant Master Audio</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {PRESET_SAAVN_320K_HITS.map((song) => (
+                    <div
+                      key={song.id}
+                      onClick={() => playSong(song, PRESET_SAAVN_320K_HITS)}
+                      className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-neutral-900/60 to-black/60 border border-emerald-500/20 hover:border-emerald-500/50 cursor-pointer transition-all hover:scale-[1.01] flex items-center justify-between gap-3 group shadow-lg"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <img
+                          src={song.artwork}
+                          alt={song.title}
+                          className="w-14 h-14 rounded-xl object-cover shrink-0 shadow-md"
+                        />
+                        <div className="min-w-0">
+                          <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-400 text-black inline-block mb-1">
+                            320K HD
+                          </span>
+                          <h5 className="text-sm font-extrabold text-white truncate group-hover:text-emerald-300 transition-colors">
+                            {song.title}
+                          </h5>
+                          <p className="text-xs text-neutral-400 truncate mt-0.5">{song.artist}</p>
+                        </div>
+                      </div>
+
+                      <div className="w-10 h-10 rounded-full bg-emerald-500/20 group-hover:bg-emerald-500 text-emerald-300 group-hover:text-black flex items-center justify-center shrink-0 transition-all shadow-md">
+                        <Play size={16} className="fill-current ml-0.5" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* JioSaavn Recent Searches */}
+              {saavnHistory.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
+                      <History size={14} className="text-neutral-500" />
+                      <span>Recent JioSaavn Searches</span>
+                    </h4>
+                    <button
+                      onClick={() => handleClearHistory('saavn')}
+                      className="text-[11px] text-neutral-500 hover:text-rose-400 transition-colors cursor-pointer"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {saavnHistory.map((term) => (
+                      <button
+                        key={term}
+                        onClick={() => handleTriggerSaavnChip(term)}
+                        className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-xs text-neutral-300 hover:text-white transition-all cursor-pointer flex items-center gap-1.5"
+                      >
+                        <span>{term}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 0.5 24/7 LIVE RADIO FM STATIONS MODE */}
+      {/* ========================================================================= */}
+      {searchMode === 'radio' && (
+        <div className="space-y-6">
+          {/* Radio Filter Box */}
+          <div className="relative max-w-2xl">
+            <Radio size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-rose-400" />
+            <input
+              type="text"
+              value={radioQuery}
+              onChange={(e) => setRadioQuery(e.target.value)}
+              placeholder="Search live radio stations by title, genre, language (Tamil, Hindi, Lo-Fi, EDM)..."
+              className="w-full pl-12 pr-10 py-3.5 bg-white/5 border border-rose-500/25 rounded-2xl text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-rose-500 shadow-xl transition-all"
+              autoFocus
+            />
+            {radioQuery && (
+              <button
+                onClick={() => setRadioQuery('')}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white p-1 cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+
+          {/* Genre Chips */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            {['all', 'Tamil', 'Hindi', 'Lo-Fi', 'EDM', 'News', 'Lounge'].map((genre) => (
+              <button
+                key={genre}
+                onClick={() => setSelectedRadioGenre(genre)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  selectedRadioGenre === genre
+                    ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
+                    : 'bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                {genre === 'all' ? 'All Stations' : genre}
+              </button>
+            ))}
+          </div>
+
+          {/* Radio Stations Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredRadioStations.map((station) => {
+              const radioSong = getStationAsSong(station);
+              const isThisPlaying = currentSong?.id === station.id && isPlaying;
+
+              return (
+                <div
+                  key={station.id}
+                  onClick={() => playSong(radioSong, [radioSong])}
+                  className={`p-4 rounded-2xl bg-gradient-to-r ${station.accentColor} border cursor-pointer group transition-all hover:scale-[1.02] shadow-xl flex items-center justify-between gap-3 relative overflow-hidden ${
+                    isThisPlaying
+                      ? 'border-rose-500/60 shadow-rose-900/40 ring-1 ring-rose-500/50'
+                      : 'border-white/10 hover:border-rose-500/30'
+                  }`}
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="relative w-16 h-16 rounded-xl overflow-hidden shrink-0 shadow-md bg-neutral-900">
+                      <img
+                        src={station.artwork}
+                        alt={station.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                      <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded text-[8px] font-black bg-rose-600 text-white shadow">
+                        LIVE
+                      </span>
+                    </div>
+
+                    <div className="min-w-0 pr-2">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white/10 text-rose-200">
+                          {station.genre}
+                        </span>
+                        <span className="text-[10px] text-neutral-400">{station.frequency}</span>
+                      </div>
+                      <h4 className="text-sm font-extrabold text-white truncate group-hover:text-rose-200 transition-colors">
+                        {station.name}
+                      </h4>
+                      <p className="text-xs text-neutral-400 truncate mt-0.5">{station.description}</p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      playSong(radioSong, [radioSong]);
+                    }}
+                    className={`w-11 h-11 rounded-full text-white flex items-center justify-center shadow-xl transition-all shrink-0 cursor-pointer ${
+                      isThisPlaying
+                        ? 'bg-rose-600 scale-105'
+                        : 'bg-white/15 hover:bg-rose-600 group-hover:scale-105'
+                    }`}
+                    title={isThisPlaying ? 'Pause Live Radio' : 'Tune in to Live Radio'}
+                  >
+                    {isThisPlaying ? (
+                      <Pause size={18} className="fill-white" />
+                    ) : (
+                      <Play size={18} className="fill-white ml-0.5" />
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* 1. SPOTIFY CLOUD STREAMING MODE */}

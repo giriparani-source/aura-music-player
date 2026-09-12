@@ -26,6 +26,8 @@ import {
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { Song } from '../../types/music';
+import { LIVE_RADIO_STATIONS, getStationAsSong, RadioStation } from '../../services/radioService';
+import { PRESET_SAAVN_320K_HITS } from '../../services/jiosaavnService';
 
 // Curated 1-Click Trending Hits with verified YouTube Video IDs for 100% Vercel streaming
 const SPOTIFY_TRENDING_HITS = [
@@ -259,7 +261,7 @@ export const HomeView: React.FC = () => {
 
   const { currentSong, isPlaying, playSong, togglePlay, playBatch } = usePlayerStore();
 
-  const [activeFilter, setActiveFilter] = useState<'all' | 'music' | 'made-for-you' | 'trending'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'saavn' | 'radio' | 'music' | 'made-for-you' | 'trending'>('all');
   const [loadingQuery, setLoadingQuery] = useState<string | null>(null);
 
   // Dynamic Spotify Greeting with contextual icon
@@ -423,6 +425,28 @@ export const HomeView: React.FC = () => {
             }`}
           >
             All
+          </button>
+          <button
+            onClick={() => setActiveFilter('saavn')}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              activeFilter === 'saavn'
+                ? 'bg-emerald-500 text-black shadow-md font-extrabold'
+                : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>JioSaavn 320k HD 🟢</span>
+          </button>
+          <button
+            onClick={() => setActiveFilter('radio')}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              activeFilter === 'radio'
+                ? 'bg-rose-500 text-white shadow-md font-extrabold'
+                : 'bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />
+            <span>24/7 Live Radio 📻</span>
           </button>
           <button
             onClick={() => setActiveFilter('music')}
@@ -648,6 +672,175 @@ export const HomeView: React.FC = () => {
                 <Sparkles size={18} />
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2.5 JIOSAAVN 320 KBPS STUDIO MASTER HITS */}
+      {(activeFilter === 'all' || activeFilter === 'saavn' || activeFilter === 'music') && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h3 className="text-xl font-extrabold text-white flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>JioSaavn 320k Studio Master Hits</span>
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-400 to-yellow-500 text-black shadow-sm shadow-amber-400/30">
+                  320 kbps HD Audio
+                </span>
+              </div>
+              <p className="text-xs text-neutral-400 mt-0.5">
+                Direct studio-quality audio • Full 10-Band Graphic DSP Equalizer & 3D Spatial Theatre supported
+              </p>
+            </div>
+
+            <button
+              onClick={() => {
+                setSearchQuery('Anirudh');
+                setActiveTab('search');
+              }}
+              className="text-xs font-bold text-emerald-400 hover:text-emerald-300 uppercase tracking-wider transition-colors cursor-pointer"
+            >
+              Search JioSaavn →
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+            {PRESET_SAAVN_320K_HITS.map((song) => {
+              const isThisPlaying = currentSong?.id === song.id && isPlaying;
+
+              return (
+                <div
+                  key={song.id}
+                  onClick={() => playSong(song, PRESET_SAAVN_320K_HITS)}
+                  className={`glass-card p-3.5 rounded-2xl cursor-pointer group hover:bg-white/10 transition-all flex flex-col justify-between relative border ${
+                    isThisPlaying
+                      ? 'border-emerald-500/60 bg-emerald-950/20 shadow-lg shadow-emerald-500/10'
+                      : 'border-white/5 hover:border-emerald-500/30'
+                  }`}
+                >
+                  <div className="relative aspect-square rounded-xl overflow-hidden mb-3 bg-neutral-900 shadow-md">
+                    <img
+                      src={song.artwork || song.coverArt}
+                      alt={song.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+
+                    <span className="absolute top-2 left-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-amber-500 text-black shadow-md">
+                      320K HD
+                    </span>
+
+                    <div
+                      className={`absolute bottom-2 right-2 w-10 h-10 rounded-full bg-emerald-500 hover:bg-emerald-400 text-black flex items-center justify-center shadow-xl shadow-black/60 transition-all ${
+                        isThisPlaying
+                          ? 'opacity-100 translate-y-0 scale-100'
+                          : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 group-hover:scale-100'
+                      }`}
+                    >
+                      {isThisPlaying ? (
+                        <Pause size={16} className="fill-current" />
+                      ) : (
+                        <Play size={16} className="fill-current ml-0.5" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="min-w-0">
+                    <h4 className="text-xs font-bold text-white truncate group-hover:text-emerald-400 transition-colors">
+                      {song.title}
+                    </h4>
+                    <p className="text-[11px] text-neutral-400 truncate mt-0.5">{song.artist}</p>
+                    <p className="text-[10px] text-neutral-500 truncate">{song.album}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 2.7 24/7 LIVE RADIO FM STATIONS */}
+      {(activeFilter === 'all' || activeFilter === 'radio') && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h3 className="text-xl font-extrabold text-white flex items-center gap-2">
+                  <Radio size={20} className="text-rose-500" />
+                  <span>24/7 Live Radio FM Stations</span>
+                </h3>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+                  ON AIR NOW
+                </span>
+              </div>
+              <p className="text-xs text-neutral-400 mt-0.5">
+                Non-stop live web radio streaming with zero latency • Tamil, Bollywood, Lo-Fi & Ibiza EDM
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {LIVE_RADIO_STATIONS.map((station) => {
+              const radioSong = getStationAsSong(station);
+              const isThisPlaying = currentSong?.id === station.id && isPlaying;
+
+              return (
+                <div
+                  key={station.id}
+                  onClick={() => playSong(radioSong, [radioSong])}
+                  className={`p-4 rounded-2xl bg-gradient-to-r ${station.accentColor} border cursor-pointer group transition-all hover:scale-[1.02] shadow-xl flex items-center justify-between gap-3 relative overflow-hidden ${
+                    isThisPlaying ? 'border-rose-500/60 shadow-rose-900/30' : 'border-white/10 hover:border-rose-500/30'
+                  }`}
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="relative w-16 h-16 rounded-xl overflow-hidden shrink-0 shadow-md bg-neutral-900">
+                      <img
+                        src={station.artwork}
+                        alt={station.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                      <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded text-[8px] font-black bg-rose-600 text-white shadow">
+                        LIVE
+                      </span>
+                    </div>
+
+                    <div className="min-w-0 pr-2">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white/10 text-rose-200">
+                          {station.genre}
+                        </span>
+                        <span className="text-[10px] text-neutral-400">{station.frequency}</span>
+                      </div>
+                      <h4 className="text-sm font-extrabold text-white truncate group-hover:text-rose-200 transition-colors">
+                        {station.name}
+                      </h4>
+                      <p className="text-xs text-neutral-400 truncate mt-0.5">{station.description}</p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      playSong(radioSong, [radioSong]);
+                    }}
+                    className={`w-11 h-11 rounded-full text-white flex items-center justify-center shadow-xl transition-all shrink-0 cursor-pointer ${
+                      isThisPlaying
+                        ? 'bg-rose-600 scale-105'
+                        : 'bg-white/15 hover:bg-rose-600 group-hover:scale-105'
+                    }`}
+                    title={isThisPlaying ? 'Pause Live Radio' : 'Tune in to Live Radio'}
+                  >
+                    {isThisPlaying ? (
+                      <Pause size={18} className="fill-white" />
+                    ) : (
+                      <Play size={18} className="fill-white ml-0.5" />
+                    )}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

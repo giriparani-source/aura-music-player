@@ -28,6 +28,8 @@ export interface Song {
   syncedLyrics?: { time: number; text: string }[]; // Parsed timestamps
   isOnline?: boolean;
   sourceId?: string;
+  isLiveRadio?: boolean;
+  isSaavn?: boolean;
 }
 
 export interface Album {

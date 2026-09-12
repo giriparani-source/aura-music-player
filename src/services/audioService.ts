@@ -264,11 +264,25 @@ class AudioService {
       this.currentObjectUrl = null;
     }
 
-    // Check if track is a cloud online stream
-    const ytVideoId = this.extractYouTubeVideoId(song);
-    const isCloudTrack = Boolean(song.isOnline || ytVideoId);
+    // Check if track is a direct audio stream (JioSaavn 320k master or Live FM Radio)
+    const isDirectAudioStream = Boolean(
+      song.isSaavn ||
+      song.isLiveRadio ||
+      (song.filePath && (
+        song.filePath.includes('saavncdn.com') ||
+        song.filePath.includes('listenon.in') ||
+        song.filePath.includes('stream.zeno.fm') ||
+        song.filePath.includes('ilovemusic.de') ||
+        song.filePath.includes('dancewave.online') ||
+        song.filePath.includes('bbcmedia.co.uk') ||
+        song.filePath.includes('torontocast.com')
+      ))
+    );
 
-    if (isCloudTrack && ytVideoId) {
+    // YouTube track check
+    const ytVideoId = !isDirectAudioStream ? this.extractYouTubeVideoId(song) : null;
+
+    if (ytVideoId) {
       this.isUsingCloudPlayer = true;
       this.audio.pause();
       cloudPlayerService.loadVideo(ytVideoId, 0);
@@ -277,25 +291,30 @@ class AudioService {
       return;
     }
 
-    // Local track: Switch to HTML5 Audio Element & DSP chain
+    // Local track OR Direct Audio Stream (JioSaavn 320k / Live Radio):
+    // Runs through HTML5 Audio Element & Full Web Audio DSP chain (10-Band EQ, 3D Reverb, Visualizer)
     this.isUsingCloudPlayer = false;
     cloudPlayerService.pause();
 
     try {
       let source = audioSourceUrl;
       if (!source) {
-        const registeredFile = getRegisteredFile(song.id);
-        if (registeredFile) {
-          source = URL.createObjectURL(registeredFile);
-          this.currentObjectUrl = source;
-        } else if (song.path) {
-          source = `/api/audio?path=${encodeURIComponent(song.path)}`;
-        } else if (song.filePath && !song.filePath.startsWith('blob:')) {
-          source = song.filePath;
-        } else if (song.fileName) {
-          source = `/api/audio?path=${encodeURIComponent(song.fileName)}`;
+        if (isDirectAudioStream) {
+          source = song.filePath || song.path;
         } else {
-          source = song.filePath;
+          const registeredFile = getRegisteredFile(song.id);
+          if (registeredFile) {
+            source = URL.createObjectURL(registeredFile);
+            this.currentObjectUrl = source;
+          } else if (song.path) {
+            source = `/api/audio?path=${encodeURIComponent(song.path)}`;
+          } else if (song.filePath && !song.filePath.startsWith('blob:')) {
+            source = song.filePath;
+          } else if (song.fileName) {
+            source = `/api/audio?path=${encodeURIComponent(song.fileName)}`;
+          } else {
+            source = song.filePath;
+          }
         }
       }
 
