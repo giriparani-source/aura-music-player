@@ -2,8 +2,12 @@ import React, { useRef } from 'react';
 import { Search, FolderPlus, HardDrive } from 'lucide-react';
 import { useLibraryStore } from '../../store/useLibraryStore';
 
+import { usePlayerStore } from '../../store/usePlayerStore';
+import { Sparkles } from 'lucide-react';
+
 export const Header: React.FC = () => {
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const { setAiAssistantOpen } = usePlayerStore();
   const {
     searchQuery,
     setSearchQuery,
@@ -66,7 +70,17 @@ export const Header: React.FC = () => {
       />
 
       {/* Right Header Actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
+        {/* Sleek Embedded Ask AI Trigger (replaces floating screen clutter) */}
+        <button
+          onClick={() => setAiAssistantOpen(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-indigo-300 bg-indigo-600/15 hover:bg-indigo-600/25 border border-indigo-500/30 transition-all cursor-pointer shadow-sm"
+          title="Chat with Aura AI Assistant"
+        >
+          <Sparkles size={14} className="text-amber-400" />
+          <span className="hidden sm:inline">Ask AI</span>
+        </button>
+
         <button
           onClick={() => setActiveTab('library')}
           className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-300 bg-white/5 border border-white/5 hover:bg-white/10 transition-colors cursor-pointer"
@@ -82,7 +96,7 @@ export const Header: React.FC = () => {
           title="Open Music Folder Picker"
         >
           <FolderPlus size={15} />
-          <span>Select Folder</span>
+          <span className="hidden sm:inline">Select Folder</span>
         </button>
       </div>
     </header>

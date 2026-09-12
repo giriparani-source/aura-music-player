@@ -280,20 +280,6 @@ export const AuraChatDrawer: React.FC = () => {
 
   return (
     <>
-      {/* Floating Launcher Button */}
-      {!isAiAssistantOpen && (
-        <button
-          onClick={() => setAiAssistantOpen(true)}
-          className="fixed bottom-24 right-6 z-30 p-3.5 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-600 text-white shadow-2xl shadow-purple-600/40 hover:scale-105 transition-all flex items-center gap-2 cursor-pointer border border-white/20 group"
-          title="Chat with Aura AI"
-        >
-          <div className="relative">
-            <Sparkles size={18} className="text-amber-300 animate-pulse" />
-          </div>
-          <span className="text-xs font-extrabold hidden sm:inline-block pr-1">Ask Aura AI</span>
-        </button>
-      )}
-
       {/* Slide-in Chat Drawer */}
       {isAiAssistantOpen && (
         <div className="fixed bottom-24 right-4 sm:right-6 w-[92vw] sm:w-96 max-h-[580px] h-[80vh] z-50 rounded-3xl glass-card border border-indigo-500/30 bg-[#0e1118]/95 backdrop-blur-2xl shadow-2xl flex flex-col overflow-hidden animate-fade-in select-none">
