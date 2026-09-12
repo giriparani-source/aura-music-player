@@ -31,7 +31,7 @@ import { InbuiltPlaylistModal } from '../common/InbuiltPlaylistModal';
 import { Artwork } from '../common/Artwork';
 
 export const HomeView: React.FC = () => {
-  const { songs: localSongs, playlists, stats } = useLibraryStore();
+  const { songs: localSongs, playlists, stats, setActiveTab } = useLibraryStore();
   const { currentSong, isPlaying, playSong, togglePlay, playBatch } = usePlayerStore();
 
   const [activeFilter, setActiveFilter] = useState<'all' | 'playlists' | 'saavn' | 'radio'>('all');
@@ -51,7 +51,7 @@ export const HomeView: React.FC = () => {
     }
   }, []);
 
-  // Quick 6-Pack Grid Data
+  // Quick 6-Pack Grid Data (100% Inbuilt Playlists, Zero Search Redirects!)
   const quickAccessItems = useMemo(() => {
     return [
       {
@@ -63,55 +63,59 @@ export const HomeView: React.FC = () => {
         icon: <Heart size={20} className="fill-white text-white" />,
         onClick: () => {
           const favorites = localSongs.filter((s) => s.isFavorite);
-          if (favorites.length > 0) playBatch(favorites);
+          if (favorites.length > 0) {
+            playBatch(favorites);
+          } else {
+            // Open Top 50 if no local favorites yet
+            setSelectedInbuiltPlaylist(INBUILT_PLAYLISTS[0]);
+          }
         }
       },
       {
-        id: 'chillout',
-        title: 'Kollywood Chillout',
-        subtitle: '7 songs • 320k HD',
-        coverArt: INBUILT_PLAYLISTS[0].coverArt,
-        gradient: 'from-blue-700 to-indigo-950',
-        playlist: INBUILT_PLAYLISTS[0]
-      },
-      {
-        id: 'kuthu_blast',
-        title: 'Kuthu Party Blast',
-        subtitle: '6 songs • Bass Drops',
+        id: 'daily_mix_1',
+        title: 'Daily Mix 1',
+        subtitle: 'Anirudh, Harris & Rahman',
         coverArt: INBUILT_PLAYLISTS[1].coverArt,
-        gradient: 'from-amber-600 to-red-950',
-        playlist: INBUILT_PLAYLISTS[1]
+        gradient: 'from-indigo-600 to-blue-900',
+        playlist: INBUILT_PLAYLISTS[1] // Daily Mix 1 with 12 songs
       },
       {
-        id: '90s_vinyl',
-        title: '90s Golden Vinyl',
-        subtitle: '6 songs • Ilaiyaraaja/SPB',
-        coverArt: INBUILT_PLAYLISTS[2].coverArt,
-        gradient: 'from-yellow-600 to-amber-950',
-        playlist: INBUILT_PLAYLISTS[2]
+        id: 'top_50_india',
+        title: 'Top 50 – India Hits',
+        subtitle: '50 Blockbusters • Trending',
+        coverArt: INBUILT_PLAYLISTS[0].coverArt,
+        gradient: 'from-amber-600 to-orange-900',
+        playlist: INBUILT_PLAYLISTS[0] // Top 50 India Hits with 50 tracks!
       },
       {
-        id: 'midnight_drive',
-        title: 'Midnight Synth Highway',
-        subtitle: '5 songs • Neon Chill',
-        coverArt: INBUILT_PLAYLISTS[3].coverArt,
-        gradient: 'from-purple-700 to-neutral-950',
-        playlist: INBUILT_PLAYLISTS[3]
+        id: 'midnight_chill',
+        title: 'Midnight Chill',
+        subtitle: 'Lo-Fi, Calm & Rain',
+        coverArt: INBUILT_PLAYLISTS[5].coverArt,
+        gradient: 'from-emerald-700 to-slate-950',
+        playlist: INBUILT_PLAYLISTS[5] // Midnight Chill with 10 songs
       },
       {
-        id: 'live_radio_hub',
-        title: '24/7 Live Radio FM Hub',
-        subtitle: '9 Live Stations • HD FM',
-        coverArt: LIVE_RADIO_STATIONS[0].logo,
-        gradient: 'from-red-600 to-rose-950',
-        icon: <Radio size={20} className="text-white animate-pulse" />,
+        id: 'beast_workout',
+        title: 'Beast Workout',
+        subtitle: 'High BPM Gym Hype',
+        coverArt: INBUILT_PLAYLISTS[6].coverArt,
+        gradient: 'from-rose-600 to-red-950',
+        playlist: INBUILT_PLAYLISTS[6] // Beast Workout with 10 songs
+      },
+      {
+        id: 'ai_dj_studio',
+        title: 'AI DJ & Mood Studio',
+        subtitle: 'Prompt-driven Playlists',
+        coverArt: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300',
+        gradient: 'from-purple-600 to-pink-950',
+        icon: <Sparkles size={20} className="text-amber-400" />,
         onClick: () => {
-          const stationSong = getStationAsSong(LIVE_RADIO_STATIONS[0]);
-          playSong(stationSong);
+          setActiveTab('ai-studio');
         }
       }
     ];
-  }, [localSongs, playBatch, playSong]);
+  }, [localSongs, playBatch, setActiveTab]);
 
   // Top Artists Curated List
   const topArtists = useMemo(() => {

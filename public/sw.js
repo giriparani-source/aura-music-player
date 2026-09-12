@@ -1,7 +1,5 @@
-const CACHE_NAME = 'aura-music-pwa-v1';
+const CACHE_NAME = 'aura-music-pwa-v3';
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
   '/music-icon.svg',
   '/favicon.svg',
   '/manifest.webmanifest'
@@ -11,7 +9,7 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(STATIC_ASSETS).catch((err) => {
-        console.warn('Pre-cache error (ignored during dev):', err);
+        console.warn('Pre-cache error:', err);
       });
     })
   );
@@ -41,6 +39,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Network-First for Navigation / HTML documents to ensure user always receives latest app version
+  if (event.request.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html') {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
+  // Cache-First for versioned static assets
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
@@ -58,11 +73,6 @@ self.addEventListener('fetch', (event) => {
           });
         }
         return networkResponse;
-      }).catch(() => {
-        // Offline fallback for navigation
-        if (event.request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
       });
     })
   );
