@@ -34,12 +34,11 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ isPlaying, cla
     }
 
     let rotation = 0;
+    let logicalWidth = 300;
+    let logicalHeight = 200;
 
     const render = () => {
-      const width = canvas.width;
-      const height = canvas.height;
-
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, logicalWidth, logicalHeight);
 
       if (analyser && isPlaying) {
         audioEffectsService.getFrequencyData(freqData);
@@ -53,11 +52,11 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ isPlaying, cla
       }
 
       if (mode === 'spectrum') {
-        renderSpectrum(ctx, width, height, freqData);
+        renderSpectrum(ctx, logicalWidth, logicalHeight, freqData);
       } else if (mode === 'waveform') {
-        renderWaveform(ctx, width, height, timeData);
+        renderWaveform(ctx, logicalWidth, logicalHeight, timeData);
       } else if (mode === 'radial') {
-        renderRadial(ctx, width, height, freqData);
+        renderRadial(ctx, logicalWidth, logicalHeight, freqData);
       }
 
       rotation += 0.005;
@@ -208,10 +207,12 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ isPlaying, cla
     const handleResize = () => {
       if (!containerRef.current || !canvas) return;
       const rect = containerRef.current.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      ctx.scale(dpr, dpr);
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      logicalWidth = rect.width;
+      logicalHeight = rect.height;
+      canvas.width = Math.floor(rect.width * dpr);
+      canvas.height = Math.floor(rect.height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
 
     handleResize();

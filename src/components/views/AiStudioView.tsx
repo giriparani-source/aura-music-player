@@ -91,6 +91,111 @@ const QUICK_MOODS: QuickMood[] = [
   }
 ];
 
+import { jiosaavnService } from '../../services/jiosaavnService';
+
+// Client-side AI DJ Playlist Synthesizer for Vercel static and offline environments
+const generateClientAiDjPlaylist = (query: string): AiDjPlaylist => {
+  const q = query.toLowerCase().trim();
+
+  if (q.includes('gym') || q.includes('workout') || q.includes('beast')) {
+    return {
+      title: 'Aura Beast Mode • High Adrenaline Workout',
+      vibe: 'High Adrenaline & Heavy Drops',
+      intro: 'Get ready to smash your PR nanba! Crank the volume up, heavy bass kick-in aagudhu!',
+      suggested_eq: 'Bass Booster (+6dB Sub & Kick)',
+      tracks: [
+        { title: 'Hukum - Thalaivar Alappara', artist: 'Anirudh Ravichander • Jailer' },
+        { title: 'Naa Ready', artist: 'Thalapathy Vijay, Anirudh • Leo' },
+        { title: 'Illuminati', artist: 'Sushin Shyam, Dabzee • Aavesham' },
+        { title: 'Badass', artist: 'Anirudh Ravichander • Leo' },
+        { title: 'Arabic Kuthu', artist: 'Anirudh Ravichander • Beast' },
+        { title: 'Manasilaayo', artist: 'Anirudh Ravichander • Vettaiyan' }
+      ]
+    };
+  }
+
+  if (q.includes('party') || q.includes('kuthu') || q.includes('dance')) {
+    return {
+      title: 'Aura Kollywood Kuthu Blast 2026',
+      vibe: 'Unstoppable Dance & Dappankuthu',
+      intro: 'Speaker full volume veinga! Dance floor-ah fire aakaporom, non-stop dance anthems ready!',
+      suggested_eq: 'Electronic & Dance Club (+5dB Bass, +3dB Highs)',
+      tracks: [
+        { title: 'Arabic Kuthu - Halamithi Habibo', artist: 'Anirudh Ravichander • Beast' },
+        { title: 'Manasilaayo', artist: 'Anirudh Ravichander, Malaysia Vasudevan • Vettaiyan' },
+        { title: 'Naa Ready', artist: 'Thalapathy Vijay • Leo' },
+        { title: 'Hukum', artist: 'Anirudh Ravichander • Jailer' },
+        { title: 'Illuminati', artist: 'Sushin Shyam • Aavesham' },
+        { title: 'Jalabulanjangu', artist: 'Anirudh Ravichander • Don' }
+      ]
+    };
+  }
+
+  if (q.includes('rain') || q.includes('nostalgia') || q.includes('acoustic') || q.includes('morning')) {
+    return {
+      title: 'Aura Monsoon Breeze & Rainy Melodies',
+      vibe: 'Acoustic Peace & Warm Solitude',
+      intro: 'Mazhai saaral, warm coffee, and soothing melodies... Soul-ah heal panna indha playlist!',
+      suggested_eq: 'Acoustic Clarity (+3dB Mids & Vocal)',
+      tracks: [
+        { title: 'Vaseegara', artist: 'Bombay Jayashri, Harris Jayaraj • Minnale' },
+        { title: 'Venmathi Venmathiye', artist: 'Roop Kumar Rathod, Tipu • Minnale' },
+        { title: 'Poongatrile', artist: 'Unni Menon, Swarnalatha • Dil Se' },
+        { title: 'Marakkuma Nenjam', artist: 'A.R. Rahman • VTK' },
+        { title: 'Enna Solla Pogirai', artist: 'Shankar Mahadevan • Kandukondain' }
+      ]
+    };
+  }
+
+  if (q.includes('sad') || q.includes('breakup') || q.includes('heart') || q.includes('alone')) {
+    return {
+      title: 'Aura Midnight Melancholy & Deep Solitude',
+      vibe: 'Deep Heartbreak & Emotional Healing',
+      intro: 'Manasula irukura baratha korukka oru soulful escape. Feel every chord and lyric nanba.',
+      suggested_eq: 'Classical Reverb & Soft Presence',
+      tracks: [
+        { title: 'Kanave Kanave', artist: 'Anirudh Ravichander • David' },
+        { title: 'Nenjame Nenjame', artist: 'Vijay Yesudas • Meiyazhagan' },
+        { title: 'Pogadha Ennai Thaandi', artist: 'Pradeep Kumar • Vikram Vedha' },
+        { title: 'New York Nagaram', artist: 'A.R. Rahman • Sillunu Oru Kaadhal' },
+        { title: 'Vaseegara', artist: 'Bombay Jayashri • Minnale' }
+      ]
+    };
+  }
+
+  if (q.includes('90s') || q.includes('ilaiyaraaja') || q.includes('spb')) {
+    return {
+      title: 'Aura 90s Golden Vinyl • Maestro Classics',
+      vibe: 'Evergreen Ilaiyaraaja & SPB Magic',
+      intro: 'Golden age-oda timeless string orchestrations and SPB vocals... Vinyl vintage quality!',
+      suggested_eq: 'Warm Analog Tape & Vocal Warmth',
+      tracks: [
+        { title: 'Ilaya Nila Pozhigirathe', artist: 'SPB • Payanangal Mudivathillai' },
+        { title: 'Mandram Vantha Thendralukku', artist: 'SPB, Ilaiyaraaja • Mouna Ragam' },
+        { title: 'Raja Raja Chozhan Naan', artist: 'KJ Yesudas, Ilaiyaraaja • Rettai Vaal Kuruvi' },
+        { title: 'Thendral Vanthu Theendumbothu', artist: 'Ilaiyaraaja, S. Janaki • Avatharam' },
+        { title: 'Sundari Kannal Oru Sethi', artist: 'SPB, S. Janaki • Thalapathi' }
+      ]
+    };
+  }
+
+  // Default Late Night Drive
+  return {
+    title: 'Aura Late Night Drive • Neon Synth Highway',
+    vibe: 'Smooth Melodic Synths & Chill Bass',
+    intro: 'Empty roads, cool night breeze, and hypnotic basslines. Inaiku night drive unforgettable aaga pogudhu!',
+    suggested_eq: 'Late Night Synth Chill (+3dB Bass, +2dB Highs)',
+    tracks: [
+      { title: 'Vaseegara', artist: 'Bombay Jayashri, Harris Jayaraj • Minnale' },
+      { title: 'Hukum - Thalaivar Alappara', artist: 'Anirudh Ravichander • Jailer' },
+      { title: 'Arabic Kuthu', artist: 'Anirudh Ravichander • Beast' },
+      { title: 'Illuminati', artist: 'Sushin Shyam • Aavesham' },
+      { title: 'Naa Ready', artist: 'Thalapathy Vijay • Leo' },
+      { title: 'Manasilaayo', artist: 'Anirudh Ravichander • Vettaiyan' }
+    ]
+  };
+};
+
 export const AiStudioView: React.FC = () => {
   const [prompt, setPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -98,7 +203,7 @@ export const AiStudioView: React.FC = () => {
   const [isStreamingQueue, setIsStreamingQueue] = useState(false);
   const [streamingProgress, setStreamingProgress] = useState('');
 
-  const { playBatch, openWithTab } = usePlayerStore();
+  const { playBatch } = usePlayerStore();
   const { songs: localSongs } = useLibraryStore();
 
   const handleGenerate = async (targetQuery: string) => {
@@ -106,58 +211,83 @@ export const AiStudioView: React.FC = () => {
     setIsLoading(true);
     try {
       const res = await fetch(`/api/ai/dj?q=${encodeURIComponent(q)}`);
-      const data: AiDjPlaylist = await res.json();
-      setPlaylist(data);
-
-      // Auto apply suggested EQ
-      if (data.title) {
-        audioEffectsService.autoTuneForSong(data.title, data.vibe);
+      if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data: AiDjPlaylist = await res.json();
+          if (data && data.title && data.tracks) {
+            setPlaylist(data);
+            if (data.title) audioEffectsService.autoTuneForSong(data.title, data.vibe);
+            setIsLoading(false);
+            return;
+          }
+        }
       }
-    } catch (err) {
-      console.error('AI DJ generation error:', err);
-    } finally {
-      setIsLoading(false);
+    } catch {
+      // Backend not running; fallback to client AI DJ synthesis
     }
+
+    // Client-side AI DJ fallback
+    const clientPlaylist = generateClientAiDjPlaylist(q);
+    setPlaylist(clientPlaylist);
+    audioEffectsService.autoTuneForSong(clientPlaylist.title, clientPlaylist.vibe);
+    setIsLoading(false);
+  };
+
+  const resolveSong = async (trackTitle: string, trackArtist: string): Promise<Song | null> => {
+    // 1. Check local songs
+    const matchedLocal = localSongs.find((s) =>
+      s.title.toLowerCase().includes(trackTitle.toLowerCase())
+    );
+    if (matchedLocal) return matchedLocal;
+
+    // 2. Query JioSaavn 320k HD client service
+    try {
+      const saavnResults = await jiosaavnService.searchJioSaavn(`${trackTitle} ${trackArtist}`);
+      if (saavnResults && saavnResults.length > 0) {
+        return saavnResults[0];
+      }
+    } catch {
+      // Continue to online endpoint
+    }
+
+    // 3. Fallback to online search API if backend is running
+    try {
+      const searchRes = await fetch(
+        `/api/online/search?q=${encodeURIComponent(`${trackTitle} ${trackArtist}`)}`
+      );
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        if (searchData.results && searchData.results.length > 0) {
+          return searchData.results[0];
+        }
+      }
+    } catch {
+      // No backend
+    }
+
+    return null;
   };
 
   const handleStreamAllTracks = async () => {
     if (!playlist || playlist.tracks.length === 0) return;
     setIsStreamingQueue(true);
-    setStreamingProgress('Searching & preparing cloud streaming queue...');
+    setStreamingProgress('Preparing high-fidelity 320kbps AI streaming queue...');
 
     try {
       const resolvedSongs: Song[] = [];
 
-      // For the first 5 tracks, fetch search stream URLs
       for (let i = 0; i < Math.min(6, playlist.tracks.length); i++) {
         const item = playlist.tracks[i];
-        setStreamingProgress(`Resolving "${item.title}"...`);
+        setStreamingProgress(`Resolving "${item.title}" in 320k HD...`);
 
-        // Check if exists in local library first
-        const matchedLocal = localSongs.find(
-          (s) => s.title.toLowerCase().includes(item.title.toLowerCase())
-        );
-
-        if (matchedLocal) {
-          resolvedSongs.push(matchedLocal);
-        } else {
-          // Fetch from online stream API
-          try {
-            const searchRes = await fetch(
-              `/api/online/search?q=${encodeURIComponent(`${item.title} ${item.artist}`)}`
-            );
-            const searchData = await searchRes.json();
-            if (searchData.results && searchData.results.length > 0) {
-              resolvedSongs.push(searchData.results[0]);
-            }
-          } catch (fetchErr) {
-            console.warn(`Could not resolve online stream for ${item.title}:`, fetchErr);
-          }
+        const song = await resolveSong(item.title, item.artist);
+        if (song) {
+          resolvedSongs.push(song);
         }
       }
 
       if (resolvedSongs.length > 0) {
-        // Auto tune EQ to the playlist vibe
         audioEffectsService.autoTuneForSong(playlist.title, playlist.vibe);
         await playBatch(resolvedSongs);
       }
@@ -171,15 +301,12 @@ export const AiStudioView: React.FC = () => {
 
   const handlePlaySingleTrack = async (trackTitle: string, trackArtist: string) => {
     setIsStreamingQueue(true);
-    setStreamingProgress(`Streaming "${trackTitle}"...`);
+    setStreamingProgress(`Streaming "${trackTitle}" in 320k HD...`);
     try {
-      const searchRes = await fetch(
-        `/api/online/search?q=${encodeURIComponent(`${trackTitle} ${trackArtist}`)}`
-      );
-      const searchData = await searchRes.json();
-      if (searchData.results && searchData.results.length > 0) {
+      const song = await resolveSong(trackTitle, trackArtist);
+      if (song) {
         audioEffectsService.autoTuneForSong(trackTitle, trackArtist);
-        await playBatch([searchData.results[0]]);
+        await playBatch([song]);
       }
     } catch (err) {
       console.error('Play single track error:', err);

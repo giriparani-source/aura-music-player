@@ -16,6 +16,12 @@ export const Artwork: React.FC<ArtworkProps> = ({
   size = 'md',
   className = ''
 }) => {
+  const [hasError, setHasError] = React.useState(false);
+
+  React.useEffect(() => {
+    setHasError(false);
+  }, [src]);
+
   const sizeClasses = {
     sm: 'w-10 h-10 rounded-md text-xs',
     md: 'w-12 h-12 rounded-lg text-sm',
@@ -41,7 +47,7 @@ export const Artwork: React.FC<ArtworkProps> = ({
     return colors[Math.abs(hash) % colors.length];
   };
 
-  if (src) {
+  if (src && !hasError) {
     return (
       <div className={`relative overflow-hidden shrink-0 bg-neutral-900/80 ${sizeClasses[size]} ${className}`}>
         <img
@@ -49,6 +55,7 @@ export const Artwork: React.FC<ArtworkProps> = ({
           alt={title}
           className="w-full h-full object-cover"
           loading="lazy"
+          onError={() => setHasError(true)}
         />
       </div>
     );

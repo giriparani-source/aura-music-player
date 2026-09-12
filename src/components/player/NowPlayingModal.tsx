@@ -205,17 +205,45 @@ export const NowPlayingModal: React.FC = () => {
 
               {/* Technical Metadata pill */}
               <div className="flex items-center gap-2 mb-6 flex-wrap">
-                <span className="px-2 py-0.5 text-[10px] font-mono uppercase rounded bg-white/5 text-neutral-400 border border-white/5">
-                  {currentSong.format || 'MP3'}
-                </span>
-                {currentSong.bitrate && (
-                  <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-white/5 text-neutral-400 border border-white/5">
-                    {currentSong.bitrate} kbps
-                  </span>
+                {currentSong.isLiveRadio ? (
+                  <>
+                    <span className="px-2.5 py-0.5 text-[10px] font-extrabold rounded-full bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                      LIVE • ON AIR
+                    </span>
+                    <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-white/5 text-amber-300 border border-amber-500/20">
+                      {currentSong.bitrate || 128} kbps HD Stream
+                    </span>
+                    <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-white/5 text-neutral-400 border border-white/5">
+                      24/7 Digital FM
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="px-2 py-0.5 text-[10px] font-mono uppercase rounded bg-white/5 text-neutral-400 border border-white/5">
+                      {currentSong.format || 'MP3'}
+                    </span>
+                    {currentSong.isSaavn && (
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        JioSaavn 320k
+                      </span>
+                    )}
+                    {currentSong.bitrate && (
+                      <span className={`px-2 py-0.5 text-[10px] font-mono rounded border ${
+                        currentSong.bitrate >= 320
+                          ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 font-semibold'
+                          : 'bg-white/5 text-neutral-400 border-white/5'
+                      }`}>
+                        {currentSong.bitrate} kbps
+                      </span>
+                    )}
+                    {currentSong.fileSize > 0 && (
+                      <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-white/5 text-neutral-400 border border-white/5">
+                        {formatBytes(currentSong.fileSize)}
+                      </span>
+                    )}
+                  </>
                 )}
-                <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-white/5 text-neutral-400 border border-white/5">
-                  {formatBytes(currentSong.fileSize)}
-                </span>
               </div>
 
               {/* Quick Feature Launchers */}
@@ -287,21 +315,38 @@ export const NowPlayingModal: React.FC = () => {
 
       {/* Bottom Controls Area */}
       <div className="sticky bottom-0 z-40 bg-[#07090e]/90 backdrop-blur-xl w-full max-w-2xl mx-auto pt-4 pb-2 shrink-0 border-t border-white/5">
-        {/* Progress Slider */}
-        <div className="space-y-1.5 mb-5">
-          <input
-            type="range"
-            min={0}
-            max={duration || 100}
-            value={currentTime}
-            onChange={(e) => seek(Number(e.target.value))}
-            className="w-full h-1.5 bg-white/15 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-          />
-          <div className="flex justify-between text-xs font-mono text-neutral-400">
-            <span>{formatTime(currentTime)}</span>
-            <span>{formatTime(duration)}</span>
+        {/* Progress Slider or Live Radio Status */}
+        {currentSong.isLiveRadio ? (
+          <div className="flex items-center justify-between px-4 py-2 rounded-2xl bg-red-500/10 border border-red-500/20 mb-5">
+            <div className="flex items-center gap-2.5">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+              </span>
+              <span className="text-xs font-bold text-red-400 uppercase tracking-wider">
+                Live Studio Broadcast
+              </span>
+            </div>
+            <span className="text-xs font-mono text-neutral-400">
+              Direct Feed • {currentSong.bitrate || 128} kbps
+            </span>
           </div>
-        </div>
+        ) : (
+          <div className="space-y-1.5 mb-5">
+            <input
+              type="range"
+              min={0}
+              max={duration || 100}
+              value={currentTime}
+              onChange={(e) => seek(Number(e.target.value))}
+              className="w-full h-1.5 bg-white/15 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+            />
+            <div className="flex justify-between text-xs font-mono text-neutral-400">
+              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(duration)}</span>
+            </div>
+          </div>
+        )}
 
         {/* Playback & Volume Row */}
         <div className="flex items-center justify-between">

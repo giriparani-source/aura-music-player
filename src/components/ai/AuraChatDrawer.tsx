@@ -88,6 +88,125 @@ export const AuraChatDrawer: React.FC = () => {
     }
   };
 
+  // Client-side intelligent command parser for Vercel static hosting and offline scenarios
+  const parseClientIntent = (text: string): { reply: string; action?: any } => {
+    const q = text.toLowerCase().trim();
+
+    if (q.includes('karaoke') || q.includes('vocal cut') || q.includes('sing') || q.includes('paatu paada')) {
+      return {
+        reply: 'Karaoke Vocal Cut mode toggle pannitten nanba! 🎙️ Center-channel vocal frequencies attenuate aagiduchu. Neenga paadalaam!',
+        action: { type: 'TOGGLE_KARAOKE' }
+      };
+    }
+
+    if (q.includes('bass') || q.includes('beat boost') || q.includes('punch')) {
+      return {
+        reply: 'Bass Boost Equalizer preset apply pannitten nanba! 🔊 Low-end sub frequencies (+6dB) boost aagiduchu. Dynamic beats enjoy pannunga!',
+        action: { type: 'SET_EQ_PRESET', preset: 'bass' }
+      };
+    }
+
+    if (q.includes('vocal') || q.includes('clear sound') || q.includes('voice')) {
+      return {
+        reply: 'Vocal Clarity Equalizer apply pannitten! 🎤 Mid frequencies crisp-a clear-a kekkum.',
+        action: { type: 'SET_EQ_PRESET', preset: 'vocal' }
+      };
+    }
+
+    if (q.includes('pop')) {
+      return {
+        reply: 'Pop Music Equalizer activate pannitten! 🎧 Balanced highs & lows for vibrant sound.',
+        action: { type: 'SET_EQ_PRESET', preset: 'pop' }
+      };
+    }
+
+    if (q.includes('rock') || q.includes('metal')) {
+      return {
+        reply: 'Rock Dynamic Equalizer apply pannitten! 🎸 High-energy punch with boosted guitar tone.',
+        action: { type: 'SET_EQ_PRESET', preset: 'rock' }
+      };
+    }
+
+    if (q.includes('electronic') || q.includes('edm') || q.includes('dance')) {
+      return {
+        reply: 'Electronic Club Equalizer apply pannitten! 🎛️ Crisp highs and tight sub-bass.',
+        action: { type: 'SET_EQ_PRESET', preset: 'electronic' }
+      };
+    }
+
+    if (q.includes('flat') || q.includes('reset eq') || q.includes('normal eq')) {
+      return {
+        reply: 'Equalizer reset to Flat studio reference nanba! 🎚️ Original sound profile restored.',
+        action: { type: 'SET_EQ_PRESET', preset: 'flat' }
+      };
+    }
+
+    if (q.includes('pause') || q.includes('stop')) {
+      return {
+        reply: 'Track pause pannitten nanba! ⏸️',
+        action: { type: 'PAUSE' }
+      };
+    }
+
+    if (q.includes('play') || q.includes('resume')) {
+      return {
+        reply: 'Music resume aagudhu nanba! ▶️ Enjoy the tunes!',
+        action: { type: 'PLAY' }
+      };
+    }
+
+    if (q.includes('next') || q.includes('skip')) {
+      return {
+        reply: 'Adutha track-ku skip pannitten nanba! ⏭️',
+        action: { type: 'NEXT_TRACK' }
+      };
+    }
+
+    if (q.includes('explain') || q.includes('meaning') || q.includes('insight') || q.includes('story') || q.includes('lyric')) {
+      if (currentSong) {
+        return {
+          reply: `Kandippa nanba! "${currentSong.title}" oda detailed AI theme, lyrics meaning and emotional story panel-ah open pannitten! 📜✨`,
+          action: { type: 'OPEN_AI_INSIGHTS' }
+        };
+      } else {
+        return {
+          reply: 'Nanba, ippo edhum song play aagala. Oru track play pannitu kelunga, full analysis tharen! 🎵'
+        };
+      }
+    }
+
+    if (q.includes('dj') || q.includes('studio') || q.includes('playlist')) {
+      return {
+        reply: 'Aura AI DJ Studio-kku switch pannitten nanba! 🎛️ Anga unga mood-ku etha maadhiri playlists generate pannalaam.',
+        action: { type: 'NAVIGATE_TAB', tab: 'ai-studio' }
+      };
+    }
+
+    if (q.includes('radio') || q.includes('fm') || q.includes('live')) {
+      return {
+        reply: '24/7 Live Radio FM Stations list Home screen-la top section-la irukku nanba! 📻 Jei FM 320k, Bombay Beats, Lo-Fi nu 9 live stations irukku.',
+        action: { type: 'NAVIGATE_TAB', tab: 'home' }
+      };
+    }
+
+    if (q.includes('library') || q.includes('my songs') || q.includes('offline')) {
+      return {
+        reply: 'Unga Local Offline Music Library-kku kootitu poren nanba! 📂',
+        action: { type: 'NAVIGATE_TAB', tab: 'library' }
+      };
+    }
+
+    if (q.includes('hi') || q.includes('hello') || q.includes('vanakkam') || q.includes('hey')) {
+      return {
+        reply: 'Vanakkam nanba! 👋 Enna pannanum sollunga: "boost bass", "turn on karaoke", "next song", "explain song lyrics" nu command kudunga, udane seithu mudikiren! 🚀'
+      };
+    }
+
+    return {
+      reply: `Super nanba! Unga request: "${text}". Aura Player-la audio effects, karaoke mode, equalizer, live radio and playlist automation 100% active-ah irukku! 🎵✨`
+    };
+  };
+
   const handleSend = async (textToSend: string) => {
     const text = textToSend.trim();
     if (!text || isLoading) return;
@@ -119,35 +238,44 @@ export const AuraChatDrawer: React.FC = () => {
         })
       });
 
-      const data = await res.json();
-      const botMsg: AiChatMessage = {
-        id: `aura_${Date.now()}`,
-        sender: 'aura',
-        text: data.reply || 'Super nanba, done!',
-        timestamp: Date.now(),
-        action: data.action
-      };
+      if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await res.json();
+          if (data && (data.reply || data.action)) {
+            const botMsg: AiChatMessage = {
+              id: `aura_${Date.now()}`,
+              sender: 'aura',
+              text: data.reply || 'Super nanba, done!',
+              timestamp: Date.now(),
+              action: data.action
+            };
 
-      setMessages((prev) => [...prev, botMsg]);
-
-      // If there's an action, automatically execute it
-      if (data.action) {
-        executeAction(data.action);
+            setMessages((prev) => [...prev, botMsg]);
+            if (data.action) executeAction(data.action);
+            return;
+          }
+        }
       }
     } catch (err) {
-      console.error('AI chat error:', err);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `err_${Date.now()}`,
-          sender: 'aura',
-          text: 'Oops, connection issue nanba. Please try again.',
-          timestamp: Date.now()
-        }
-      ]);
-    } finally {
-      setIsLoading(false);
+      // Backend not running (e.g. Vercel static); fallback gracefully
     }
+
+    // Client-side fallback intent execution
+    const fallback = parseClientIntent(text);
+    const botMsg: AiChatMessage = {
+      id: `aura_${Date.now()}`,
+      sender: 'aura',
+      text: fallback.reply,
+      timestamp: Date.now(),
+      action: fallback.action
+    };
+
+    setMessages((prev) => [...prev, botMsg]);
+    if (fallback.action) {
+      executeAction(fallback.action);
+    }
+    setIsLoading(false);
   };
 
   return (

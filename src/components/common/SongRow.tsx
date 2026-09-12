@@ -101,10 +101,20 @@ export const SongRow: React.FC<SongRowProps> = ({
         </p>
       </div>
 
-      {/* Folder tag or Online badge (hidden on mobile) */}
-      {song.isOnline ? (
-        <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-semibold rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+      {/* Folder tag, JioSaavn badge, or Live Radio badge (hidden on mobile) */}
+      {song.isLiveRadio ? (
+        <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+          Live FM
+        </span>
+      ) : song.isSaavn ? (
+        <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          JioSaavn 320k
+        </span>
+      ) : song.isOnline ? (
+        <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-semibold rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
           Cloud Stream
         </span>
       ) : song.folder ? (
@@ -131,10 +141,16 @@ export const SongRow: React.FC<SongRowProps> = ({
         </span>
       </div>
 
-      {/* Duration */}
-      <span className="text-xs font-mono text-neutral-400 tabular-nums">
-        {formatTime(song.duration)}
-      </span>
+      {/* Duration or LIVE indicator */}
+      {song.isLiveRadio ? (
+        <span className="text-[10px] font-extrabold text-red-400 uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/20">
+          LIVE
+        </span>
+      ) : (
+        <span className="text-xs font-mono text-neutral-400 tabular-nums">
+          {formatTime(song.duration)}
+        </span>
+      )}
 
       {/* Action buttons (only in non-selection mode) */}
       {!isSelectMode && (
