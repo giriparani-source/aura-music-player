@@ -130,8 +130,122 @@ export const PRESET_SAAVN_320K_HITS: Song[] = [
   }
 ];
 
+export interface MirrorHealth {
+  url: string;
+  name: string;
+  failureCount: number;
+  lastFailureTime: number;
+  cooldownUntil: number;
+  totalSuccesses: number;
+  totalFailures: number;
+  isAvailable: boolean;
+}
+
+interface InternalMirrorState {
+  url: string;
+  name: string;
+  failureCount: number;
+  lastFailureTime: number;
+  cooldownUntil: number;
+  totalSuccesses: number;
+  totalFailures: number;
+}
+
+const REQUEST_TIMEOUT_MS = 4000;
+
 class JioSaavnService {
   private cache: Map<string, Song[]> = new Map();
+
+  private mirrors: InternalMirrorState[] = [
+    {
+      url: 'https://jiosaavn-api-sage.vercel.app',
+      name: 'Primary (Sage)',
+      failureCount: 0,
+      lastFailureTime: 0,
+      cooldownUntil: 0,
+      totalSuccesses: 0,
+      totalFailures: 0
+    },
+    {
+      url: 'https://jiosaavn-api-eight.vercel.app',
+      name: 'Secondary (Eight)',
+      failureCount: 0,
+      lastFailureTime: 0,
+      cooldownUntil: 0,
+      totalSuccesses: 0,
+      totalFailures: 0
+    }
+  ];
+
+  /**
+   * Get health metrics for all configured JioSaavn mirrors.
+   */
+  public getMirrorHealth(): MirrorHealth[] {
+    const now = Date.now();
+    return this.mirrors.map((m) => ({
+      url: m.url,
+      name: m.name,
+      failureCount: m.failureCount,
+      lastFailureTime: m.lastFailureTime,
+      cooldownUntil: m.cooldownUntil,
+      totalSuccesses: m.totalSuccesses,
+      totalFailures: m.totalFailures,
+      isAvailable: now >= m.cooldownUntil
+    }));
+  }
+
+  /**
+   * Fetch from a single mirror with AbortController timeout.
+   */
+  private async fetchFromMirror(mirror: InternalMirrorState, query: string): Promise<any[] | null> {
+    const endpoint = `${mirror.url}/api/search/songs?query=${encodeURIComponent(query)}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(endpoint, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: controller.signal
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      const results = data?.data?.results || data?.results;
+
+      if (Array.isArray(results)) {
+        // Success: reset failure counter and cooldown
+        mirror.failureCount = 0;
+        mirror.cooldownUntil = 0;
+        mirror.totalSuccesses++;
+        return results;
+      }
+      return null;
+    } catch (err: any) {
+      // Record failure and apply cooldown
+      mirror.failureCount++;
+      mirror.totalFailures++;
+      mirror.lastFailureTime = Date.now();
+
+      // Exponential cooldown: 5s on 1st fail, 30s on 2nd, 60s, up to 5 mins max
+      const cooldownMs =
+        mirror.failureCount === 1
+          ? 5000
+          : Math.min(300000, 30000 * Math.pow(2, mirror.failureCount - 2));
+
+      mirror.cooldownUntil = Date.now() + cooldownMs;
+
+      const reason = err.name === 'AbortError' ? `Timeout (${REQUEST_TIMEOUT_MS}ms)` : err.message || 'Request error';
+      console.warn(
+        `[JioSaavn] Mirror '${mirror.name}' failed: ${reason}. Failure count: ${mirror.failureCount}, cooldown for ${Math.round(cooldownMs / 1000)}s`
+      );
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   public async searchJioSaavn(query: string): Promise<Song[]> {
     const q = query.trim();
@@ -143,26 +257,24 @@ class JioSaavnService {
     }
 
     try {
-      const endpoints = [
-        `https://jiosaavn-api-sage.vercel.app/api/search/songs?query=${encodeURIComponent(q)}`,
-        `https://jiosaavn-api-eight.vercel.app/api/search/songs?query=${encodeURIComponent(q)}`
-      ];
+      const now = Date.now();
+
+      // Sort mirrors: active ones first (not in cooldown), then by earliest cooldown expiry
+      const sortedMirrors = [...this.mirrors].sort((a, b) => {
+        const aActive = now >= a.cooldownUntil;
+        const bActive = now >= b.cooldownUntil;
+        if (aActive && !bActive) return -1;
+        if (!aActive && bActive) return 1;
+        return a.cooldownUntil - b.cooldownUntil;
+      });
 
       let rawResults: any[] = [];
 
-      for (const endpoint of endpoints) {
-        try {
-          const res = await fetch(endpoint, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-          if (res.ok) {
-            const data = await res.json();
-            const results = data?.data?.results || data?.results;
-            if (Array.isArray(results) && results.length > 0) {
-              rawResults = results;
-              break;
-            }
-          }
-        } catch {
-          // Try next mirror
+      for (const mirror of sortedMirrors) {
+        const results = await this.fetchFromMirror(mirror, q);
+        if (results && results.length > 0) {
+          rawResults = results;
+          break;
         }
       }
 
@@ -219,7 +331,7 @@ class JioSaavnService {
         return formatted;
       }
     } catch (err) {
-      console.warn('JioSaavn search note:', err);
+      console.warn('[JioSaavn] Search exception:', err);
     }
 
     // Fallback to matching preset hits
@@ -241,3 +353,4 @@ class JioSaavnService {
 
 export const jiosaavnService = new JioSaavnService();
 export const searchJioSaavn = (query: string): Promise<Song[]> => jiosaavnService.searchJioSaavn(query);
+export const getMirrorHealth = (): MirrorHealth[] => jiosaavnService.getMirrorHealth();

@@ -17,7 +17,10 @@ import {
   HeartCrack,
   PartyPopper,
   BookOpen,
-  Coffee
+  Coffee,
+  Heart,
+  Compass,
+  Code
 } from 'lucide-react';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
@@ -88,6 +91,34 @@ const QUICK_MOODS: QuickMood[] = [
     icon: <Coffee size={16} />,
     badge: 'Fresh Breeze',
     color: 'from-yellow-600/30 to-amber-600/20 border-yellow-500/30 hover:border-yellow-400'
+  },
+  {
+    label: 'Romantic Melodies',
+    query: 'romantic love melodies',
+    icon: <Heart size={16} />,
+    badge: 'Soulful Love',
+    color: 'from-pink-600/30 to-rose-600/20 border-pink-500/30 hover:border-pink-400'
+  },
+  {
+    label: 'Epic Road Trip',
+    query: 'road trip highway',
+    icon: <Compass size={16} />,
+    badge: 'High BPM',
+    color: 'from-blue-500/30 to-cyan-600/20 border-blue-500/30 hover:border-blue-400'
+  },
+  {
+    label: 'Coding & Flow',
+    query: 'coding synth flow',
+    icon: <Code size={16} />,
+    badge: 'Flow State',
+    color: 'from-violet-600/30 to-purple-600/20 border-violet-500/30 hover:border-violet-400'
+  },
+  {
+    label: 'Peaceful Devotional',
+    query: 'devotional bakthi peaceful',
+    icon: <Sparkles size={16} />,
+    badge: 'Divine Aura',
+    color: 'from-amber-500/30 to-orange-600/20 border-amber-500/30 hover:border-amber-400'
   }
 ];
 
@@ -175,6 +206,72 @@ const generateClientAiDjPlaylist = (query: string): AiDjPlaylist => {
         { title: 'Raja Raja Chozhan Naan', artist: 'KJ Yesudas, Ilaiyaraaja • Rettai Vaal Kuruvi' },
         { title: 'Thendral Vanthu Theendumbothu', artist: 'Ilaiyaraaja, S. Janaki • Avatharam' },
         { title: 'Sundari Kannal Oru Sethi', artist: 'SPB, S. Janaki • Thalapathi' }
+      ]
+    };
+  }
+
+  if (q.includes('romantic') || q.includes('love') || q.includes('kadhal') || q.includes('crush')) {
+    return {
+      title: 'Aura Pure Romance • Soulful Melodies',
+      vibe: 'Tender Romance & Melodic Bliss',
+      intro: 'Kaadhal melodies mattume nanba! Heart-ah melt panna soulful romantic tracks ready!',
+      suggested_eq: 'Vocal Brilliance (+4dB Vocal Breath)',
+      tracks: [
+        { title: 'Vaseegara', artist: 'Bombay Jayashri, Harris Jayaraj • Minnale' },
+        { title: 'Munbe Vaa', artist: 'Naresh Iyer, Shreya Ghoshal • Sillunu Oru Kaadhal' },
+        { title: 'Enna Sona', artist: 'A.R. Rahman, Arijit Singh • OK Jaanu' },
+        { title: 'Maruvarthai', artist: 'Sid Sriram • ENPT' },
+        { title: 'Thalli Pogathey', artist: 'Sid Sriram • AYM' },
+        { title: 'Pookkal Pookkum', artist: 'Roop Kumar Rathod, Harini • Madrasapattinam' }
+      ]
+    };
+  }
+
+  if (q.includes('road') || q.includes('trip') || q.includes('highway') || q.includes('travel') || q.includes('payanam')) {
+    return {
+      title: 'Aura Epic Highway • Road Trip Anthems',
+      vibe: 'High Tempo Road Trip & Travel Euphoria',
+      intro: 'Full volume, windows down, open highway! Payanam thrilling-a irukum nanba!',
+      suggested_eq: 'Bass Monster (+6dB Sub & Punch)',
+      tracks: [
+        { title: 'Badass', artist: 'Anirudh Ravichander • Leo' },
+        { title: 'Hukum - Thalaivar Alappara', artist: 'Anirudh Ravichander • Jailer' },
+        { title: 'Naa Ready', artist: 'Thalapathy Vijay, Anirudh • Leo' },
+        { title: 'Starboy', artist: 'The Weeknd, Daft Punk' },
+        { title: 'Chaiyya Chaiyya', artist: 'Sukhwinder Singh • Dil Se' },
+        { title: 'Illuminati', artist: 'Sushin Shyam • Aavesham' }
+      ]
+    };
+  }
+
+  if (q.includes('code') || q.includes('coding') || q.includes('programming') || q.includes('synth') || q.includes('flow')) {
+    return {
+      title: 'Aura Deep Focus • Cyberpunk & Coding Flow',
+      vibe: 'Ambient Synth & Zero Distraction Flow',
+      intro: 'Syntax errors ellam parandhu pogum! Pure deep concentration and synth rhythm mix ready nanba.',
+      suggested_eq: 'Club EDM (Dynamic Synth Beats)',
+      tracks: [
+        { title: 'Interstellar Main Theme', artist: 'Hans Zimmer' },
+        { title: 'Doctor BGM Score', artist: 'Anirudh Ravichander • Doctor' },
+        { title: 'Mastermind Theme', artist: 'Anirudh Ravichander • Master' },
+        { title: 'Lofi Fruit Chill Beats', artist: 'Lofi Chillhop' },
+        { title: 'Vinnaithaandi Varuvaayaa Background Score', artist: 'A.R. Rahman' }
+      ]
+    };
+  }
+
+  if (q.includes('devotional') || q.includes('bakthi') || q.includes('saami') || q.includes('spiritual') || q.includes('temple')) {
+    return {
+      title: 'Aura Sacred Peace • Devotional & Spiritual Aura',
+      vibe: 'Divine Peace & Sacred Meditative Solace',
+      intro: 'Manadhil amaidhiyum bakthiyum tharum divine songs nanba. Positive vibrations and spiritual calm!',
+      suggested_eq: 'Maestro Vinyl (Rich Sacred Resonance)',
+      tracks: [
+        { title: 'Kanda Sashti Kavasam', artist: 'Mahanadhi Shobana' },
+        { title: 'Harivarasanam', artist: 'K.J. Yesudas' },
+        { title: 'Alaipayuthey Kanna', artist: 'Bombay Jayashri' },
+        { title: 'Krishna Nee Begane Baaro', artist: 'Colonial Cousins' },
+        { title: 'Gayatri Mantra Divine Chants', artist: 'Anuradha Paudwal' }
       ]
     };
   }

@@ -12,6 +12,8 @@ dist
 dist-ssr
 *.local
 *.tsbuildinfo
+.env
+.env.local
 .gemini
 
 # Editor directories and files
