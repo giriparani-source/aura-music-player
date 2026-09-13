@@ -15,6 +15,9 @@ import {
   extractArtistPool
 } from './flowKnowledgeBase';
 import { TOP_50_TRACKS } from './inbuiltPlaylistsService';
+import { UserAffinityProfile, auraAffinityService } from './auraAffinityService';
+
+export type { UserAffinityProfile };
 
 export interface FlowWeights {
   artistMatch: number;
@@ -29,6 +32,10 @@ export interface FlowWeights {
   artistRepeatPenalty: number;
   skipPenalty: number;
   replayBonus: number;
+  // Long-Term User Affinity Dimensions (Phase 5.2)
+  longTermArtistAffinity: number;
+  longTermVibeAffinity: number;
+  favoriteArtistBonus: number;
 }
 
 export const DEFAULT_FLOW_WEIGHTS: FlowWeights = {
@@ -43,7 +50,11 @@ export const DEFAULT_FLOW_WEIGHTS: FlowWeights = {
   recentTrackPenalty: 40,
   artistRepeatPenalty: 30,
   skipPenalty: 50,
-  replayBonus: 20
+  replayBonus: 20,
+  // Long-Term User Affinity Dimensions (Phase 5.2)
+  longTermArtistAffinity: 15,
+  longTermVibeAffinity: 10,
+  favoriteArtistBonus: 5
 };
 
 export interface FlowContext {
@@ -55,6 +66,7 @@ export interface FlowContext {
   downloadedSongIds: Set<string>;
   isOnline: boolean;
   weights?: Partial<FlowWeights>;
+  affinityProfile?: UserAffinityProfile | null; // Optional override for testing or custom context (Phase 5.2)
 }
 
 export interface CandidateScore {
@@ -81,6 +93,20 @@ class AuraFlowService {
     this.sessionSkips.clear();
     this.sessionReplays.clear();
     this.skippedArtists.clear();
+  }
+
+  // --- Long-Term Affinity Profile (Phase 5.1) ---
+
+  public getAffinityProfile(): UserAffinityProfile | null {
+    return auraAffinityService.getProfile();
+  }
+
+  public async initAffinityProfile(allSongs?: Song[], forceRebuild = false): Promise<UserAffinityProfile> {
+    return auraAffinityService.initProfile(allSongs, forceRebuild);
+  }
+
+  public async clearAffinityProfile(): Promise<void> {
+    return auraAffinityService.clearProfile();
   }
 
   // --- Feedback Recorders ---
@@ -318,7 +344,49 @@ class AuraFlowService {
       totalScore += weights.replayBonus;
     }
 
-    // 11. Exploration Jitter (Prevents deterministic loops)
+    // 11. Long-Term User Affinity Signals (Phase 5.2)
+    const affinityProfile =
+      context.affinityProfile !== undefined
+        ? context.affinityProfile
+        : this.getAffinityProfile();
+
+    if (affinityProfile) {
+      // 11a. Long-Term Artist Affinity Bonus (Proportional to 0-100 normalized score)
+      if (candidateLeadArtist && affinityProfile.artistAffinity?.[candidateLeadArtist]) {
+        const rawAffinity = affinityProfile.artistAffinity[candidateLeadArtist];
+        if (rawAffinity > 0) {
+          const artistBonus = Math.round((rawAffinity / 100) * weights.longTermArtistAffinity);
+          if (artistBonus > 0) {
+            breakdown.longTermArtistAffinity = artistBonus;
+            totalScore += artistBonus;
+          }
+        }
+      }
+
+      // 11b. Long-Term Vibe Affinity Bonus (Proportional to 0-100 normalized score)
+      if (candidateVibe && affinityProfile.vibeAffinity?.[candidateVibe]) {
+        const rawVibe = affinityProfile.vibeAffinity[candidateVibe];
+        if (rawVibe > 0) {
+          const vibeBonus = Math.round((rawVibe / 100) * weights.longTermVibeAffinity);
+          if (vibeBonus > 0) {
+            breakdown.longTermVibeAffinity = vibeBonus;
+            totalScore += vibeBonus;
+          }
+        }
+      }
+
+      // 11c. Favorite Artist Endorsement
+      if (
+        candidateLeadArtist &&
+        Array.isArray(affinityProfile.favoriteArtists) &&
+        affinityProfile.favoriteArtists.includes(candidateLeadArtist)
+      ) {
+        breakdown.favoriteArtistBonus = weights.favoriteArtistBonus;
+        totalScore += weights.favoriteArtistBonus;
+      }
+    }
+
+    // 12. Exploration Jitter (Prevents deterministic loops)
     if (weights.explorationJitter > 0) {
       const jitter = Math.round(Math.random() * weights.explorationJitter);
       breakdown.jitter = jitter;

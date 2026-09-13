@@ -296,6 +296,18 @@ class MusicDatabase {
       req.onerror = () => reject(req.error);
     });
   }
+
+  async deleteSetting(key: string): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('settings', 'readwrite');
+      const store = tx.objectStore('settings');
+      const req = store.delete(key);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  }
 }
 
+export const AURA_USER_AFFINITY_KEY = 'aura_user_affinity';
 export const musicDB = new MusicDatabase();

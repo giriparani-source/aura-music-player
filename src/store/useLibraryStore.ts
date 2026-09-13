@@ -24,6 +24,7 @@ import {
   runDifferentialScan
 } from '../services/scannerService';
 import { downloadService } from '../services/downloadService';
+import { auraAffinityService } from '../services/auraAffinityService';
 
 interface LibraryStoreState {
   songs: Song[];
@@ -263,6 +264,11 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         downloadedSongIds: downloadedSet,
         offlineStorage,
         isLoading: false
+      });
+
+      // Non-blocking background hydration of Aura Flow User Affinity Profile (Phase 5.1)
+      auraAffinityService.initProfile(songs).catch((affErr) => {
+        console.warn('Non-blocking affinity profile hydration failed:', affErr);
       });
     } catch (err) {
       console.error('Failed to load library:', err);
