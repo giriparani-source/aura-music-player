@@ -532,7 +532,7 @@ export const HomeView: React.FC = () => {
                 >
                   <div className="relative aspect-square w-full rounded-xl overflow-hidden shadow-lg mb-2.5 bg-black/40">
                     <img
-                      src={song.coverArt}
+                      src={song.coverArt || song.artwork}
                       alt={song.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />

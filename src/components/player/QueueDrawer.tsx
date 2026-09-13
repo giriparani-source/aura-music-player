@@ -23,7 +23,7 @@ export const QueueDrawer: React.FC = () => {
   if (!isQueueOpen) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-80 sm:w-96 bg-[#0e1118]/95 backdrop-blur-2xl border-l border-white/10 z-50 p-5 flex flex-col shadow-2xl select-none animate-in slide-in-from-right duration-200">
+    <div className="fixed inset-y-0 right-0 w-80 sm:w-96 bg-[#0e1118]/95 backdrop-blur-2xl border-l border-white/10 z-[55] p-5 flex flex-col shadow-2xl select-none animate-in slide-in-from-right duration-200">
       {/* Header */}
       <div className="pb-4 border-b border-white/10 mb-4 space-y-2">
         <div className="flex items-center justify-between">
@@ -110,14 +110,14 @@ export const QueueDrawer: React.FC = () => {
                   if (isCurrent) {
                     togglePlay();
                   } else {
-                    playSong(song);
+                    playSong(song, undefined, idx);
                   }
                 }}
                 className={`group flex items-center gap-3 p-2 rounded-xl transition-all cursor-pointer ${
                   isCurrent ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/20' : 'hover:bg-white/5 text-neutral-300'
                 }`}
               >
-                <Artwork src={song.coverArt} title={song.title} artist={song.artist} size="sm" />
+                <Artwork src={song.coverArt || song.artwork} title={song.title} artist={song.artist} size="sm" />
 
                 <div className="flex-1 min-w-0">
                   <h5 className={`text-xs font-semibold truncate ${isCurrent ? 'text-indigo-300' : 'text-neutral-200'}`}>

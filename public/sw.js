@@ -34,8 +34,20 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Bypass service worker for dynamic streaming and API endpoints
-  if (url.pathname.startsWith('/api/') || event.request.method !== 'GET') {
+  // Bypass service worker completely for localhost/dev environments, Vite modules, dynamic streaming, and non-GET requests
+  if (
+    url.hostname === 'localhost' ||
+    url.hostname === '127.0.0.1' ||
+    url.port === '3000' ||
+    url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/node_modules/') ||
+    url.searchParams.has('t') ||
+    url.searchParams.has('v') ||
+    url.searchParams.has('import') ||
+    event.request.method !== 'GET'
+  ) {
     return;
   }
 

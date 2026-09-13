@@ -122,10 +122,7 @@ function localMusicServerPlugin() {
           let formatted: any[] = [];
           try {
             const cleanQ = q.trim();
-            const lower = cleanQ.toLowerCase();
-            const searchQuery = (lower.includes('tamil') || lower.includes('hindi') || lower.includes('telugu') || lower.includes('english') || lower.includes('song'))
-              ? cleanQ
-              : `${cleanQ} Tamil song`;
+            const searchQuery = cleanQ;
 
             const ytUrl = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(searchQuery);
             const directResults: any[] = await new Promise((resolve) => {
@@ -663,6 +660,7 @@ function localMusicServerPlugin() {
 export default defineConfig({
   plugins: [react(), tailwindcss(), localMusicServerPlugin()],
   server: {
+    host: '0.0.0.0',
     port: 3000,
     open: false,
   },

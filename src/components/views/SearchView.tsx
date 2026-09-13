@@ -145,6 +145,7 @@ export const SearchView: React.FC = () => {
   const debouncedOnlineQuery = useDebounce(onlineQuery, 400);
   const [onlineResults, setOnlineResults] = useState<Song[]>([]);
   const [isOnlineLoading, setIsOnlineLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
   const [onlineError, setOnlineError] = useState<string | null>(null);
   const [onlineHistory, setOnlineHistory] = useState<string[]>([]);
 
@@ -189,11 +190,13 @@ export const SearchView: React.FC = () => {
       setOnlineResults([]);
       setIsOnlineLoading(false);
       setOnlineError(null);
+      setHasSearched(false);
       return;
     }
 
     setIsOnlineLoading(true);
     setOnlineError(null);
+    setHasSearched(true);
 
     try {
       let results: Song[] = [];
@@ -205,7 +208,16 @@ export const SearchView: React.FC = () => {
         if (res.ok && contentType.includes('application/json')) {
           const data = await res.json();
           if (data.results && data.results.length > 0) {
-            results = data.results;
+            const queryWords = q.toLowerCase().split(/\s+/).filter((w) => w.length >= 3);
+            if (queryWords.length > 0) {
+              const relevant = data.results.filter((song: Song) => {
+                const combined = `${song.title} ${song.artist} ${song.album || ''}`.toLowerCase();
+                return queryWords.some((w) => combined.includes(w));
+              });
+              results = relevant;
+            } else {
+              results = data.results;
+            }
           }
         }
       } catch (backendErr) {
@@ -222,33 +234,34 @@ export const SearchView: React.FC = () => {
         } catch {}
       }
 
-      // 3. If still empty, provide matching curated Tamil blockbusters
+      // 3. If still empty, check if query matches any curated featured blockbusters
       if (results.length === 0) {
         const lower = q.toLowerCase();
         const matches = FEATURED_HITS.filter(
           (h) => h.title.toLowerCase().includes(lower) || h.artist.toLowerCase().includes(lower) || h.query.toLowerCase().includes(lower)
         );
 
-        const list = matches.length > 0 ? matches : FEATURED_HITS;
-        results = list.map((hit) => ({
-          id: `cloud_${hit.sourceId}`,
-          sourceId: hit.sourceId,
-          title: hit.title,
-          artist: hit.artist,
-          album: 'YouTube Music Stream',
-          duration: 240,
-          format: 'STREAM',
-          path: `https://www.youtube.com/watch?v=${hit.sourceId}`,
-          filePath: `https://www.youtube.com/watch?v=${hit.sourceId}`,
-          fileName: `${hit.title}.mp3`,
-          fileSize: 0,
-          dateAdded: Date.now(),
-          playCount: 0,
-          isFavorite: false,
-          artwork: hit.thumbnail,
-          coverArt: hit.thumbnail,
-          isOnline: true
-        }));
+        if (matches.length > 0) {
+          results = matches.map((hit) => ({
+            id: `cloud_${hit.sourceId}`,
+            sourceId: hit.sourceId,
+            title: hit.title,
+            artist: hit.artist,
+            album: 'YouTube Music Stream',
+            duration: 240,
+            format: 'STREAM',
+            path: `https://www.youtube.com/watch?v=${hit.sourceId}`,
+            filePath: `https://www.youtube.com/watch?v=${hit.sourceId}`,
+            fileName: `${hit.title}.mp3`,
+            fileSize: 0,
+            dateAdded: Date.now(),
+            playCount: 0,
+            isFavorite: false,
+            artwork: hit.thumbnail,
+            coverArt: hit.thumbnail,
+            isOnline: true
+          }));
+        }
       }
 
       setOnlineResults(results);
@@ -277,6 +290,7 @@ export const SearchView: React.FC = () => {
       setOnlineResults([]);
       setIsOnlineLoading(false);
       setOnlineError(null);
+      setHasSearched(false);
     }
   }, [debouncedOnlineQuery, searchMode, performOnlineSearch]);
 
@@ -671,7 +685,7 @@ export const SearchView: React.FC = () => {
           )}
 
           {/* No Results for Query */}
-          {!isOnlineLoading && onlineQuery.trim().length >= 2 && onlineResults.length === 0 && !onlineError && (
+          {!isOnlineLoading && hasSearched && onlineQuery.trim().length >= 2 && onlineResults.length === 0 && !onlineError && (
             <div className="py-16 text-center text-neutral-500 glass-card rounded-2xl border border-white/5">
               <p className="text-base font-semibold text-neutral-300 mb-1">
                 No streaming songs found for "{onlineQuery}"

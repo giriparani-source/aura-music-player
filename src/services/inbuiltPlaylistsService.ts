@@ -1,5 +1,5 @@
 import { Song } from '../types/music';
-import { getRegisteredFile } from './scannerService';
+import { getRegisteredFile, registerFile } from './scannerService';
 
 export interface InbuiltPlaylist {
   id: string;
@@ -622,9 +622,11 @@ class InbuiltPlaylistsService {
         .replace(/\s+/g, ' ')
         .trim();
 
+      if (!cleanTrackTitle || cleanTrackTitle.length < 2) return track;
+
       const matched = localSongs.find((local) => {
-        // Must have an active in-memory registered file
-        if (!getRegisteredFile(local.id)) return false;
+        const file = getRegisteredFile(local.id);
+        if (!file) return false;
 
         const cleanLocalTitle = local.title
           .toLowerCase()
@@ -632,22 +634,21 @@ class InbuiltPlaylistsService {
           .replace(/\s+/g, ' ')
           .trim();
 
-        return (
-          cleanLocalTitle === cleanTrackTitle ||
-          (cleanLocalTitle.length >= 4 && cleanTrackTitle.startsWith(cleanLocalTitle)) ||
-          (cleanTrackTitle.length >= 4 && cleanLocalTitle.startsWith(cleanTrackTitle))
-        );
+        return cleanLocalTitle === cleanTrackTitle;
       });
 
-      if (matched && getRegisteredFile(matched.id)) {
-        return {
-          ...track,
-          id: matched.id,
-          filePath: matched.filePath,
-          path: matched.path,
-          fileName: matched.fileName,
-          isOnline: false
-        };
+      if (matched) {
+        const file = getRegisteredFile(matched.id);
+        if (file) {
+          registerFile(track.id, file);
+          return {
+            ...track,
+            filePath: matched.filePath,
+            path: matched.path,
+            fileName: matched.fileName,
+            isOnline: false
+          };
+        }
       }
 
       return track;

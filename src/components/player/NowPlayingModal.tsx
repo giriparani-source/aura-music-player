@@ -59,6 +59,36 @@ export const NowPlayingModal: React.FC = () => {
 
   const { toggleFavorite } = useLibraryStore();
 
+  const tabContainerRef = React.useRef<HTMLDivElement>(null);
+  const activeTabRef = React.useRef<HTMLButtonElement>(null);
+
+  // Auto-scroll active tab smoothly into view when selected
+  useEffect(() => {
+    if (activeTabRef.current && tabContainerRef.current) {
+      activeTabRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'nearest'
+      });
+    }
+  }, [activeModalTab]);
+
+  // Support horizontal mouse wheel / trackpad scrolling over tab row
+  useEffect(() => {
+    const el = tabContainerRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY !== 0 && el.scrollWidth > el.clientWidth) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY;
+      }
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [isNowPlayingOpen]);
+
   // Close modal on Escape key press
   useEffect(() => {
     if (!isNowPlayingOpen) return;
@@ -84,40 +114,47 @@ export const NowPlayingModal: React.FC = () => {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#07090e]/95 backdrop-blur-3xl flex flex-col p-4 sm:p-6 select-none overflow-y-auto animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[60] bg-[#07090e]/95 backdrop-blur-3xl flex flex-col p-4 sm:p-6 select-none overflow-y-auto animate-in fade-in duration-200">
       {/* Top Header */}
-      <div className="sticky top-0 z-50 bg-[#07090e]/90 backdrop-blur-xl flex flex-wrap items-center justify-between gap-4 w-full max-w-5xl mx-auto border-b border-white/10 pb-4 pt-1 shrink-0">
-        <div className="min-w-0">
+      <div className="sticky top-0 z-50 bg-[#07090e]/90 backdrop-blur-xl flex flex-wrap md:flex-nowrap items-center justify-between gap-3 sm:gap-4 w-full max-w-5xl mx-auto border-b border-white/10 pb-4 pt-1 shrink-0">
+        <div className="min-w-0 shrink-0">
           <span className="text-[11px] font-bold uppercase tracking-widest text-indigo-400">
             Now Playing
           </span>
-          <p className="text-xs text-neutral-400 truncate mt-0.5 max-w-[200px] sm:max-w-xs">
+          <p className="text-xs text-neutral-400 truncate mt-0.5 max-w-[150px] sm:max-w-xs">
             {currentSong.folder || 'Personal Library'}
           </p>
         </div>
 
-        {/* Tab Segmented Control */}
-        <div className="flex items-center gap-1 p-1 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md">
-          {tabs.map((tab) => {
-            const isActive = activeModalTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveModalTab(tab.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                  isActive
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                    : 'text-neutral-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                {tab.icon}
-                <span className="hidden sm:inline">{tab.label}</span>
-              </button>
-            );
-          })}
+        {/* Tab Segmented Control (Horizontally scrollable, single row, no wrapping, labels fully visible) */}
+        <div className="w-full md:w-auto md:flex-1 min-w-0 flex justify-start md:justify-center order-last md:order-none">
+          <div
+            ref={tabContainerRef}
+            className="flex items-center gap-1 p-1 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md overflow-x-auto no-scrollbar scroll-smooth overscroll-x-contain max-w-full min-w-0 touch-pan-x"
+            style={{ WebkitOverflowScrolling: 'touch' }}
+          >
+            {tabs.map((tab) => {
+              const isActive = activeModalTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  ref={isActive ? activeTabRef : null}
+                  onClick={() => setActiveModalTab(tab.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap select-none ${
+                    isActive
+                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                      : 'text-neutral-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <span className="shrink-0">{tab.icon}</span>
+                  <span className="whitespace-nowrap">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {/* 3D Spatial Theatre Quick Indicator / Switch */}
           <button
             onClick={() => setActiveModalTab('equalizer')}
@@ -172,7 +209,7 @@ export const NowPlayingModal: React.FC = () => {
             {/* Big Artwork */}
             <div className="relative group shrink-0">
               <Artwork
-                src={currentSong.coverArt}
+                src={currentSong.coverArt || currentSong.artwork}
                 title={currentSong.title}
                 artist={currentSong.artist}
                 size="xl"
@@ -194,7 +231,7 @@ export const NowPlayingModal: React.FC = () => {
                 </div>
 
                 <button
-                  onClick={() => toggleFavorite(currentSong.id)}
+                  onClick={() => toggleFavorite(currentSong.id, currentSong)}
                   className={`p-2.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors ${
                     currentSong.isFavorite ? 'text-rose-500' : 'text-neutral-400'
                   }`}

@@ -25,10 +25,12 @@ export const SongRow: React.FC<SongRowProps> = ({
   onToggleSelect
 }) => {
   const { currentSong, isPlaying, playSong, togglePlay, addToQueueNext } = usePlayerStore();
-  const { toggleFavorite } = useLibraryStore();
+  const { songs: librarySongs, toggleFavorite } = useLibraryStore();
   const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
 
   const isCurrent = currentSong?.id === song.id;
+  const libSong = librarySongs.find((s) => s.id === song.id);
+  const isFav = libSong ? libSong.isFavorite : (isCurrent ? currentSong.isFavorite : song.isFavorite);
 
   const handleRowClick = () => {
     if (isSelectMode && onToggleSelect) {
@@ -158,14 +160,14 @@ export const SongRow: React.FC<SongRowProps> = ({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              toggleFavorite(song.id);
+              toggleFavorite(song.id, song);
             }}
             className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors ${
-              song.isFavorite ? 'text-rose-500 opacity-100' : 'text-neutral-400'
+              isFav ? 'text-rose-500 opacity-100' : 'text-neutral-400'
             }`}
-            title={song.isFavorite ? 'Remove from Favourites' : 'Add to Favourites'}
+            title={isFav ? 'Remove from Favourites' : 'Add to Favourites'}
           >
-            <Heart size={15} className={song.isFavorite ? 'fill-rose-500' : ''} />
+            <Heart size={15} className={isFav ? 'fill-rose-500' : ''} />
           </button>
 
           <button

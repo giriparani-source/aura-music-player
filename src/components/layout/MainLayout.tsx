@@ -93,7 +93,7 @@ export const MainLayout: React.FC = () => {
         case 'KeyF':
           if (currentSong) {
             e.preventDefault();
-            toggleFavorite(currentSong.id);
+            toggleFavorite(currentSong.id, currentSong);
           }
           break;
         case 'Escape':
@@ -136,7 +136,7 @@ export const MainLayout: React.FC = () => {
         <Header />
 
         {/* Scrollable View Content with Suspense Skeleton */}
-        <main className="flex-1 overflow-y-auto pb-28 md:pb-24">
+        <main className="flex-1 overflow-y-auto pb-36 md:pb-24">
           {isLoading ? (
             <div className="flex flex-col items-center justify-center h-64 text-neutral-500">
               <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin mb-3" />

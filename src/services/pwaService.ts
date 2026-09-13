@@ -42,18 +42,36 @@ class PwaService {
   }
 
   private registerServiceWorker() {
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker
-          .register('/sw.js')
-          .then((reg) => {
-            console.log('Aura PWA ServiceWorker active:', reg.scope);
-          })
-          .catch((err) => {
-            console.warn('ServiceWorker registration error:', err);
-          });
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+
+    // In development mode (localhost/Vite dev server), do NOT run service workers
+    // to avoid intercepting live ESM modules and causing blank screen issues.
+    if (import.meta.env.DEV) {
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        for (const reg of regs) {
+          reg.unregister();
+        }
       });
+      if ('caches' in window) {
+        caches.keys().then((keys) => {
+          for (const key of keys) {
+            caches.delete(key);
+          }
+        });
+      }
+      return;
     }
+
+    window.addEventListener('load', () => {
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then((reg) => {
+          console.log('Aura PWA ServiceWorker active:', reg.scope);
+        })
+        .catch((err) => {
+          console.warn('ServiceWorker registration error:', err);
+        });
+    });
   }
 
   public async promptInstall(): Promise<boolean> {

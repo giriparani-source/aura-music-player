@@ -62,7 +62,7 @@ interface LibraryStoreState {
   setFavoritesOnly: (val: boolean) => void;
   clearFilters: () => void;
 
-  toggleFavorite: (songId: string) => Promise<void>;
+  toggleFavorite: (songId: string, fallbackSong?: Song) => Promise<void>;
   batchToggleFavorite: (songIds: string[], targetFavorite: boolean) => Promise<void>;
   createPlaylist: (name: string, description?: string) => Promise<Playlist>;
   deletePlaylist: (id: string) => Promise<void>;
@@ -74,6 +74,19 @@ interface LibraryStoreState {
   scanFromFileList: (files: FileList) => Promise<ScanResult>;
   clearLibrary: () => Promise<void>;
 }
+
+type FavoriteListener = (songId: string, isFavorite: boolean) => void;
+const favoriteListeners = new Set<FavoriteListener>();
+
+export const onFavoriteChanged = (listener: FavoriteListener) => {
+  favoriteListeners.add(listener);
+  return () => favoriteListeners.delete(listener);
+};
+
+let songLookupFallback: ((id: string) => Song | undefined) | null = null;
+export const registerSongLookup = (fn: (id: string) => Song | undefined) => {
+  songLookupFallback = fn;
+};
 
 export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   songs: [],
@@ -248,15 +261,27 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       searchQuery: ''
     }),
 
-  toggleFavorite: async (songId: string) => {
+  toggleFavorite: async (songId: string, fallbackSong?: Song) => {
     const { songs } = get();
     let song = songs.find((s) => s.id === songId);
     if (!song) {
       song = await musicDB.getSongById(songId);
     }
+    if (!song && fallbackSong && fallbackSong.id === songId) {
+      song = fallbackSong;
+    }
+    if (!song && songLookupFallback) {
+      song = songLookupFallback(songId);
+    }
     if (song) {
       const newFav = !song.isFavorite;
-      await musicDB.updateSongFavorite(songId, newFav);
+      const existsInDb = await musicDB.getSongById(songId);
+      if (existsInDb) {
+        await musicDB.updateSongFavorite(songId, newFav);
+      } else {
+        await musicDB.saveSong({ ...song, isFavorite: newFav });
+      }
+
       if (songs.some((s) => s.id === songId)) {
         set({
           songs: songs.map((s) => (s.id === songId ? { ...s, isFavorite: newFav } : s))
@@ -266,6 +291,14 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
           songs: [{ ...song, isFavorite: newFav }, ...songs]
         });
       }
+
+      favoriteListeners.forEach((fn) => {
+        try {
+          fn(songId, newFav);
+        } catch (e) {
+          console.warn('Favorite listener error:', e);
+        }
+      });
     }
   },
 

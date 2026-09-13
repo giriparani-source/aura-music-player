@@ -3,7 +3,7 @@ import { Song, RepeatMode, NowPlayingTab, SpatialPreset } from '../types/music';
 import { audioService } from '../services/audioService';
 import { audioEffectsService } from '../services/audioEffectsService';
 import { musicDB } from '../services/db';
-import { useLibraryStore } from './useLibraryStore';
+import { useLibraryStore, onFavoriteChanged, registerSongLookup } from './useLibraryStore';
 import { generateFairShuffleIndices, generatePureRandomIndices } from '../utils/fairShuffle';
 
 interface PlayerStoreState {
@@ -35,7 +35,7 @@ interface PlayerStoreState {
   playbackHistory: string[];
 
   // Actions
-  playSong: (song: Song, customQueue?: Song[]) => Promise<void>;
+  playSong: (song: Song, customQueue?: Song[], targetIndex?: number) => Promise<void>;
   playBatch: (songs: Song[]) => Promise<void>;
   togglePlay: () => void;
   seek: (seconds: number) => void;
@@ -95,6 +95,28 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     });
   });
 
+  // Auto-advance to next song when current track ends
+  audioService.setOnSongEnd(() => {
+    get().nextSong();
+  });
+
+  // Synchronize favorites between library/db and player store (currentSong & queue)
+  onFavoriteChanged((songId, isFavorite) => {
+    const { currentSong, queue } = get();
+    const updatedQueue = queue.map((s) => (s.id === songId ? { ...s, isFavorite } : s));
+    const updatedCurrent = currentSong && currentSong.id === songId ? { ...currentSong, isFavorite } : currentSong;
+    set({
+      currentSong: updatedCurrent,
+      queue: updatedQueue
+    });
+  });
+
+  registerSongLookup((id) => {
+    const { currentSong, queue } = get();
+    if (currentSong && currentSong.id === id) return currentSong;
+    return queue.find((s) => s.id === id);
+  });
+
   return {
     currentSong: null,
     isPlaying: false,
@@ -121,7 +143,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     aiEqStatus: null,
     playbackHistory: [],
 
-    playSong: async (song: Song, customQueue?: Song[]) => {
+    playSong: async (song: Song, customQueue?: Song[], targetIndex?: number) => {
       const { queue, currentSong, playbackHistory, isShuffle, isFairShuffle } = get();
 
       let newQueue = queue;
@@ -130,21 +152,29 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
 
       if (customQueue && customQueue.length > 0) {
         newQueue = customQueue;
-        newIndex = customQueue.findIndex((s) => s.id === song.id);
-        if (newIndex === -1) newIndex = 0;
+        if (targetIndex !== undefined && targetIndex >= 0 && targetIndex < customQueue.length) {
+          newIndex = targetIndex;
+        } else {
+          newIndex = customQueue.findIndex((s) => s.id === song.id);
+          if (newIndex === -1) newIndex = 0;
+        }
         queueChanged = true;
       } else if (queue.length === 0) {
         newQueue = [song];
         newIndex = 0;
         queueChanged = true;
       } else {
-        const found = queue.findIndex((s) => s.id === song.id);
-        if (found !== -1) {
-          newIndex = found;
+        if (targetIndex !== undefined && targetIndex >= 0 && targetIndex < queue.length) {
+          newIndex = targetIndex;
         } else {
-          newQueue = [...queue, song];
-          newIndex = newQueue.length - 1;
-          queueChanged = true;
+          const found = queue.findIndex((s) => s.id === song.id);
+          if (found !== -1) {
+            newIndex = found;
+          } else {
+            newQueue = [...queue, song];
+            newIndex = newQueue.length - 1;
+            queueChanged = true;
+          }
         }
       }
 
@@ -346,19 +376,38 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     },
 
     addToQueueNext: (song: Song) => {
-      const { queue, queueIndex } = get();
+      const { queue, queueIndex, shuffledQueueOrder } = get();
+      const insertAt = queueIndex + 1;
       const newQueue = [...queue];
-      newQueue.splice(queueIndex + 1, 0, song);
-      set({ queue: newQueue });
+      newQueue.splice(insertAt, 0, song);
+      let newShuffleOrder = shuffledQueueOrder;
+      if (newShuffleOrder && newShuffleOrder.length > 0) {
+        newShuffleOrder = newShuffleOrder.map((i) => (i >= insertAt ? i + 1 : i));
+        newShuffleOrder.push(insertAt);
+      }
+      set({ queue: newQueue, shuffledQueueOrder: newShuffleOrder });
     },
 
     addToQueueEnd: (song: Song) => {
-      set((state) => ({ queue: [...state.queue, song] }));
+      set((state) => {
+        const newIndex = state.queue.length;
+        const newShuffleOrder = state.shuffledQueueOrder && state.shuffledQueueOrder.length > 0
+          ? [...state.shuffledQueueOrder, newIndex]
+          : state.shuffledQueueOrder;
+        return { queue: [...state.queue, song], shuffledQueueOrder: newShuffleOrder };
+      });
     },
 
     addMultipleToQueue: (songs: Song[]) => {
       if (songs.length === 0) return;
-      set((state) => ({ queue: [...state.queue, ...songs] }));
+      set((state) => {
+        const startIdx = state.queue.length;
+        const newItemsShuffle = songs.map((_, i) => startIdx + i);
+        const newShuffleOrder = state.shuffledQueueOrder && state.shuffledQueueOrder.length > 0
+          ? [...state.shuffledQueueOrder, ...newItemsShuffle]
+          : state.shuffledQueueOrder;
+        return { queue: [...state.queue, ...songs], shuffledQueueOrder: newShuffleOrder };
+      });
     },
 
     removeFromQueue: (index: number) => {
@@ -368,8 +417,18 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         let newIndex = state.queueIndex;
         if (index < state.queueIndex) {
           newIndex--;
+        } else if (index === state.queueIndex && newIndex >= newQueue.length) {
+          newIndex = Math.max(0, newQueue.length - 1);
         }
-        return { queue: newQueue, queueIndex: newIndex };
+
+        let newShuffleOrder = state.shuffledQueueOrder;
+        if (newShuffleOrder && newShuffleOrder.length > 0) {
+          newShuffleOrder = newShuffleOrder
+            .filter((i) => i !== index)
+            .map((i) => (i > index ? i - 1 : i));
+        }
+
+        return { queue: newQueue, queueIndex: newIndex, shuffledQueueOrder: newShuffleOrder };
       });
     },
 

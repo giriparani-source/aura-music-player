@@ -63,14 +63,14 @@ export const BottomPlayer: React.FC = () => {
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 h-20 bg-[#0e1118]/90 backdrop-blur-2xl border-t border-white/10 px-4 sm:px-6 flex items-center justify-between z-40 select-none shadow-2xl">
+    <div className="fixed bottom-16 md:bottom-0 left-0 right-0 h-20 bg-[#0e1118]/90 backdrop-blur-2xl border-t border-white/10 px-4 sm:px-6 flex items-center justify-between z-40 select-none shadow-2xl">
       {/* 1. Track Info (Left) */}
       <div className="flex items-center gap-3.5 w-1/4 min-w-[180px] max-w-[280px]">
         <div
           onClick={() => setNowPlayingOpen(true)}
           className="cursor-pointer transition-transform hover:scale-105 shrink-0"
         >
-          <Artwork src={currentSong.coverArt} title={currentSong.title} artist={currentSong.artist} size="md" />
+          <Artwork src={currentSong.coverArt || currentSong.artwork} title={currentSong.title} artist={currentSong.artist} size="md" />
         </div>
 
         <div className="min-w-0 flex-1">
@@ -97,7 +97,7 @@ export const BottomPlayer: React.FC = () => {
         </div>
 
         <button
-          onClick={() => toggleFavorite(currentSong.id)}
+          onClick={() => toggleFavorite(currentSong.id, currentSong)}
           className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors shrink-0 ${
             currentSong.isFavorite ? 'text-rose-500' : 'text-neutral-400'
           }`}

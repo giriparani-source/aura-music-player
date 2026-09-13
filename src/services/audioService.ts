@@ -50,6 +50,9 @@ class AudioService {
     this.audio.preload = 'auto';
     this.audio.crossOrigin = 'anonymous';
     this.audio.volume = 0.8;
+    if (typeof window !== 'undefined') {
+      (window as any).__auraAudio = this.audio;
+    }
     this.setupListeners();
     this.setupCloudListeners();
   }
@@ -244,7 +247,10 @@ class AudioService {
   }
 
   private extractYouTubeVideoId(song: Song): string | null {
-    if (song.sourceId && song.sourceId.length >= 8) {
+    if (song.isSaavn || song.filePath?.includes('saavncdn.com')) {
+      return null;
+    }
+    if (song.sourceId && song.sourceId.length >= 8 && song.sourceId.length <= 15 && (song.id?.startsWith('online_') || song.id?.startsWith('cloud_') || song.isOnline)) {
       return song.sourceId;
     }
     if (song.id && song.id.startsWith('online_')) {
@@ -254,7 +260,7 @@ class AudioService {
       return song.id.replace('cloud_', '');
     }
     const pathStr = song.filePath || song.path || '';
-    const match = pathStr.match(/[?&]id=([^&]+)/) || pathStr.match(/v=([^&]+)/);
+    const match = pathStr.match(/(?:youtube\.com\/(?:watch\?.*v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{11})/i);
     if (match && match[1]) {
       return match[1];
     }
@@ -325,11 +331,15 @@ class AudioService {
           if (registeredFile) {
             source = URL.createObjectURL(registeredFile);
             this.currentObjectUrl = source;
-          } else if (song.filePath && !song.filePath.startsWith('blob:')) {
+          } else if (song.filePath && (song.filePath.startsWith('http://') || song.filePath.startsWith('https://') || song.filePath.startsWith('/api/'))) {
             source = song.filePath;
-          } else if (song.path && !song.path.startsWith('blob:')) {
+          } else if (song.path && (song.path.startsWith('http://') || song.path.startsWith('https://') || song.path.startsWith('/api/'))) {
             source = song.path;
-          } else {
+          } else if (song.path && !song.path.startsWith('blob:')) {
+            source = `/api/audio?path=${encodeURIComponent(song.path)}`;
+          } else if (song.fileName) {
+            source = `/api/audio?path=${encodeURIComponent(song.fileName)}`;
+          } else if (song.title) {
             // Dynamically resolve audio stream for this specific song
             const searchResults = await searchJioSaavn(song.title);
             if (thisRequestId !== this.playRequestId) return;
@@ -354,7 +364,10 @@ class AudioService {
   }
 
   private async playDirectHtml5Audio(song: Song, sourceUrl?: string, requestId?: number) {
-    if (!sourceUrl) return;
+    if (!sourceUrl) {
+      this.notify('Cannot play audio file. File not found.');
+      return;
+    }
     if (requestId !== undefined && requestId !== this.playRequestId) return;
 
     this.isUsingCloudPlayer = false;
@@ -418,9 +431,10 @@ class AudioService {
         .trim();
 
       const lower = cleanTitle.toLowerCase();
-      const preset = PRESET_SAAVN_320K_HITS.find((p) =>
-        p.title.toLowerCase().includes(lower) || lower.includes(p.title.toLowerCase())
-      );
+      const preset = PRESET_SAAVN_320K_HITS.find((p) => {
+        const pLower = p.title.toLowerCase().trim();
+        return pLower === lower || (lower.length >= 4 && pLower.includes(lower));
+      });
 
       let fallbackUrl = (preset?.filePath && preset.filePath !== song.filePath) ? preset.filePath : '';
 

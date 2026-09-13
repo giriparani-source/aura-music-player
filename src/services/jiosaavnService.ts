@@ -167,7 +167,16 @@ class JioSaavnService {
       }
 
       if (rawResults.length > 0) {
-        const formatted: Song[] = rawResults.map((item: any) => {
+        const queryWords = q.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter((w) => w.length >= 3);
+        const relevantResults = queryWords.length > 0
+          ? rawResults.filter((item: any) => {
+              const itemTitle = (item.name || item.title || '').toLowerCase();
+              const itemArtist = (item.primaryArtists || item.singers || '').toLowerCase();
+              return queryWords.some((w) => itemTitle.includes(w) || itemArtist.includes(w));
+            })
+          : rawResults;
+
+        const formatted: Song[] = relevantResults.map((item: any) => {
           // Extract 320kbps URL
           const dlUrls = item.downloadUrl || [];
           const bestUrlObj = dlUrls.find((d: any) => d.quality === '320kbps') || dlUrls[dlUrls.length - 1];
@@ -222,7 +231,7 @@ class JioSaavnService {
         s.album.toLowerCase().includes(lower)
     );
 
-    return matchingPresets.length > 0 ? matchingPresets : PRESET_SAAVN_320K_HITS;
+    return matchingPresets;
   }
 
   public getCuratedHits(): Song[] {

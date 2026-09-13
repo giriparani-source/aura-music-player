@@ -317,7 +317,7 @@ export const InbuiltPlaylistModal: React.FC<InbuiltPlaylistModalProps> = ({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      toggleFavorite(song.id);
+                      toggleFavorite(song.id, song);
                     }}
                     className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors ${
                       song.isFavorite ? 'text-rose-500' : 'text-neutral-500 hover:text-white'
