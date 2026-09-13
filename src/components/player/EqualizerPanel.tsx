@@ -178,46 +178,46 @@ export const EqualizerPanel: React.FC = () => {
         </div>
 
         {/* Sub-tab Navigation */}
-        <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md">
+        <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md overflow-x-auto no-scrollbar max-w-full shrink-0">
           <button
             onClick={() => setActiveTab('eq')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
               activeTab === 'eq'
                 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
                 : 'text-neutral-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            <Sliders size={13} />
+            <Sliders size={13} className="shrink-0" />
             <span>10-Band EQ</span>
           </button>
 
           <button
             onClick={() => setActiveTab('spatial')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
               activeTab === 'spatial'
                 ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow-md shadow-amber-600/30'
                 : 'text-neutral-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            <Film size={13} />
+            <Film size={13} className="shrink-0" />
             <span>3D Spatial (Theatre)</span>
           </button>
 
           <button
             onClick={() => setActiveTab('karaoke-dj')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
               activeTab === 'karaoke-dj'
                 ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-600/30'
                 : 'text-neutral-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            <Mic2 size={13} />
+            <Mic2 size={13} className="shrink-0" />
             <span>Karaoke & Crossfade</span>
           </button>
 
           <button
             onClick={() => setNowPlayingOpen(false)}
-            className="p-1.5 rounded-xl bg-white/5 hover:bg-white/15 text-neutral-400 hover:text-white transition-colors cursor-pointer border border-white/5 ml-1"
+            className="p-1.5 rounded-xl bg-white/5 hover:bg-white/15 text-neutral-400 hover:text-white transition-colors cursor-pointer border border-white/5 ml-1 shrink-0"
             title="Close Panel"
             aria-label="Close"
           >

@@ -62,26 +62,66 @@ export const NowPlayingModal: React.FC = () => {
   const tabContainerRef = React.useRef<HTMLDivElement>(null);
   const activeTabRef = React.useRef<HTMLButtonElement>(null);
 
-  // Auto-scroll active tab smoothly into view when selected
-  useEffect(() => {
-    if (activeTabRef.current && tabContainerRef.current) {
-      activeTabRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest',
-        inline: 'nearest'
-      });
-    }
-  }, [activeModalTab]);
+  // Smoothly scroll active tab into view inside the horizontal tab container
+  const scrollActiveTabIntoView = React.useCallback((smooth: boolean = true) => {
+    requestAnimationFrame(() => {
+      const container = tabContainerRef.current;
+      const tab = activeTabRef.current;
+      if (!container || !tab) return;
 
-  // Support horizontal mouse wheel / trackpad scrolling over tab row
+      const containerRect = container.getBoundingClientRect();
+      const tabRect = tab.getBoundingClientRect();
+
+      if (tabRect.left < containerRect.left) {
+        container.scrollTo({
+          left: container.scrollLeft + (tabRect.left - containerRect.left) - 16,
+          behavior: smooth ? 'smooth' : 'auto'
+        });
+      } else if (tabRect.right > containerRect.right) {
+        container.scrollTo({
+          left: container.scrollLeft + (tabRect.right - containerRect.right) + 16,
+          behavior: smooth ? 'smooth' : 'auto'
+        });
+      }
+    });
+  }, []);
+
+  // Auto-scroll on tab switch
+  useEffect(() => {
+    if (!isNowPlayingOpen) return;
+    scrollActiveTabIntoView(true);
+  }, [activeModalTab, isNowPlayingOpen, scrollActiveTabIntoView]);
+
+  // Initial scroll into view on modal mount/open after layout completes
+  useEffect(() => {
+    if (!isNowPlayingOpen) return;
+    scrollActiveTabIntoView(false);
+    const timer = setTimeout(() => {
+      scrollActiveTabIntoView(false);
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [isNowPlayingOpen, scrollActiveTabIntoView]);
+
+  // Auto-scroll on window resize to ensure active tab remains visible
+  useEffect(() => {
+    if (!isNowPlayingOpen) return;
+    const handleResize = () => {
+      scrollActiveTabIntoView(false);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isNowPlayingOpen, scrollActiveTabIntoView]);
+
+  // Support horizontal mouse wheel and trackpad scrolling over tab row
   useEffect(() => {
     const el = tabContainerRef.current;
-    if (!el) return;
+    if (!el || !isNowPlayingOpen) return;
 
     const handleWheel = (e: WheelEvent) => {
-      if (e.deltaY !== 0 && el.scrollWidth > el.clientWidth) {
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (delta !== 0 && el.scrollWidth > el.clientWidth) {
         e.preventDefault();
-        el.scrollLeft += e.deltaY;
+        el.scrollLeft += delta;
       }
     };
 
@@ -114,7 +154,7 @@ export const NowPlayingModal: React.FC = () => {
   ];
 
   return (
-    <div className="fixed inset-0 z-[60] bg-[#07090e]/95 backdrop-blur-3xl flex flex-col p-4 sm:p-6 select-none overflow-y-auto animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[60] bg-[#07090e]/95 backdrop-blur-3xl flex flex-col p-4 sm:p-6 select-none overflow-y-auto overflow-x-hidden animate-in fade-in duration-200">
       {/* Top Header */}
       <div className="sticky top-0 z-50 bg-[#07090e]/90 backdrop-blur-xl flex flex-wrap md:flex-nowrap items-center justify-between gap-3 sm:gap-4 w-full max-w-5xl mx-auto border-b border-white/10 pb-4 pt-1 shrink-0">
         <div className="min-w-0 shrink-0">
@@ -127,10 +167,10 @@ export const NowPlayingModal: React.FC = () => {
         </div>
 
         {/* Tab Segmented Control (Horizontally scrollable, single row, no wrapping, labels fully visible) */}
-        <div className="w-full md:w-auto md:flex-1 min-w-0 flex justify-start md:justify-center order-last md:order-none">
+        <div className="w-full md:w-auto md:flex-1 min-w-0 overflow-hidden flex justify-start md:justify-center order-last md:order-none">
           <div
             ref={tabContainerRef}
-            className="flex items-center gap-1 p-1 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md overflow-x-auto no-scrollbar scroll-smooth overscroll-x-contain max-w-full min-w-0 touch-pan-x"
+            className="flex items-center gap-1 p-1 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md overflow-x-auto overflow-y-hidden no-scrollbar overscroll-x-contain max-w-full min-w-0 touch-pan-x"
             style={{ WebkitOverflowScrolling: 'touch' }}
           >
             {tabs.map((tab) => {
