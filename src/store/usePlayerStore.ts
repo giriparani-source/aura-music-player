@@ -193,7 +193,8 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       if (nextTrack) {
         const flowSong: Song = {
           ...nextTrack,
-          isAuraFlow: true
+          isAuraFlow: true,
+          auraReason: nextTrack.auraReason
         };
         const newQueue = [...state.queue, flowSong];
         let newShuffleOrder = state.shuffledQueueOrder;
@@ -298,6 +299,9 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       });
 
       await audioService.playSong(song);
+      if (song.isAuraFlow) {
+        auraFlowService.recordAuraTrackStart(song);
+      }
       if (get().isAuraFlow) {
         setTimeout(() => ensureAuraFlowBuffer(), 100);
       }
@@ -398,7 +402,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
           };
           const nextTrack = auraFlowService.getNextTrack(context);
           if (nextTrack) {
-            const flowSong: Song = { ...nextTrack, isAuraFlow: true };
+            const flowSong: Song = { ...nextTrack, isAuraFlow: true, auraReason: nextTrack.auraReason };
             const newQueue = [...queue, flowSong];
             const nextIdx = newQueue.length - 1;
             const newOrder = [...order, nextIdx];
@@ -411,6 +415,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
               playbackHistory: updatedHistory
             });
             audioService.playSong(flowSong);
+            auraFlowService.recordAuraTrackStart(flowSong);
             setTimeout(() => ensureAuraFlowBuffer(), 100);
             return;
           } else {
@@ -440,7 +445,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
           };
           const nextTrack = auraFlowService.getNextTrack(context);
           if (nextTrack) {
-            const flowSong: Song = { ...nextTrack, isAuraFlow: true };
+            const flowSong: Song = { ...nextTrack, isAuraFlow: true, auraReason: nextTrack.auraReason };
             const newQueue = [...queue, flowSong];
             const nextIdx = newQueue.length - 1;
             const updatedHistory = currentSong ? [...playbackHistory, currentSong.id] : playbackHistory;
@@ -451,6 +456,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
               playbackHistory: updatedHistory
             });
             audioService.playSong(flowSong);
+            auraFlowService.recordAuraTrackStart(flowSong);
             setTimeout(() => ensureAuraFlowBuffer(), 100);
             return;
           } else {
@@ -472,6 +478,9 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
           playbackHistory: updatedHistory
         });
         audioService.playSong(nextSongItem);
+        if (nextSongItem.isAuraFlow) {
+          auraFlowService.recordAuraTrackStart(nextSongItem);
+        }
         if (get().isAuraFlow) {
           setTimeout(() => ensureAuraFlowBuffer(), 100);
         }

@@ -7,7 +7,7 @@
  * that balances continuity, user feedback, availability, and anti-clustering diversity.
  */
 
-import { Song } from '../types/music';
+import { Song, AuraRecommendationReason } from '../types/music';
 import {
   inferSongVibe,
   calculateVibeSimilarity,
@@ -18,7 +18,77 @@ import { TOP_50_TRACKS } from './inbuiltPlaylistsService';
 import { UserAffinityProfile, auraAffinityService } from './auraAffinityService';
 import { auraSkipService } from './auraSkipService';
 
-export type { UserAffinityProfile };
+export type { UserAffinityProfile, AuraRecommendationReason };
+
+export const AURA_REASON_LABELS: Record<AuraRecommendationReason, string> = {
+  discovery_pick: 'Fresh Discovery',
+  favorite_artist: 'Top Artist',
+  artist_continuity: 'Artist Match',
+  vibe_continuity: 'Vibe Match',
+  affinity_match: 'Affinity Pick',
+  curated_pick: 'Curated Pick'
+};
+
+export function getAuraReasonLabel(reason?: AuraRecommendationReason): string {
+  if (!reason) return 'Aura Flow';
+  return AURA_REASON_LABELS[reason] || 'Aura Flow';
+}
+
+/**
+ * Derives a truthful recommendation explanation based on the winning candidate's actual score breakdown.
+ * Follows strict deterministic priority and suppresses positive personalization claims if the track carries
+ * a heavy persistent skip penalty.
+ */
+export function deriveAuraReason(
+  breakdown: Record<string, number>,
+  isDiscoveryActive: boolean = false
+): AuraRecommendationReason {
+  const hasStrongSkipPenalty =
+    breakdown.persistentSkipPenalty !== undefined &&
+    Math.abs(breakdown.persistentSkipPenalty) >= 20;
+
+  // 1. Discovery Pick: Eligible Tier 1 track boosted during active discovery window
+  if (
+    (breakdown.discoveryBonus !== undefined && breakdown.discoveryBonus > 0) ||
+    (isDiscoveryActive && breakdown.playCountDiscovery !== undefined && breakdown.playCountDiscovery > 0)
+  ) {
+    return 'discovery_pick';
+  }
+
+  if (!hasStrongSkipPenalty) {
+    // 2. Favorite Artist: User's top favorite/affinity artist
+    if (
+      (breakdown.favoriteArtistBonus !== undefined && breakdown.favoriteArtistBonus > 0) ||
+      (breakdown.longTermArtistAffinity !== undefined && breakdown.longTermArtistAffinity >= 10)
+    ) {
+      return 'favorite_artist';
+    }
+
+    // 3. Artist Continuity: Direct artist match or collaboration with current song's artist
+    if (
+      (breakdown.artistMatch !== undefined && breakdown.artistMatch >= 30) ||
+      (breakdown.artistCollab !== undefined && breakdown.artistCollab >= 15)
+    ) {
+      return 'artist_continuity';
+    }
+
+    // 4. Vibe Continuity: Strong semantic mood/vibe alignment with current song
+    if (breakdown.vibeMatch !== undefined && breakdown.vibeMatch >= 18) {
+      return 'vibe_continuity';
+    }
+
+    // 5. Affinity Match: User's general vibe affinity or favorite track
+    if (
+      (breakdown.longTermVibeAffinity !== undefined && breakdown.longTermVibeAffinity >= 6) ||
+      (breakdown.favorite !== undefined && breakdown.favorite > 0)
+    ) {
+      return 'affinity_match';
+    }
+  }
+
+  // 6. Curated / General Pick fallback
+  return 'curated_pick';
+}
 
 export interface FlowWeights {
   artistMatch: number;
@@ -39,6 +109,8 @@ export interface FlowWeights {
   favoriteArtistBonus: number;
   // Persistent Skip Learning (Phase 5.3)
   persistentSkipPenalty: number;
+  // Dynamic Discovery Pacing (Phase 5.4)
+  discoveryBonus: number;
 }
 
 export const DEFAULT_FLOW_WEIGHTS: FlowWeights = {
@@ -59,7 +131,9 @@ export const DEFAULT_FLOW_WEIGHTS: FlowWeights = {
   longTermVibeAffinity: 10,
   favoriteArtistBonus: 5,
   // Persistent Skip Learning (Phase 5.3)
-  persistentSkipPenalty: 35
+  persistentSkipPenalty: 35,
+  // Dynamic Discovery Pacing (Phase 5.4)
+  discoveryBonus: 20
 };
 
 export interface FlowContext {
@@ -72,6 +146,7 @@ export interface FlowContext {
   isOnline: boolean;
   weights?: Partial<FlowWeights>;
   affinityProfile?: UserAffinityProfile | null; // Optional override for testing or custom context (Phase 5.2)
+  isDiscoveryActive?: boolean;                  // Optional override for testing or custom context (Phase 5.4)
 }
 
 export interface CandidateScore {
@@ -85,6 +160,7 @@ class AuraFlowService {
   private sessionSkips: Map<string, number> = new Map();       // songId -> count
   private sessionReplays: Set<string> = new Set();             // songId
   private skippedArtists: Map<string, number> = new Map();     // normalized artist -> count
+  private consecutiveFamiliarCount: number = 0;                // Phase 5.4 discovery pacing counter
 
   public setWeights(customWeights: Partial<FlowWeights>) {
     this.weights = { ...this.weights, ...customWeights };
@@ -94,10 +170,23 @@ class AuraFlowService {
     return { ...this.weights };
   }
 
+  public getConsecutiveFamiliarCount(): number {
+    return this.consecutiveFamiliarCount;
+  }
+
+  public setConsecutiveFamiliarCount(count: number): void {
+    this.consecutiveFamiliarCount = Math.max(0, count);
+  }
+
+  public isDiscoveryWindowActive(): boolean {
+    return this.consecutiveFamiliarCount >= 3;
+  }
+
   public resetSession() {
     this.sessionSkips.clear();
     this.sessionReplays.clear();
     this.skippedArtists.clear();
+    this.consecutiveFamiliarCount = 0;
   }
 
   // --- Long-Term Affinity Profile (Phase 5.1) ---
@@ -161,6 +250,25 @@ class AuraFlowService {
   public recordFavorite(songId: string) {
     this.sessionSkips.delete(songId);
     auraSkipService.recordFavorite(songId);
+  }
+
+  /**
+   * Records when an Aura Flow track ACTUALLY starts playing (Phase 5.4).
+   * Updates discovery pacing counters based on song familiarity.
+   * - Tier 1 (playCount === 0): resets consecutiveFamiliarCount to 0
+   * - Tier 2 (playCount === 1): decrements consecutiveFamiliarCount by 1
+   * - Tier 3 (playCount > 1): increments consecutiveFamiliarCount by 1
+   */
+  public recordAuraTrackStart(song: Song): void {
+    if (!song) return;
+    const playCount = song.playCount || 0;
+    if (playCount === 0) {
+      this.consecutiveFamiliarCount = 0;
+    } else if (playCount === 1) {
+      this.consecutiveFamiliarCount = Math.max(0, this.consecutiveFamiliarCount - 1);
+    } else {
+      this.consecutiveFamiliarCount += 1;
+    }
   }
 
   // --- Candidate Generation & Filtering ---
@@ -409,7 +517,18 @@ class AuraFlowService {
       breakdown.persistentSkipPenalty = 0;
     }
 
-    // 13. Exploration Jitter (Prevents deterministic loops)
+    // 13. Dynamic Discovery Bonus (Phase 5.4)
+    const isDiscoveryActive =
+      context.isDiscoveryActive !== undefined
+        ? context.isDiscoveryActive
+        : this.isDiscoveryWindowActive();
+
+    if (isDiscoveryActive && playCount === 0) {
+      breakdown.discoveryBonus = weights.discoveryBonus;
+      totalScore += weights.discoveryBonus;
+    }
+
+    // 14. Exploration Jitter (Prevents deterministic loops)
     if (weights.explorationJitter > 0) {
       const jitter = Math.round(Math.random() * weights.explorationJitter);
       breakdown.jitter = jitter;
@@ -424,34 +543,52 @@ class AuraFlowService {
   /**
    * Selects a candidate using simple weighted-random selection among the top 3 candidates.
    * This ensures high contextual relevance while avoiding deterministic loops.
+   * Attaches the truthful auraReason explanation to the winning track.
    */
-  public selectNextTrack(scoredCandidates: CandidateScore[]): Song | null {
+  public selectNextTrack(
+    scoredCandidates: CandidateScore[],
+    isDiscoveryActiveOverride?: boolean
+  ): Song | null {
     if (scoredCandidates.length === 0) return null;
-    if (scoredCandidates.length === 1) return scoredCandidates[0].song;
 
-    // Take up to top 3
-    const topCandidates = scoredCandidates.slice(0, 3);
+    let winnerScore: CandidateScore;
 
-    if (topCandidates.length === 2) {
-      const rand = Math.random();
-      return rand < 0.75 ? topCandidates[0].song : topCandidates[1].song;
-    }
-
-    // 3 candidates: 65% for #1, 25% for #2, 10% for #3
-    const rand = Math.random();
-    if (rand < 0.65) {
-      return topCandidates[0].song;
-    } else if (rand < 0.9) {
-      return topCandidates[1].song;
+    if (scoredCandidates.length === 1) {
+      winnerScore = scoredCandidates[0];
     } else {
-      return topCandidates[2].song;
+      const topCandidates = scoredCandidates.slice(0, 3);
+      if (topCandidates.length === 2) {
+        const rand = Math.random();
+        winnerScore = rand < 0.75 ? topCandidates[0] : topCandidates[1];
+      } else {
+        const rand = Math.random();
+        if (rand < 0.65) {
+          winnerScore = topCandidates[0];
+        } else if (rand < 0.9) {
+          winnerScore = topCandidates[1];
+        } else {
+          winnerScore = topCandidates[2];
+        }
+      }
     }
+
+    const isDiscoveryActive =
+      isDiscoveryActiveOverride !== undefined
+        ? isDiscoveryActiveOverride
+        : this.isDiscoveryWindowActive();
+    const reason = deriveAuraReason(winnerScore.breakdown, isDiscoveryActive);
+
+    return {
+      ...winnerScore.song,
+      auraReason: reason
+    };
   }
 
   // --- Main Entry Point ---
 
   /**
    * Generates, scores, and selects the next intelligent track for Aura Flow.
+   * Consumes the discovery window for this single recommendation cycle.
    */
   public getNextTrack(context: FlowContext): Song | null {
     const candidates = this.generateCandidates(context);
@@ -459,14 +596,25 @@ class AuraFlowService {
 
     const weights = { ...this.weights, ...(context.weights || {}) };
 
+    // Check if discovery window is active for this recommendation
+    const isDiscoveryActive =
+      context.isDiscoveryActive !== undefined
+        ? context.isDiscoveryActive
+        : this.isDiscoveryWindowActive();
+
+    // Consume the discovery window immediately so only this recommendation receives the opportunity
+    if (context.isDiscoveryActive === undefined && this.isDiscoveryWindowActive()) {
+      this.consecutiveFamiliarCount = 0;
+    }
+
     const scored: CandidateScore[] = candidates.map((candidate) =>
-      this.scoreCandidate(candidate, context.currentSong, context, weights)
+      this.scoreCandidate(candidate, context.currentSong, { ...context, isDiscoveryActive }, weights)
     );
 
     // Sort descending by total score
     scored.sort((a, b) => b.totalScore - a.totalScore);
 
-    return this.selectNextTrack(scored);
+    return this.selectNextTrack(scored, isDiscoveryActive);
   }
 }
 

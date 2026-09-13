@@ -33,6 +33,7 @@ import { LyricsView } from './LyricsView';
 import { AiSongInsights } from './AiSongInsights';
 import { SleepTimerMenu } from './SleepTimerMenu';
 import { NowPlayingTab } from '../../types/music';
+import { getAuraReasonLabel } from '../../services/auraFlowService';
 
 export const NowPlayingModal: React.FC = () => {
   const {
@@ -385,9 +386,12 @@ export const NowPlayingModal: React.FC = () => {
                         </span>
                       )}
                       {currentSong.isAuraFlow && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30">
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30"
+                          title={`Aura Flow Recommendation: ${getAuraReasonLabel(currentSong.auraReason)}`}
+                        >
                           <Sparkles size={10} />
-                          Aura Flow
+                          {getAuraReasonLabel(currentSong.auraReason)}
                         </span>
                       )}
                       {currentSong.bitrate && (

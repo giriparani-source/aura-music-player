@@ -3,6 +3,7 @@ import { X, Trash2, Music2, Shuffle, Sparkles, Infinity as InfinityIcon } from '
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { formatTime } from '../../utils/formatters';
 import { Artwork } from '../common/Artwork';
+import { getAuraReasonLabel } from '../../services/auraFlowService';
 
 export const QueueDrawer: React.FC = () => {
   const {
@@ -153,9 +154,12 @@ export const QueueDrawer: React.FC = () => {
                       {song.title}
                     </h5>
                     {song.isAuraFlow && (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 shrink-0">
+                      <span
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 shrink-0"
+                        title={`Aura Flow Recommendation: ${getAuraReasonLabel(song.auraReason)}`}
+                      >
                         <Sparkles size={8} />
-                        Aura Flow
+                        {getAuraReasonLabel(song.auraReason)}
                       </span>
                     )}
                   </div>

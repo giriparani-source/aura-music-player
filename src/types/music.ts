@@ -33,7 +33,16 @@ export interface Song {
   isDownloaded?: boolean;
   downloadedAt?: number;
   isAuraFlow?: boolean;
+  auraReason?: AuraRecommendationReason;
 }
+
+export type AuraRecommendationReason =
+  | 'discovery_pick'
+  | 'favorite_artist'
+  | 'artist_continuity'
+  | 'vibe_continuity'
+  | 'affinity_match'
+  | 'curated_pick';
 
 export type DownloadState = 'not-downloaded' | 'downloading' | 'downloaded' | 'failed';
 
