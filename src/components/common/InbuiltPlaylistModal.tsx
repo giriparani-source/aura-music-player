@@ -17,6 +17,7 @@ import { usePlayerStore } from '../../store/usePlayerStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { Song } from '../../types/music';
 import { formatTime } from '../../utils/formatters';
+import { generateFairShuffleIndices } from '../../utils/fairShuffle';
 import { Artwork } from './Artwork';
 
 interface InbuiltPlaylistModalProps {
@@ -28,7 +29,7 @@ export const InbuiltPlaylistModal: React.FC<InbuiltPlaylistModalProps> = ({
   playlist,
   onClose
 }) => {
-  const { currentSong, isPlaying, togglePlay, playSong, playBatch, addMultipleToQueue } = usePlayerStore();
+  const { currentSong, isPlaying, isShuffle, togglePlay, toggleShuffle, playSong, playBatch, addMultipleToQueue } = usePlayerStore();
   const { songs: localSongs, toggleFavorite } = useLibraryStore();
 
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
@@ -86,11 +87,20 @@ export const InbuiltPlaylistModal: React.FC<InbuiltPlaylistModalProps> = ({
     await playBatch(resolvedTracks);
   };
 
-  // Shuffle Play: True-Fair Shuffle and begin playback
+  // Shuffle Play: Enable shuffle mode in the store and start from a random song
   const handleShufflePlay = async () => {
     if (resolvedTracks.length === 0) return;
-    const shuffled = [...resolvedTracks].sort(() => Math.random() - 0.5);
-    await playBatch(shuffled);
+    // Step 1: Ensure shuffle mode is ON BEFORE calling playSong so the store
+    //         immediately builds the shuffledQueueOrder from the random start index.
+    if (!isShuffle) {
+      toggleShuffle();
+    }
+    // Step 2: Pick a random starting song and call playSong with the full playlist
+    //         as the customQueue. The updated store logic will generate shuffledQueueOrder
+    //         since isShuffle is now true, enabling correct Next/Prev navigation.
+    const randomStart = Math.floor(Math.random() * resolvedTracks.length);
+    const startSong = resolvedTracks[randomStart];
+    await playSong(startSong, resolvedTracks);
   };
 
   // Add to Queue: Appends all tracks to current queue without interrupting playback
@@ -222,13 +232,30 @@ export const InbuiltPlaylistModal: React.FC<InbuiltPlaylistModalProps> = ({
 
         {/* Tracklist Table */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-1.5 scrollbar-thin">
+          {/* Spotify-style Column Headers */}
+          <div className="hidden sm:flex items-center justify-between gap-3 px-3.5 pb-2 text-[11px] font-mono text-neutral-500 uppercase tracking-wider border-b border-white/5 mb-2">
+            <div className="w-8 text-center">#</div>
+            <div className="flex-1">Title</div>
+            <div className="hidden md:block w-48">Album</div>
+            <div className="hidden sm:block w-12 text-center">Format</div>
+            <div className="flex items-center justify-end gap-3 w-20 pr-1">
+              <Clock size={13} />
+            </div>
+          </div>
+
           {resolvedTracks.map((song, idx) => {
             const isCurrentTrack = currentSong?.id === song.id;
 
             return (
               <div
                 key={song.id || idx}
-                onClick={() => playSong(song, resolvedTracks)}
+                onClick={() => {
+                  if (currentSong?.id === song.id) {
+                    togglePlay();
+                  } else {
+                    playSong(song, resolvedTracks);
+                  }
+                }}
                 className={`group flex items-center justify-between gap-3 px-3.5 py-3 rounded-2xl transition-all cursor-pointer border select-none ${
                   isCurrentTrack
                     ? 'bg-indigo-600/20 border-indigo-500/40 text-indigo-200'
@@ -286,7 +313,7 @@ export const InbuiltPlaylistModal: React.FC<InbuiltPlaylistModalProps> = ({
                 </div>
 
                 {/* Duration & Favorite */}
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center justify-end gap-3 w-20 shrink-0">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

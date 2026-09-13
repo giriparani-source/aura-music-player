@@ -133,6 +133,9 @@ class AudioService {
         return;
       }
       console.warn('Audio playback notice:', e);
+      if (this.currentSong && !this.isFallingBack) {
+        this.handlePlaybackFailure(this.currentSong);
+      }
     });
   }
 
@@ -315,35 +318,45 @@ class AudioService {
     try {
       let source = audioSourceUrl;
       if (!source) {
-        if (isDirectAudioStream) {
-          source = song.filePath || song.path;
+        if (isDirectAudioStream && song.filePath) {
+          source = song.filePath;
         } else {
           const registeredFile = getRegisteredFile(song.id);
           if (registeredFile) {
             source = URL.createObjectURL(registeredFile);
             this.currentObjectUrl = source;
-          } else if (song.path) {
-            source = `/api/audio?path=${encodeURIComponent(song.path)}`;
           } else if (song.filePath && !song.filePath.startsWith('blob:')) {
             source = song.filePath;
-          } else if (song.fileName) {
-            source = `/api/audio?path=${encodeURIComponent(song.fileName)}`;
+          } else if (song.path && !song.path.startsWith('blob:')) {
+            source = song.path;
           } else {
-            source = song.filePath;
+            // Dynamically resolve audio stream for this specific song
+            const searchResults = await searchJioSaavn(song.title);
+            if (thisRequestId !== this.playRequestId) return;
+            if (searchResults.length > 0 && searchResults[0].filePath) {
+              source = searchResults[0].filePath;
+              song.filePath = source;
+              song.path = source;
+              song.isSaavn = true;
+            } else {
+              source = song.filePath;
+            }
           }
         }
       }
 
-      await this.playDirectHtml5Audio(song, source);
+      await this.playDirectHtml5Audio(song, source, thisRequestId);
     } catch (err: any) {
-      if (err.name === 'AbortError') return;
+      if (err.name === 'AbortError' || thisRequestId !== this.playRequestId) return;
       console.warn('Audio playback note:', err);
       this.notify('Cannot play audio file. Please re-select the folder.');
     }
   }
 
-  private async playDirectHtml5Audio(song: Song, sourceUrl?: string) {
+  private async playDirectHtml5Audio(song: Song, sourceUrl?: string, requestId?: number) {
     if (!sourceUrl) return;
+    if (requestId !== undefined && requestId !== this.playRequestId) return;
+
     this.isUsingCloudPlayer = false;
     cloudPlayerService.pause();
 
@@ -367,6 +380,8 @@ class AudioService {
 
       await this.audio.play();
 
+      if (requestId !== undefined && requestId !== this.playRequestId) return;
+
       if (this.crossfadeSeconds > 0) {
         audioEffectsService.fadeCross(1, Math.min(1.5, this.crossfadeSeconds));
       } else {
@@ -375,12 +390,17 @@ class AudioService {
 
       this.notify();
     } catch (err: any) {
-      if (err.name === 'AbortError') return;
+      if (err.name === 'AbortError' || (requestId !== undefined && requestId !== this.playRequestId)) {
+        return;
+      }
       console.warn('Direct audio playback error:', err);
+      if (song && !this.isFallingBack) {
+        await this.handlePlaybackFailure(song);
+      }
     }
   }
 
-  private async fallbackToDirectAudio(song: Song) {
+  private async handlePlaybackFailure(song: Song) {
     if (this.isFallingBack) return;
     this.isFallingBack = true;
     if (this.cloudWatchdogTimeout) {
@@ -389,34 +409,30 @@ class AudioService {
     }
 
     try {
-      const lower = song.title.toLowerCase();
+      const cleanTitle = song.title
+        .replace(/\([^)]*\)/g, '')
+        .replace(/\[[^\]]*\]/g, '')
+        .replace(/video song/gi, '')
+        .replace(/lyric video/gi, '')
+        .replace(/audio/gi, '')
+        .trim();
+
+      const lower = cleanTitle.toLowerCase();
       const preset = PRESET_SAAVN_320K_HITS.find((p) =>
         p.title.toLowerCase().includes(lower) || lower.includes(p.title.toLowerCase())
       );
 
-      let fallbackUrl = preset?.filePath || '';
+      let fallbackUrl = (preset?.filePath && preset.filePath !== song.filePath) ? preset.filePath : '';
 
       if (!fallbackUrl) {
-        const cleanTitle = song.title
-          .replace(/\([^)]*\)/g, '')
-          .replace(/\[[^\]]*\]/g, '')
-          .replace(/video song/gi, '')
-          .replace(/lyric video/gi, '')
-          .replace(/audio/gi, '')
-          .trim();
-
         const results = await searchJioSaavn(cleanTitle);
-        if (results && results.length > 0 && results[0].filePath) {
+        if (results && results.length > 0 && results[0].filePath && results[0].filePath !== song.filePath) {
           fallbackUrl = results[0].filePath;
           if (results[0].artwork && !song.coverArt) {
             song.coverArt = results[0].artwork;
             song.artwork = results[0].artwork;
           }
         }
-      }
-
-      if (!fallbackUrl) {
-        fallbackUrl = PRESET_SAAVN_320K_HITS[0].filePath; // Hukum 320k master
       }
 
       if (fallbackUrl) {
@@ -427,14 +443,39 @@ class AudioService {
         song.filePath = fallbackUrl;
         song.path = fallbackUrl;
 
-        await this.playDirectHtml5Audio(song, fallbackUrl);
+        await this.playDirectHtml5Audio(song, fallbackUrl, this.playRequestId);
         return;
       }
+
+      // If direct audio search didn't yield a stream, try YouTube online search
+      try {
+        const ytRes = await fetch(`/api/online/search?q=${encodeURIComponent(cleanTitle + ' ' + (song.artist || 'Tamil'))}`);
+        if (ytRes.ok) {
+          const ytData = await ytRes.json();
+          const firstYt = ytData.results?.[0];
+          if (firstYt?.sourceId) {
+            console.log('⚡ Switched to YouTube Cloud Player stream:', song.title, '->', firstYt.sourceId);
+            this.isUsingCloudPlayer = true;
+            this.audio.pause();
+            cloudPlayerService.loadVideo(firstYt.sourceId, 0);
+            this.isCloudPlaying = true;
+            this.notify();
+            return;
+          }
+        }
+      } catch {}
+
+      console.warn('Audio stream unavailable for:', song.title);
+      this.notify('Audio stream unavailable for this track.');
     } catch (err) {
-      console.warn('Fallback error:', err);
+      console.warn('Playback failure recovery error:', err);
     } finally {
       this.isFallingBack = false;
     }
+  }
+
+  private async fallbackToDirectAudio(song: Song) {
+    await this.handlePlaybackFailure(song);
   }
 
   public pause(): void {

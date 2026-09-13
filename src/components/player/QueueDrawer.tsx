@@ -11,6 +11,7 @@ export const QueueDrawer: React.FC = () => {
     isQueueOpen,
     setQueueOpen,
     playSong,
+    togglePlay,
     removeFromQueue,
     clearQueue,
     isShuffle,
@@ -105,7 +106,13 @@ export const QueueDrawer: React.FC = () => {
             return (
               <div
                 key={song.id + '-' + idx}
-                onClick={() => playSong(song)}
+                onClick={() => {
+                  if (isCurrent) {
+                    togglePlay();
+                  } else {
+                    playSong(song);
+                  }
+                }}
                 className={`group flex items-center gap-3 p-2 rounded-xl transition-all cursor-pointer ${
                   isCurrent ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/20' : 'hover:bg-white/5 text-neutral-300'
                 }`}

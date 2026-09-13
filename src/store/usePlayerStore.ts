@@ -122,18 +122,21 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     playbackHistory: [],
 
     playSong: async (song: Song, customQueue?: Song[]) => {
-      const { queue, currentSong, playbackHistory } = get();
+      const { queue, currentSong, playbackHistory, isShuffle, isFairShuffle } = get();
 
       let newQueue = queue;
       let newIndex = 0;
+      let queueChanged = false;
 
       if (customQueue && customQueue.length > 0) {
         newQueue = customQueue;
         newIndex = customQueue.findIndex((s) => s.id === song.id);
         if (newIndex === -1) newIndex = 0;
+        queueChanged = true;
       } else if (queue.length === 0) {
         newQueue = [song];
         newIndex = 0;
+        queueChanged = true;
       } else {
         const found = queue.findIndex((s) => s.id === song.id);
         if (found !== -1) {
@@ -141,6 +144,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         } else {
           newQueue = [...queue, song];
           newIndex = newQueue.length - 1;
+          queueChanged = true;
         }
       }
 
@@ -150,11 +154,23 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         useLibraryStore.getState().registerOnlineSong(song).catch(() => {});
       }
 
+      // When shuffle is ON: regenerate the shuffle order starting at the manually clicked
+      // song's index so nextSong() can correctly navigate from this position onward.
+      // Also reset when queue changes to prevent stale indices from a prior queue.
+      let newShuffleOrder: number[] = [];
+      if (isShuffle && newQueue.length > 0) {
+        newShuffleOrder = isFairShuffle
+          ? generateFairShuffleIndices(newQueue, newIndex)
+          : generatePureRandomIndices(newQueue.length, newIndex);
+      }
+
       set({
         currentSong: song,
         queue: newQueue,
         queueIndex: newIndex,
-        playbackHistory: updatedHistory
+        playbackHistory: updatedHistory,
+        // Reset shuffle order whenever queue changes OR shuffle is active (stale indices)
+        shuffledQueueOrder: (isShuffle || queueChanged) ? newShuffleOrder : get().shuffledQueueOrder
       });
 
       await audioService.playSong(song);
@@ -165,11 +181,13 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       if (songs[0].isOnline) {
         useLibraryStore.getState().registerOnlineSong(songs[0]).catch(() => {});
       }
+      // Reset shuffle order so nextSong regenerates it cleanly for the new queue.
       set({
         queue: [...songs],
         queueIndex: 0,
         currentSong: songs[0],
-        playbackHistory: []
+        playbackHistory: [],
+        shuffledQueueOrder: []
       });
       await audioService.playSong(songs[0]);
     },
@@ -419,3 +437,4 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     }
   };
 });
+

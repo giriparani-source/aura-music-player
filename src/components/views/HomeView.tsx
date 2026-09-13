@@ -51,6 +51,15 @@ export const HomeView: React.FC = () => {
     }
   }, []);
 
+  // Fast lookup map for all inbuilt playlists
+  const playlistMap = useMemo(() => {
+    const map: Record<string, InbuiltPlaylist> = {};
+    INBUILT_PLAYLISTS.forEach((p) => {
+      map[p.id] = p;
+    });
+    return map;
+  }, []);
+
   // Quick 6-Pack Grid Data (100% Inbuilt Playlists, Zero Search Redirects!)
   const quickAccessItems = useMemo(() => {
     return [
@@ -66,106 +75,97 @@ export const HomeView: React.FC = () => {
           if (favorites.length > 0) {
             playBatch(favorites);
           } else {
-            // Open Top 50 if no local favorites yet
-            if (INBUILT_PLAYLISTS[0]) {
-              setSelectedInbuiltPlaylist(INBUILT_PLAYLISTS[0]);
+            // Open Mudhal Kaadhal or Top 50 if no local favorites yet
+            if (playlistMap['mudhal_kaadhal']) {
+              setSelectedInbuiltPlaylist(playlistMap['mudhal_kaadhal']);
             }
           }
         }
       },
       {
+        id: 'mudhal_kaadhal',
+        title: 'Mudhal Kaadhal',
+        subtitle: '40 Songs • First Love Hits',
+        coverArt: playlistMap['mudhal_kaadhal']?.coverArt || 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=300',
+        gradient: 'from-rose-600 to-pink-900',
+        playlist: playlistMap['mudhal_kaadhal']
+      },
+      {
+        id: '90s_vibe',
+        title: '90s Vibe',
+        subtitle: '35 Songs • Ilaiyaraaja & Rahman',
+        coverArt: playlistMap['90s_vibe']?.coverArt || 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=300',
+        gradient: 'from-amber-600 to-yellow-950',
+        playlist: playlistMap['90s_vibe']
+      },
+      {
         id: 'top_50_tamil',
         title: 'Top 50 – Tamil Hits',
         subtitle: '50 Blockbusters • Trending',
-        coverArt: INBUILT_PLAYLISTS[0]?.coverArt || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300',
+        coverArt: playlistMap['top_50_tamil']?.coverArt || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300',
         gradient: 'from-amber-600 to-orange-900',
-        playlist: INBUILT_PLAYLISTS[0] // Top 50 Tamil Blockbusters with 50 tracks!
+        playlist: playlistMap['top_50_tamil']
       },
       {
-        id: 'daily_mix_1',
-        title: 'Anirudh Mass & Kuthu',
-        subtitle: 'Hukum, Naa Ready & Beast',
-        coverArt: INBUILT_PLAYLISTS[1]?.coverArt || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300',
-        gradient: 'from-indigo-600 to-blue-900',
-        playlist: INBUILT_PLAYLISTS[1] // Anirudh Mass Anthems
+        id: 'night_drive',
+        title: 'Night Drive',
+        subtitle: '30 Songs • Midnight Mood',
+        coverArt: playlistMap['night_drive']?.coverArt || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=300',
+        gradient: 'from-indigo-600 to-slate-950',
+        playlist: playlistMap['night_drive']
       },
       {
-        id: 'midnight_chill',
-        title: 'Midnight Chill',
-        subtitle: 'Lo-Fi, Calm & Rain',
-        coverArt: INBUILT_PLAYLISTS[5]?.coverArt || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=300',
-        gradient: 'from-emerald-700 to-slate-950',
-        playlist: INBUILT_PLAYLISTS[5] // Midnight Chill with 10 songs
-      },
-      {
-        id: 'beast_workout',
+        id: 'beast_mode_workout',
         title: 'Beast Workout',
-        subtitle: 'High BPM Gym Hype',
-        coverArt: INBUILT_PLAYLISTS[6]?.coverArt || 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300',
-        gradient: 'from-rose-600 to-red-950',
-        playlist: INBUILT_PLAYLISTS[6] // Beast Workout with 10 songs
-      },
-      {
-        id: 'ai_dj_studio',
-        title: 'AI DJ & Mood Studio',
-        subtitle: 'Prompt-driven Playlists',
-        coverArt: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300',
-        gradient: 'from-purple-600 to-pink-950',
-        icon: <Sparkles size={20} className="text-amber-400" />,
-        onClick: () => {
-          setActiveTab('ai-studio');
-        }
+        subtitle: '30 Songs • High BPM Gym Hype',
+        coverArt: playlistMap['beast_mode_workout']?.coverArt || 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300',
+        gradient: 'from-red-600 to-rose-950',
+        playlist: playlistMap['beast_mode_workout']
       }
     ];
-  }, [localSongs, playBatch, setActiveTab]);
+  }, [localSongs, playBatch, playlistMap]);
 
-  // Top Artists Curated List
+  // Top Artists Curated List - Mapped to real Inbuilt Playlists
   const topArtists = useMemo(() => {
     return [
       {
         name: 'Anirudh Ravichander',
         role: 'Rockstar • Kollywood',
         image: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300',
-        query: 'Anirudh Ravichander',
-        seedSong: PRESET_SAAVN_320K_HITS[0] // Hukum
+        playlist: playlistMap['anirudh_mass']
       },
       {
         name: 'A.R. Rahman',
         role: 'Isai Puyal • Maestro',
         image: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300',
-        query: 'A.R. Rahman',
-        seedSong: PRESET_SAAVN_320K_HITS[5] // Vaseegara / Rahman classics
+        playlist: playlistMap['ar_rahman_hits']
       },
       {
         name: 'Yuvan Shankar Raja',
         role: 'U1 • Drug BGM Specialist',
         image: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300',
-        query: 'Yuvan Shankar Raja',
-        seedSong: PRESET_SAAVN_320K_HITS[1]
+        playlist: playlistMap['yuvan_drug_bgm']
       },
       {
         name: 'Harris Jayaraj',
         role: 'Melody King • Minnale',
         image: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=300',
-        query: 'Harris Jayaraj',
-        seedSong: PRESET_SAAVN_320K_HITS[5] // Vaseegara
+        playlist: playlistMap['harris_jayaraj_melodies']
       },
       {
         name: 'Ilaiyaraaja',
         role: 'Isaignani • Living Legend',
         image: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=300',
-        query: 'Ilaiyaraaja',
-        seedSong: INBUILT_PLAYLISTS[4]?.tracks[0] || PRESET_SAAVN_320K_HITS[0] // Ilaya Nila
+        playlist: playlistMap['90s_vibe']
       },
       {
         name: 'S.P. Balasubrahmanyam',
         role: 'Padma Vibhushan • Voice of Soul',
         image: 'https://images.unsplash.com/photo-1487180144351-b8472da7d491?w=300',
-        query: 'S.P. Balasubrahmanyam',
-        seedSong: INBUILT_PLAYLISTS[4]?.tracks[1] || PRESET_SAAVN_320K_HITS[5] // Mandram Vantha
+        playlist: playlistMap['kollywood_chillout']
       }
     ];
-  }, []);
+  }, [playlistMap]);
 
   return (
     <div className="p-4 sm:p-8 space-y-9 max-w-7xl mx-auto select-none pb-28">
@@ -240,52 +240,88 @@ export const HomeView: React.FC = () => {
       {/* ========================================================================= */}
       {activeFilter === 'all' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {quickAccessItems.map((item) => (
-            <div
-              key={item.id}
-              onClick={() => {
-                if (item.playlist) {
-                  setSelectedInbuiltPlaylist(item.playlist);
-                } else if (item.onClick) {
-                  item.onClick();
-                }
-              }}
-              className="group relative flex items-center gap-3.5 p-2 pr-4 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/5 hover:border-white/10 transition-all cursor-pointer overflow-hidden shadow-sm"
-            >
-              {/* Cover Art */}
-              <div className="w-14 h-14 rounded-xl overflow-hidden shadow-md shrink-0 relative bg-black/40">
-                <img
-                  src={item.coverArt}
-                  alt={item.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                />
-              </div>
+          {quickAccessItems.map((item) => {
+            const isCurrent = Boolean(
+              currentSong && item.playlist && item.playlist.tracks.some((t) => t.id === currentSong.id)
+            );
+            const isItemPlaying = isCurrent && isPlaying;
 
-              {/* Text Info */}
-              <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-bold text-white truncate group-hover:text-indigo-200 transition-colors">
-                  {item.title}
-                </h4>
-                <p className="text-xs text-neutral-400 truncate mt-0.5">{item.subtitle}</p>
-              </div>
-
-              {/* Desktop Hover Quick Play Button (Fitts's Law) */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
+            return (
+              <div
+                key={item.id}
+                onClick={() => {
                   if (item.playlist) {
-                    playBatch(item.playlist.tracks);
+                    setSelectedInbuiltPlaylist(item.playlist);
                   } else if (item.onClick) {
                     item.onClick();
                   }
                 }}
-                className="w-10 h-10 rounded-full bg-[#1ed760] text-black shadow-xl shadow-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 shrink-0 cursor-pointer"
-                title={`Play ${item.title}`}
+                className={`group relative flex items-center gap-3.5 p-2 pr-4 rounded-2xl transition-all cursor-pointer overflow-hidden shadow-sm border ${
+                  isCurrent
+                    ? 'bg-white/[0.08] border-indigo-500/30'
+                    : 'bg-white/[0.04] hover:bg-white/[0.08] border-white/5 hover:border-white/10'
+                }`}
               >
-                <Play size={16} className="fill-current ml-0.5" />
-              </button>
-            </div>
-          ))}
+                {/* Cover Art */}
+                <div className="w-14 h-14 rounded-xl overflow-hidden shadow-md shrink-0 relative bg-black/40">
+                  <img
+                    src={item.coverArt}
+                    alt={item.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                  {isItemPlaying && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <div className="flex items-end gap-0.5 h-3.5">
+                        <span className="w-1 bg-[#1ed760] h-full animate-pulse" />
+                        <span className="w-1 bg-[#1ed760] h-2/3 animate-bounce" />
+                        <span className="w-1 bg-[#1ed760] h-3/4 animate-pulse" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Text Info */}
+                <div className="flex-1 min-w-0">
+                  <h4
+                    className={`text-sm font-bold truncate transition-colors ${
+                      isCurrent ? 'text-[#1ed760]' : 'text-white group-hover:text-indigo-200'
+                    }`}
+                  >
+                    {item.title}
+                  </h4>
+                  <p className="text-xs text-neutral-400 truncate mt-0.5">{item.subtitle}</p>
+                </div>
+
+                {/* Desktop Hover / Active Quick Play Button (Fitts's Law) */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (item.playlist) {
+                      if (isCurrent) {
+                        togglePlay();
+                      } else {
+                        playBatch(item.playlist.tracks);
+                      }
+                    } else if (item.onClick) {
+                      item.onClick();
+                    }
+                  }}
+                  className={`w-10 h-10 rounded-full bg-[#1ed760] text-black shadow-xl shadow-black/60 flex items-center justify-center transition-all duration-200 shrink-0 cursor-pointer ${
+                    isItemPlaying
+                      ? 'opacity-100 scale-100'
+                      : 'opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95'
+                  }`}
+                  title={isItemPlaying ? `Pause ${item.title}` : `Play ${item.title}`}
+                >
+                  {isItemPlaying ? (
+                    <Pause size={16} className="fill-current" />
+                  ) : (
+                    <Play size={16} className="fill-current ml-0.5" />
+                  )}
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -310,45 +346,79 @@ export const HomeView: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 sm:gap-4">
-            {INBUILT_PLAYLISTS.map((playlist) => (
-              <div
-                key={playlist.id}
-                onClick={() => setSelectedInbuiltPlaylist(playlist)}
-                className="group p-3 rounded-2xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/5 hover:border-white/10 transition-all cursor-pointer flex flex-col justify-between"
-              >
-                {/* 1:1 Square Cover Art */}
-                <div className="relative aspect-square w-full rounded-xl overflow-hidden shadow-lg mb-3 bg-black/40">
-                  <img
-                    src={playlist.coverArt}
-                    alt={playlist.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    loading="lazy"
-                  />
+            {INBUILT_PLAYLISTS.map((playlist) => {
+              const isCurrent = Boolean(
+                currentSong && playlist.tracks.some((t) => t.id === currentSong.id)
+              );
+              const isPlaylistPlaying = isCurrent && isPlaying;
 
-                  {/* Desktop Hover Floating Green Play Button */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      playBatch(playlist.tracks);
-                    }}
-                    className="absolute bottom-2.5 right-2.5 w-10 h-10 rounded-full bg-[#1ed760] text-black shadow-xl shadow-black/80 flex items-center justify-center opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 cursor-pointer"
-                    title={`Play ${playlist.title}`}
-                  >
-                    <Play size={16} className="fill-current ml-0.5" />
-                  </button>
-                </div>
+              return (
+                <div
+                  key={playlist.id}
+                  onClick={() => setSelectedInbuiltPlaylist(playlist)}
+                  className={`group p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                    isCurrent
+                      ? 'bg-white/[0.07] border-indigo-500/30'
+                      : 'bg-white/[0.03] hover:bg-white/[0.07] border-white/5 hover:border-white/10'
+                  }`}
+                >
+                  {/* 1:1 Square Cover Art */}
+                  <div className="relative aspect-square w-full rounded-xl overflow-hidden shadow-lg mb-3 bg-black/40">
+                    <img
+                      src={playlist.coverArt}
+                      alt={playlist.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      loading="lazy"
+                    />
 
-                {/* Playlist Meta */}
-                <div>
-                  <h4 className="text-xs sm:text-sm font-bold text-white truncate group-hover:text-indigo-200 transition-colors">
-                    {playlist.title}
-                  </h4>
-                  <p className="text-[11px] text-neutral-400 truncate mt-0.5">
-                    {playlist.songCount} songs • 320k HD
-                  </p>
+                    {isPlaylistPlaying && (
+                      <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#1ed760] animate-pulse" />
+                        <span className="text-[10px] font-bold text-[#1ed760]">PLAYING</span>
+                      </div>
+                    )}
+
+                    {/* Desktop Hover Floating Green Play Button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isCurrent) {
+                          togglePlay();
+                        } else {
+                          playBatch(playlist.tracks);
+                        }
+                      }}
+                      className={`absolute bottom-2.5 right-2.5 w-10 h-10 rounded-full bg-[#1ed760] text-black shadow-xl shadow-black/80 flex items-center justify-center transition-all duration-200 cursor-pointer ${
+                        isPlaylistPlaying
+                          ? 'opacity-100 scale-100'
+                          : 'opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95'
+                      }`}
+                      title={isPlaylistPlaying ? `Pause ${playlist.title}` : `Play ${playlist.title}`}
+                    >
+                      {isPlaylistPlaying ? (
+                        <Pause size={16} className="fill-current" />
+                      ) : (
+                        <Play size={16} className="fill-current ml-0.5" />
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Playlist Meta */}
+                  <div>
+                    <h4
+                      className={`text-xs sm:text-sm font-bold truncate transition-colors ${
+                        isCurrent ? 'text-[#1ed760]' : 'text-white group-hover:text-indigo-200'
+                      }`}
+                    >
+                      {playlist.title}
+                    </h4>
+                    <p className="text-[11px] text-neutral-400 truncate mt-0.5">
+                      {playlist.songCount} songs • 320k HD
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}
@@ -515,41 +585,76 @@ export const HomeView: React.FC = () => {
           </h3>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            {topArtists.map((artist) => (
-              <div
-                key={artist.name}
-                onClick={() => playSong(artist.seedSong)}
-                className="group p-3 rounded-2xl bg-white/[0.02] hover:bg-white/[0.06] border border-transparent hover:border-white/5 transition-all cursor-pointer flex flex-col items-center text-center"
-              >
-                {/* Circular Portrait */}
-                <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden shadow-xl mb-3 bg-black/40">
-                  <img
-                    src={artist.image}
-                    alt={artist.name}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                  />
+            {topArtists.map((artist) => {
+              const isCurrent = Boolean(
+                currentSong &&
+                  artist.playlist &&
+                  artist.playlist.tracks.some((t) => t.id === currentSong.id)
+              );
+              const isArtistPlaying = isCurrent && isPlaying;
 
-                  {/* Hover Green Play Button */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      playSong(artist.seedSong);
-                    }}
-                    className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-[#1ed760] text-black shadow-xl shadow-black/80 flex items-center justify-center opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 cursor-pointer"
-                    title={`Play ${artist.name}`}
+              return (
+                <div
+                  key={artist.name}
+                  onClick={() => {
+                    if (artist.playlist) {
+                      setSelectedInbuiltPlaylist(artist.playlist);
+                    }
+                  }}
+                  className={`group p-3 rounded-2xl border transition-all cursor-pointer flex flex-col items-center text-center ${
+                    isCurrent
+                      ? 'bg-white/[0.06] border-indigo-500/30'
+                      : 'bg-white/[0.02] hover:bg-white/[0.06] border-transparent hover:border-white/5'
+                  }`}
+                >
+                  {/* Circular Portrait */}
+                  <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden shadow-xl mb-3 bg-black/40">
+                    <img
+                      src={artist.image}
+                      alt={artist.name}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                    />
+
+                    {/* Hover / Active Green Play Button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (artist.playlist) {
+                          if (isCurrent) {
+                            togglePlay();
+                          } else {
+                            playBatch(artist.playlist.tracks);
+                          }
+                        }
+                      }}
+                      className={`absolute bottom-1 right-1 w-9 h-9 rounded-full bg-[#1ed760] text-black shadow-xl shadow-black/80 flex items-center justify-center transition-all duration-200 cursor-pointer ${
+                        isArtistPlaying
+                          ? 'opacity-100 scale-100'
+                          : 'opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95'
+                      }`}
+                      title={isArtistPlaying ? `Pause ${artist.name}` : `Play ${artist.name}`}
+                    >
+                      {isArtistPlaying ? (
+                        <Pause size={14} className="fill-current" />
+                      ) : (
+                        <Play size={14} className="fill-current ml-0.5" />
+                      )}
+                    </button>
+                  </div>
+
+                  <h4
+                    className={`text-xs sm:text-sm font-bold truncate max-w-full transition-colors ${
+                      isCurrent ? 'text-[#1ed760]' : 'text-white group-hover:text-indigo-200'
+                    }`}
                   >
-                    <Play size={14} className="fill-current ml-0.5" />
-                  </button>
+                    {artist.name}
+                  </h4>
+                  <p className="text-[10px] text-neutral-400 truncate max-w-full mt-0.5">
+                    {artist.role}
+                  </p>
                 </div>
-
-                <h4 className="text-xs sm:text-sm font-bold text-white truncate max-w-full group-hover:text-indigo-200 transition-colors">
-                  {artist.name}
-                </h4>
-                <p className="text-[10px] text-neutral-400 truncate max-w-full mt-0.5">
-                  {artist.role}
-                </p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}

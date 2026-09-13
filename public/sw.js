@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aura-music-pwa-v4';
+const CACHE_NAME = 'aura-music-pwa-v5';
 const STATIC_ASSETS = [
   '/music-icon.svg',
   '/favicon.svg',
