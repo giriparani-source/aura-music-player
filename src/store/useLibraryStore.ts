@@ -25,6 +25,7 @@ import {
 } from '../services/scannerService';
 import { downloadService } from '../services/downloadService';
 import { auraAffinityService } from '../services/auraAffinityService';
+import { auraSkipService } from '../services/auraSkipService';
 
 interface LibraryStoreState {
   songs: Song[];
@@ -269,6 +270,11 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       // Non-blocking background hydration of Aura Flow User Affinity Profile (Phase 5.1)
       auraAffinityService.initProfile(songs).catch((affErr) => {
         console.warn('Non-blocking affinity profile hydration failed:', affErr);
+      });
+
+      // Non-blocking background hydration of Persistent Skip Learning (Phase 5.3)
+      auraSkipService.init().catch((skipErr) => {
+        console.warn('Non-blocking skip profile hydration failed:', skipErr);
       });
     } catch (err) {
       console.error('Failed to load library:', err);

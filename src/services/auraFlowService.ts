@@ -16,6 +16,7 @@ import {
 } from './flowKnowledgeBase';
 import { TOP_50_TRACKS } from './inbuiltPlaylistsService';
 import { UserAffinityProfile, auraAffinityService } from './auraAffinityService';
+import { auraSkipService } from './auraSkipService';
 
 export type { UserAffinityProfile };
 
@@ -36,6 +37,8 @@ export interface FlowWeights {
   longTermArtistAffinity: number;
   longTermVibeAffinity: number;
   favoriteArtistBonus: number;
+  // Persistent Skip Learning (Phase 5.3)
+  persistentSkipPenalty: number;
 }
 
 export const DEFAULT_FLOW_WEIGHTS: FlowWeights = {
@@ -54,7 +57,9 @@ export const DEFAULT_FLOW_WEIGHTS: FlowWeights = {
   // Long-Term User Affinity Dimensions (Phase 5.2)
   longTermArtistAffinity: 15,
   longTermVibeAffinity: 10,
-  favoriteArtistBonus: 5
+  favoriteArtistBonus: 5,
+  // Persistent Skip Learning (Phase 5.3)
+  persistentSkipPenalty: 35
 };
 
 export interface FlowContext {
@@ -122,6 +127,8 @@ class AuraFlowService {
         this.skippedArtists.set(normArtist, aCurrent + 1);
       }
     }
+
+    auraSkipService.recordSkip(songId, artist);
   }
 
   public recordReplay(songId?: string) {
@@ -142,14 +149,18 @@ class AuraFlowService {
         this.sessionSkips.set(songId, count - 1);
       }
     }
+
+    auraSkipService.recordMeaningfulListen(songId);
   }
 
   public recordCompletedListen(songId: string) {
     this.sessionSkips.delete(songId);
+    auraSkipService.recordCompletedListen(songId);
   }
 
   public recordFavorite(songId: string) {
     this.sessionSkips.delete(songId);
+    auraSkipService.recordFavorite(songId);
   }
 
   // --- Candidate Generation & Filtering ---
@@ -386,7 +397,19 @@ class AuraFlowService {
       }
     }
 
-    // 12. Exploration Jitter (Prevents deterministic loops)
+    // 12. Persistent Skip Penalty (Phase 5.3)
+    const persistentPenalty = auraSkipService.getPenalty(
+      candidate.id,
+      weights.persistentSkipPenalty
+    );
+    if (persistentPenalty > 0) {
+      breakdown.persistentSkipPenalty = -persistentPenalty;
+      totalScore -= persistentPenalty;
+    } else {
+      breakdown.persistentSkipPenalty = 0;
+    }
+
+    // 13. Exploration Jitter (Prevents deterministic loops)
     if (weights.explorationJitter > 0) {
       const jitter = Math.round(Math.random() * weights.explorationJitter);
       breakdown.jitter = jitter;

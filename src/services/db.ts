@@ -310,4 +310,5 @@ class MusicDatabase {
 }
 
 export const AURA_USER_AFFINITY_KEY = 'aura_user_affinity';
+export const AURA_PERSISTENT_SKIPS_KEY = 'aura_persistent_skips';
 export const musicDB = new MusicDatabase();
