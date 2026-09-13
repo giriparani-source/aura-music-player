@@ -13,12 +13,16 @@ import {
   Disc,
   Mic2,
   Folder,
-  Play
+  Play,
+  Download,
+  Trash2,
+  HardDrive,
+  AlertTriangle
 } from 'lucide-react';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { LibrarySubTab, SortOption } from '../../types/music';
-import { formatTime } from '../../utils/formatters';
+import { formatTime, formatBytes } from '../../utils/formatters';
 import { EmptyState } from '../common/EmptyState';
 import { SongRow } from '../common/SongRow';
 import { Artwork } from '../common/Artwork';
@@ -50,7 +54,10 @@ export const LibraryView: React.FC = () => {
     setHighBitrateOnly,
     favoritesOnly,
     setFavoritesOnly,
-    clearFilters
+    clearFilters,
+    downloadedSongIds,
+    offlineStorage,
+    clearAllDownloads
   } = useLibraryStore();
 
   const { currentSong, isPlaying, playSong, togglePlay } = usePlayerStore();
@@ -59,6 +66,8 @@ export const LibraryView: React.FC = () => {
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedSongIds, setSelectedSongIds] = useState<string[]>([]);
   const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
+  const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
+  const [downloadSearch, setDownloadSearch] = useState('');
 
   const getPlaylistSongs = (pl: any) => {
     if (pl.id === 'smart-favorites') return songs.filter((s) => s.isFavorite);
@@ -161,7 +170,22 @@ export const LibraryView: React.FC = () => {
     return list;
   }, [filteredSongs, sortOption, sortAscending]);
 
-  if (songs.length === 0) {
+  const downloadedSongs = useMemo(() => {
+    return songs.filter((s) => downloadedSongIds.has(s.id));
+  }, [songs, downloadedSongIds]);
+
+  const filteredDownloadedSongs = useMemo(() => {
+    if (!downloadSearch) return downloadedSongs;
+    const q = downloadSearch.toLowerCase();
+    return downloadedSongs.filter(
+      (s) =>
+        s.title.toLowerCase().includes(q) ||
+        s.artist.toLowerCase().includes(q) ||
+        s.album.toLowerCase().includes(q)
+    );
+  }, [downloadedSongs, downloadSearch]);
+
+  if (songs.length === 0 && downloadedSongIds.size === 0) {
     return <EmptyState />;
   }
 
@@ -171,6 +195,7 @@ export const LibraryView: React.FC = () => {
     { id: 'artists', label: 'Artists', count: artists.length },
     { id: 'playlists', label: 'Playlists', count: playlists.length },
     { id: 'folders', label: 'Folders', count: uniqueFolders.length },
+    { id: 'downloads', label: 'Downloads', count: downloadedSongIds.size },
   ];
 
   const hasActiveFilters = Boolean(
@@ -738,6 +763,193 @@ export const LibraryView: React.FC = () => {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* SUB TAB 6: DOWNLOADS (OFFLINE CACHE) */}
+      {librarySubTab === 'downloads' && (
+        <div className="space-y-6">
+          {/* Offline Storage Dashboard Card */}
+          <div className="glass-card p-5 sm:p-6 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-white/10 relative overflow-hidden">
+            <div className="absolute -top-12 -left-12 w-36 h-36 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+            <div className="flex items-center gap-4 min-w-0 z-10">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 shadow-lg shadow-emerald-500/10">
+                <HardDrive size={24} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base sm:text-lg font-bold text-white">Offline Downloads</h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Cache Storage
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm text-neutral-400 mt-0.5">
+                  {downloadedSongs.length} track{downloadedSongs.length !== 1 ? 's' : ''} available offline • {formatBytes(offlineStorage.totalBytes)} used
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end z-10">
+              {downloadedSongs.length > 0 && (
+                <button
+                  onClick={() => setIsClearConfirmOpen(true)}
+                  className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 hover:text-rose-200 transition-colors flex items-center gap-1.5 cursor-pointer active:scale-95"
+                  title="Remove all downloaded audio files from cache"
+                >
+                  <Trash2 size={14} />
+                  <span>Clear All Downloads</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Search within downloads if there are multiple songs */}
+          {downloadedSongs.length > 3 && (
+            <div className="relative max-w-md">
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500" />
+              <input
+                type="text"
+                placeholder="Search downloaded tracks..."
+                value={downloadSearch}
+                onChange={(e) => setDownloadSearch(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-indigo-500 transition-colors"
+              />
+              {downloadSearch && (
+                <button
+                  onClick={() => setDownloadSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Downloaded Songs List */}
+          {downloadedSongs.length === 0 ? (
+            <div className="glass-card p-8 sm:p-12 rounded-3xl border border-white/5 text-center flex flex-col items-center justify-center max-w-lg mx-auto my-8">
+              <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-neutral-400 mb-4">
+                <Download size={28} />
+              </div>
+              <h4 className="text-lg font-bold text-white mb-1.5">No Downloaded Songs Yet</h4>
+              <p className="text-xs sm:text-sm text-neutral-400 max-w-sm leading-relaxed mb-6">
+                Download online tracks and JioSaavn songs by clicking the download icon next to any song. Downloaded tracks can be played even when you are offline without an internet connection.
+              </p>
+              <button
+                onClick={() => setLibrarySubTab('songs')}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/30 transition-all cursor-pointer"
+              >
+                Browse Library
+              </button>
+            </div>
+          ) : filteredDownloadedSongs.length === 0 ? (
+            <div className="py-12 text-center text-neutral-400 text-xs">
+              No downloaded tracks match "{downloadSearch}"
+            </div>
+          ) : viewMode === 'list' ? (
+            <div className="space-y-1">
+              {filteredDownloadedSongs.map((song, idx) => (
+                <SongRow
+                  key={song.id}
+                  song={song}
+                  index={idx}
+                  playlistContext={filteredDownloadedSongs}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+              {filteredDownloadedSongs.map((song) => {
+                const isCurrent = currentSong?.id === song.id;
+                return (
+                  <div
+                    key={song.id}
+                    onClick={() => {
+                      if (isCurrent) {
+                        togglePlay();
+                      } else {
+                        playSong(song, filteredDownloadedSongs);
+                      }
+                    }}
+                    className={`group glass-card p-3 rounded-2xl relative transition-all cursor-pointer border flex flex-col justify-between ${
+                      isCurrent
+                        ? 'border-emerald-500/40 bg-emerald-500/5 shadow-lg shadow-emerald-500/10'
+                        : 'border-transparent hover:border-white/10 hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    <div className="relative aspect-square w-full rounded-xl overflow-hidden mb-3">
+                      <Artwork
+                        src={song.coverArt || song.artwork}
+                        title={song.title}
+                        artist={song.artist}
+                        size="md"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isCurrent) {
+                            togglePlay();
+                          } else {
+                            playSong(song, filteredDownloadedSongs);
+                          }
+                        }}
+                        className="absolute bottom-2 right-2 w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-xl hover:scale-110 active:scale-95 z-10 cursor-pointer"
+                        title={isCurrent && isPlaying ? 'Pause' : 'Play'}
+                      >
+                        <Play size={14} className="fill-white ml-0.5" />
+                      </button>
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-white truncate group-hover:text-emerald-300 transition-colors">
+                        {song.title}
+                      </h4>
+                      <p className="text-[11px] text-neutral-400 truncate mt-0.5">{song.artist}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Clear All Downloads Confirmation Modal */}
+          {isClearConfirmOpen && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-[#141721] border border-white/10 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                    <AlertTriangle size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Clear All Offline Downloads?</h3>
+                    <p className="text-xs text-neutral-400">Free up local offline storage</p>
+                  </div>
+                </div>
+
+                <p className="text-xs sm:text-sm text-neutral-300 leading-relaxed">
+                  This will remove all downloaded audio streams ({formatBytes(offlineStorage.totalBytes)}) from your device cache. Song metadata, playlists, and favorites will remain in your library, but you will need an active internet connection to stream them.
+                </p>
+
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    onClick={() => setIsClearConfirmOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await clearAllDownloads();
+                      setIsClearConfirmOpen(false);
+                    }}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/30 transition-colors cursor-pointer"
+                  >
+                    Clear All ({downloadedSongs.length})
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

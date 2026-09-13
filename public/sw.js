@@ -21,7 +21,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
-          if (key !== CACHE_NAME) {
+          if (key !== CACHE_NAME && !key.startsWith('aura-offline-audio')) {
             return caches.delete(key);
           }
         })

@@ -1,5 +1,7 @@
 import { EqualizerBand, EqualizerPreset, SpatialPreset } from '../types/music';
 
+export type BassExciterLevel = 'off' | 'light' | 'medium' | 'strong';
+
 export const EQ_FREQUENCIES: { freq: number; label: string; type: BiquadFilterType }[] = [
   { freq: 32, label: '32Hz', type: 'lowshelf' },
   { freq: 64, label: '64Hz', type: 'peaking' },
@@ -36,6 +38,9 @@ interface SavedState {
   karaokeDepth?: number;
   spatialPreset?: SpatialPreset;
   spatialMix?: number;
+  isLimiterActive?: boolean;
+  isSubsonicActive?: boolean;
+  bassExciterLevel?: BassExciterLevel;
 }
 
 class AudioEffectsService {
@@ -45,6 +50,17 @@ class AudioEffectsService {
   private preampGain: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
   private isInitialized = false;
+
+  // Subsonic Filter (18Hz High-Pass)
+  private subsonicFilter: BiquadFilterNode | null = null;
+  private isSubsonicActive: boolean = true;
+
+  // Psychoacoustic Bass Exciter Nodes
+  private exciterLowpass: BiquadFilterNode | null = null;
+  private exciterWaveShaper: WaveShaperNode | null = null;
+  private exciterHighpass: BiquadFilterNode | null = null;
+  private exciterGain: GainNode | null = null;
+  private bassExciterLevel: BassExciterLevel = 'off';
 
   // Karaoke DSP Nodes
   private dryGain: GainNode | null = null;
@@ -63,6 +79,10 @@ class AudioEffectsService {
 
   // Smart Crossfade Gain Node
   private crossfadeGain: GainNode | null = null;
+
+  // Final Peak Protection / Anti-Clipping Limiter Node
+  private limiterNode: DynamicsCompressorNode | null = null;
+  private isLimiterActive: boolean = true; // Default ON for speaker/headphone protection
 
   private currentPreset: EqualizerPreset = 'flat';
   private currentGains: number[] = [...EQ_PRESETS.flat];
@@ -90,6 +110,9 @@ class AudioEffectsService {
           this.karaokeDepth = typeof parsed.karaokeDepth === 'number' ? parsed.karaokeDepth : 1.0;
           this.spatialPreset = parsed.spatialPreset || 'off';
           this.spatialMix = typeof parsed.spatialMix === 'number' ? parsed.spatialMix : 0.35;
+          this.isLimiterActive = parsed.isLimiterActive !== undefined ? parsed.isLimiterActive : true;
+          this.isSubsonicActive = parsed.isSubsonicActive !== undefined ? parsed.isSubsonicActive : true;
+          this.bassExciterLevel = parsed.bassExciterLevel || 'off';
         }
       }
     } catch {
@@ -107,7 +130,10 @@ class AudioEffectsService {
         isKaraoke: this.isKaraoke,
         karaokeDepth: this.karaokeDepth,
         spatialPreset: this.spatialPreset,
-        spatialMix: this.spatialMix
+        spatialMix: this.spatialMix,
+        isLimiterActive: this.isLimiterActive,
+        isSubsonicActive: this.isSubsonicActive,
+        bassExciterLevel: this.bassExciterLevel
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
@@ -125,21 +151,23 @@ class AudioEffectsService {
         return;
       }
 
-      this.audioCtx = new AudioCtxClass();
+      // Initialize with playback latency hint for stable glitch-free audio buffering
+      try {
+        this.audioCtx = new AudioCtxClass({ latencyHint: 'playback' });
+      } catch {
+        this.audioCtx = new AudioCtxClass();
+      }
+
       this.sourceNode = this.audioCtx.createMediaElementSource(audioElement);
 
-      // 1. Preamp Gain Node
-      this.preampGain = this.audioCtx.createGain();
-      this.updatePreampGainNode();
+      // 0. Subsonic High-Pass Filter (18Hz DC rumble roll-off)
+      this.subsonicFilter = this.audioCtx.createBiquadFilter();
+      this.subsonicFilter.type = 'highpass';
+      this.subsonicFilter.frequency.value = this.isSubsonicActive ? 18 : 0;
+      this.subsonicFilter.Q.value = 0.707;
+      this.sourceNode.connect(this.subsonicFilter);
 
-      // 2. Analyser Node for Visualizer
-      this.analyser = this.audioCtx.createAnalyser();
-      this.analyser.fftSize = 256;
-      this.analyser.smoothingTimeConstant = 0.82;
-      this.analyser.minDecibels = -90;
-      this.analyser.maxDecibels = -10;
-
-      // 3. 10-Band Biquad Filters
+      // 1. 10-Band Biquad Filters
       this.filters = EQ_FREQUENCIES.map((band, idx) => {
         const filter = this.audioCtx!.createBiquadFilter();
         filter.type = band.type;
@@ -149,13 +177,40 @@ class AudioEffectsService {
         return filter;
       });
 
-      // Chain: Source -> Filter 0 -> Filter 1 -> ... -> Filter 9 -> Preamp
-      let previousNode: AudioNode = this.sourceNode;
+      // Chain: Subsonic -> Filter 0 -> Filter 1 -> ... -> Filter 9 -> Preamp
+      let previousNode: AudioNode = this.subsonicFilter;
       for (const filter of this.filters) {
         previousNode.connect(filter);
         previousNode = filter;
       }
+
+      // 2. Preamp Gain Node (with automatic sensible headroom management)
+      this.preampGain = this.audioCtx.createGain();
       previousNode.connect(this.preampGain);
+      this.updatePreampGainNode();
+
+      // 3. Psychoacoustic Bass Exciter Branch
+      // Low-pass extraction (< 110Hz) -> Non-linear harmonic generation -> High-pass harmonics (110Hz) -> Exciter gain
+      this.exciterLowpass = this.audioCtx.createBiquadFilter();
+      this.exciterLowpass.type = 'lowpass';
+      this.exciterLowpass.frequency.value = 110;
+      this.exciterLowpass.Q.value = 0.707;
+      this.preampGain.connect(this.exciterLowpass);
+
+      this.exciterWaveShaper = this.audioCtx.createWaveShaper();
+      this.exciterWaveShaper.curve = this.generateHarmonicsCurve(1024) as any;
+      this.exciterWaveShaper.oversample = '2x';
+      this.exciterLowpass.connect(this.exciterWaveShaper);
+
+      this.exciterHighpass = this.audioCtx.createBiquadFilter();
+      this.exciterHighpass.type = 'highpass';
+      this.exciterHighpass.frequency.value = 110;
+      this.exciterHighpass.Q.value = 0.707;
+      this.exciterWaveShaper.connect(this.exciterHighpass);
+
+      this.exciterGain = this.audioCtx.createGain();
+      this.exciterGain.gain.value = this.getExciterGainValue(this.bassExciterLevel);
+      this.exciterHighpass.connect(this.exciterGain);
 
       // 4. Karaoke Matrix Setup
       // Path A: Dry normal stereo path
@@ -163,7 +218,6 @@ class AudioEffectsService {
       this.preampGain.connect(this.dryGain);
 
       // Path B: Karaoke Mid-Side Vocal Cancellation
-      // Channel 0 = Left, Channel 1 = Right
       const splitter = this.audioCtx.createChannelSplitter(2);
       const merger = this.audioCtx.createChannelMerger(2);
       this.preampGain.connect(splitter);
@@ -198,6 +252,7 @@ class AudioEffectsService {
       this.spatialInputGain = this.audioCtx.createGain();
       this.dryGain.connect(this.spatialInputGain);
       this.karaokeGain.connect(this.spatialInputGain);
+      this.exciterGain.connect(this.spatialInputGain); // Injected exciter harmonics
 
       this.spatialDryGain = this.audioCtx.createGain();
       this.spatialWetGain = this.audioCtx.createGain();
@@ -207,15 +262,26 @@ class AudioEffectsService {
       this.spatialInputGain.connect(this.convolverNode);
       this.convolverNode.connect(this.spatialWetGain);
 
-      // Connect spatial dry & wet into Analyser Node
+      // 6. Analyser Node for Visualizer
+      this.analyser = this.audioCtx.createAnalyser();
+      this.analyser.fftSize = 256;
+      this.analyser.smoothingTimeConstant = 0.82;
+      this.analyser.minDecibels = -90;
+      this.analyser.maxDecibels = -10;
+
       this.spatialDryGain.connect(this.analyser);
       this.spatialWetGain.connect(this.analyser);
 
-      // 6. Smart Crossfade Engine Gain Node
+      // 7. Smart Crossfade Engine Gain Node
       this.crossfadeGain = this.audioCtx.createGain();
       this.crossfadeGain.gain.value = 1.0;
       this.analyser.connect(this.crossfadeGain);
-      this.crossfadeGain.connect(this.audioCtx.destination);
+
+      // 8. Peak Protection / Anti-Clipping Safety Stage
+      this.limiterNode = this.audioCtx.createDynamicsCompressor();
+      this.updateLimiterNode();
+      this.crossfadeGain.connect(this.limiterNode);
+      this.limiterNode.connect(this.audioCtx.destination);
 
       // Synchronize initial DSP states
       this.updateKaraokeGainNodes();
@@ -237,12 +303,76 @@ class AudioEffectsService {
     }
   }
 
+  /**
+   * Generates a smooth, soft non-linear transfer curve for generating second and third harmonics.
+   */
+  private generateHarmonicsCurve(samples: number): Float32Array {
+    const curve = new Float32Array(samples);
+    for (let i = 0; i < samples; i++) {
+      const x = (i * 2) / samples - 1;
+      // Soft symmetrical hyperbolic tangent-style saturation
+      curve[i] = (1.5 * x) / (1 + Math.abs(x) * 0.8);
+    }
+    return curve;
+  }
+
+  private getExciterGainValue(level: BassExciterLevel): number {
+    switch (level) {
+      case 'light':
+        return 0.15;
+      case 'medium':
+        return 0.35;
+      case 'strong':
+        return 0.55;
+      case 'off':
+      default:
+        return 0.0;
+    }
+  }
+
+  private updateBassExciterGainNode() {
+    if (!this.exciterGain || !this.audioCtx) return;
+    const targetGain = this.getExciterGainValue(this.bassExciterLevel);
+    this.exciterGain.gain.setTargetAtTime(targetGain, this.audioCtx.currentTime, 0.05);
+  }
+
+  private updateSubsonicFilterNode() {
+    if (!this.subsonicFilter || !this.audioCtx) return;
+    const targetFreq = this.isSubsonicActive ? 18 : 0;
+    this.subsonicFilter.frequency.setTargetAtTime(targetFreq, this.audioCtx.currentTime, 0.05);
+  }
+
+  private updateLimiterNode() {
+    if (!this.limiterNode || !this.audioCtx) return;
+    const now = this.audioCtx.currentTime;
+
+    if (this.isLimiterActive) {
+      // Conservative peak-protection configuration:
+      // Transparent during normal levels, acts quickly on dangerous digital spikes.
+      this.limiterNode.threshold.setTargetAtTime(-0.5, now, 0.04);
+      this.limiterNode.knee.setTargetAtTime(0, now, 0.04);
+      this.limiterNode.ratio.setTargetAtTime(20.0, now, 0.04);
+      this.limiterNode.attack.setTargetAtTime(0.001, now, 0.04);
+      this.limiterNode.release.setTargetAtTime(0.05, now, 0.04);
+    } else {
+      // 1:1 completely linear pass-through when disabled
+      this.limiterNode.threshold.setTargetAtTime(0, now, 0.04);
+      this.limiterNode.ratio.setTargetAtTime(1.0, now, 0.04);
+    }
+  }
+
   private updatePreampGainNode() {
     if (!this.preampGain || !this.audioCtx) return;
     if (this.isBypassed) {
       this.preampGain.gain.setTargetAtTime(1, this.audioCtx.currentTime, 0.05);
     } else {
-      const linear = Math.pow(10, this.preampDb / 20);
+      // Sensible automatic headroom management:
+      // When EQ bands are boosted, maintain headroom before the peak protection stage
+      // so the signal is not heavily crushed.
+      const maxBoostDb = Math.max(0, ...this.currentGains);
+      const headroomAttenuateDb = maxBoostDb > 2 ? -((maxBoostDb - 2) * 0.35) : 0;
+      const effectiveDb = this.preampDb + headroomAttenuateDb;
+      const linear = Math.pow(10, effectiveDb / 20);
       this.preampGain.gain.setTargetAtTime(linear, this.audioCtx.currentTime, 0.05);
     }
   }
@@ -253,6 +383,7 @@ class AudioEffectsService {
       const targetGain = this.isBypassed ? 0 : this.currentGains[idx];
       filter.gain.setTargetAtTime(targetGain, this.audioCtx!.currentTime, 0.08);
     });
+    this.updatePreampGainNode();
   }
 
   public setBandGain(index: number, gainDb: number) {
@@ -284,6 +415,52 @@ class AudioEffectsService {
       this.saveState();
       this.notifyListeners();
     }
+  }
+
+  // --- Audiophile Pro Controls ---
+  public setLimiter(enabled: boolean): void {
+    this.isLimiterActive = enabled;
+    this.updateLimiterNode();
+    this.saveState();
+    this.notifyListeners();
+  }
+
+  public toggleLimiter(): boolean {
+    const next = !this.isLimiterActive;
+    this.setLimiter(next);
+    return next;
+  }
+
+  public isLimiterEnabled(): boolean {
+    return this.isLimiterActive;
+  }
+
+  public setBassExciterLevel(level: BassExciterLevel): void {
+    this.bassExciterLevel = level;
+    this.updateBassExciterGainNode();
+    this.saveState();
+    this.notifyListeners();
+  }
+
+  public getBassExciterLevel(): BassExciterLevel {
+    return this.bassExciterLevel;
+  }
+
+  public setSubsonicFilter(enabled: boolean): void {
+    this.isSubsonicActive = enabled;
+    this.updateSubsonicFilterNode();
+    this.saveState();
+    this.notifyListeners();
+  }
+
+  public toggleSubsonicFilter(): boolean {
+    const next = !this.isSubsonicActive;
+    this.setSubsonicFilter(next);
+    return next;
+  }
+
+  public isSubsonicFilterActive(): boolean {
+    return this.isSubsonicActive;
   }
 
   // AI Smart Equalizer Auto-Tune
@@ -335,10 +512,6 @@ class AudioEffectsService {
       this.karaokeGain.gain.setTargetAtTime(0, now, 0.08);
     } else {
       const depth = Math.max(0, Math.min(1, this.karaokeDepth));
-      // Continuous transition:
-      // Depth 1.0 (100%): Complete center vocal elimination (dry: 0, karaoke diff: 1)
-      // Depth 0.5 (50%): Subtle vocal attenuation / Sing-along backing vocals (dry: 0.5, karaoke diff: 0.5)
-      // Depth 0.0 (0%): Pure original stereo mix
       this.dryGain.gain.setTargetAtTime(1 - depth, now, 0.08);
       this.karaokeGain.gain.setTargetAtTime(depth, now, 0.08);
     }
@@ -393,22 +566,18 @@ class AudioEffectsService {
 
     switch (preset) {
       case 'theatre':
-        // Grand Cinematic Theatre: enveloping room acoustics, balanced decay
         duration = 2.5;
         decay = 2.2;
         break;
       case 'concert':
-        // Live Stadium Arena: wide expansive reverberation
         duration = 3.6;
         decay = 1.8;
         break;
       case 'cathedral':
-        // Monumental Stone Cathedral: long ambient reflections
         duration = 4.8;
         decay = 1.35;
         break;
       case 'club':
-        // Audiophile Bass Club: tight reflections, punchy groove acoustics
         duration = 1.2;
         decay = 3.2;
         break;
@@ -423,7 +592,6 @@ class AudioEffectsService {
     for (let i = 0; i < length; i++) {
       const n = length - i;
       const envelope = Math.pow(n / length, decay);
-      // Dual-channel decorrelated reflections for an ultra-realistic 3D soundstage
       left[i] = (Math.random() * 2 - 1) * envelope;
       right[i] = (Math.random() * 2 - 1) * envelope;
     }

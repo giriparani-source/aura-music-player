@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   Play,
   Pause,
@@ -15,7 +15,9 @@ import {
   Sunrise,
   Sunset,
   CheckCircle2,
-  ListMusic
+  ListMusic,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
@@ -27,15 +29,31 @@ import {
   InbuiltPlaylist,
   inbuiltPlaylistsService
 } from '../../services/inbuiltPlaylistsService';
+import {
+  TAMIL_ARTISTS,
+  TamilArtist,
+  ArtistCategory,
+  ARTIST_CATEGORY_LABELS
+} from '../../services/tamilArtistsData';
 import { InbuiltPlaylistModal } from '../common/InbuiltPlaylistModal';
 import { Artwork } from '../common/Artwork';
 
 export const HomeView: React.FC = () => {
-  const { songs: localSongs, playlists, stats, setActiveTab } = useLibraryStore();
+  const { songs: localSongs, playlists, stats, setActiveTab, setSearchQuery } = useLibraryStore();
   const { currentSong, isPlaying, playSong, togglePlay, playBatch } = usePlayerStore();
 
   const [activeFilter, setActiveFilter] = useState<'all' | 'playlists' | 'radio'>('all');
   const [selectedInbuiltPlaylist, setSelectedInbuiltPlaylist] = useState<InbuiltPlaylist | null>(null);
+  const [artistCategoryFilter, setArtistCategoryFilter] = useState<ArtistCategory>('all');
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
+  const artistScrollRef = useRef<HTMLDivElement>(null);
+
+  const scrollArtists = (direction: 'left' | 'right') => {
+    if (artistScrollRef.current) {
+      const scrollAmount = direction === 'left' ? -420 : 420;
+      artistScrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
 
   // Dynamic Contextual Time Greeting
   const greeting = useMemo(() => {
@@ -125,47 +143,60 @@ export const HomeView: React.FC = () => {
     ];
   }, [localSongs, playBatch, playlistMap]);
 
-  // Top Artists Curated List - Mapped to real Inbuilt Playlists
-  const topArtists = useMemo(() => {
-    return [
-      {
-        name: 'Anirudh Ravichander',
-        role: 'Rockstar • Kollywood',
-        image: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300',
-        playlist: playlistMap['anirudh_mass']
-      },
-      {
-        name: 'A.R. Rahman',
-        role: 'Isai Puyal • Maestro',
-        image: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300',
-        playlist: playlistMap['ar_rahman_hits']
-      },
-      {
-        name: 'Yuvan Shankar Raja',
-        role: 'U1 • Drug BGM Specialist',
-        image: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300',
-        playlist: playlistMap['yuvan_drug_bgm']
-      },
-      {
-        name: 'Harris Jayaraj',
-        role: 'Melody King • Minnale',
-        image: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=300',
-        playlist: playlistMap['harris_jayaraj_melodies']
-      },
-      {
-        name: 'Ilaiyaraaja',
-        role: 'Isaignani • Living Legend',
-        image: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=300',
-        playlist: playlistMap['90s_vibe']
-      },
-      {
-        name: 'S.P. Balasubrahmanyam',
-        role: 'Padma Vibhushan • Voice of Soul',
-        image: 'https://images.unsplash.com/photo-1487180144351-b8472da7d491?w=300',
-        playlist: playlistMap['kollywood_chillout']
-      }
-    ];
-  }, [playlistMap]);
+  // Curated Tamil Artists List with Category Filtering
+  const filteredArtists = useMemo(() => {
+    if (artistCategoryFilter === 'all') return TAMIL_ARTISTS;
+    return TAMIL_ARTISTS.filter((a) => a.category === artistCategoryFilter);
+  }, [artistCategoryFilter]);
+
+  const handleArtistClick = (artist: TamilArtist) => {
+    if (artist.playlistId && playlistMap[artist.playlistId]) {
+      setSelectedInbuiltPlaylist(playlistMap[artist.playlistId]);
+    } else {
+      setSearchQuery(artist.name);
+      setActiveTab('search');
+    }
+  };
+
+  const handleArtistPlay = (artist: TamilArtist) => {
+    const isCurrent = Boolean(
+      currentSong &&
+        (
+          (artist.playlistId && playlistMap[artist.playlistId]?.tracks.some((t) => t.id === currentSong.id)) ||
+          (currentSong.artist && currentSong.artist.toLowerCase().includes(artist.name.toLowerCase()))
+        )
+    );
+
+    if (isCurrent) {
+      togglePlay();
+      return;
+    }
+
+    if (artist.playlistId && playlistMap[artist.playlistId]) {
+      playBatch(playlistMap[artist.playlistId].tracks);
+      return;
+    }
+
+    const localMatches = localSongs.filter(
+      (s) => s.artist && s.artist.toLowerCase().includes(artist.name.toLowerCase())
+    );
+    if (localMatches.length > 0) {
+      playBatch(localMatches);
+      return;
+    }
+
+    const allInbuiltTracks = INBUILT_PLAYLISTS.flatMap((p) => p.tracks);
+    const inbuiltMatches = allInbuiltTracks.filter(
+      (t) => t.artist && t.artist.toLowerCase().includes(artist.name.toLowerCase())
+    );
+    if (inbuiltMatches.length > 0) {
+      playBatch(inbuiltMatches);
+      return;
+    }
+
+    setSearchQuery(artist.name);
+    setActiveTab('search');
+  };
 
   return (
     <div className="p-4 sm:p-8 space-y-9 max-w-7xl mx-auto select-none pb-28">
@@ -576,63 +607,133 @@ export const HomeView: React.FC = () => {
 
       {/* ========================================================================= */}
       {/* ZONE 3 - SHELF 4: Top Artists                                            */}
-      {/* Jakob's Law: Distinct Circular Avatars                                   */}
+      {/* Jakob's Law: Distinct Circular Avatars & Responsive Carousel             */}
       {/* ========================================================================= */}
       {activeFilter === 'all' && (
         <section className="space-y-4 pt-2">
-          <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-            Top Tamil Music Directors & Legends
-          </h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                Top Tamil Music Directors & Legends
+              </h3>
+              <p className="text-xs text-neutral-400 mt-0.5">
+                {filteredArtists.length} iconic maestros, living legends & contemporary voices
+              </p>
+            </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            {topArtists.map((artist) => {
+            {/* Category Filter Pills & Desktop Carousel Controls */}
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+              <div className="flex items-center gap-1 p-1 bg-white/[0.04] border border-white/5 rounded-xl">
+                {(['all', 'composer', 'legend', 'contemporary'] as ArtistCategory[]).map((cat) => {
+                  const count =
+                    cat === 'all'
+                      ? TAMIL_ARTISTS.length
+                      : TAMIL_ARTISTS.filter((a) => a.category === cat).length;
+                  const isSelected = artistCategoryFilter === cat;
+
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => setArtistCategoryFilter(cat)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                          : 'text-neutral-400 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      {ARTIST_CATEGORY_LABELS[cat]} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Scroll Controls (Desktop) */}
+              <div className="hidden sm:flex items-center gap-1">
+                <button
+                  onClick={() => scrollArtists('left')}
+                  className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/5 text-neutral-400 hover:text-white transition-all active:scale-95 cursor-pointer"
+                  title="Previous Artists"
+                  aria-label="Previous Artists"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <button
+                  onClick={() => scrollArtists('right')}
+                  className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/5 text-neutral-400 hover:text-white transition-all active:scale-95 cursor-pointer"
+                  title="Next Artists"
+                  aria-label="Next Artists"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div
+            ref={artistScrollRef}
+            className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-3 pt-1 -mx-1 px-1 touch-pan-x"
+          >
+            {filteredArtists.map((artist) => {
               const isCurrent = Boolean(
                 currentSong &&
-                  artist.playlist &&
-                  artist.playlist.tracks.some((t) => t.id === currentSong.id)
+                  (
+                    (artist.playlistId && playlistMap[artist.playlistId]?.tracks.some((t) => t.id === currentSong.id)) ||
+                    (currentSong.artist && currentSong.artist.toLowerCase().includes(artist.name.toLowerCase()))
+                  )
               );
               const isArtistPlaying = isCurrent && isPlaying;
+              const hasImageError = Boolean(failedImages[artist.id]);
 
               return (
                 <div
-                  key={artist.name}
-                  onClick={() => {
-                    if (artist.playlist) {
-                      setSelectedInbuiltPlaylist(artist.playlist);
-                    }
-                  }}
-                  className={`group p-3 rounded-2xl border transition-all cursor-pointer flex flex-col items-center text-center ${
+                  key={artist.id}
+                  onClick={() => handleArtistClick(artist)}
+                  className={`flex-none w-36 sm:w-40 p-3 rounded-2xl border transition-all cursor-pointer flex flex-col items-center text-center group select-none ${
                     isCurrent
-                      ? 'bg-white/[0.06] border-indigo-500/30'
+                      ? 'bg-white/[0.06] border-indigo-500/40 ring-1 ring-indigo-500/30 shadow-lg shadow-indigo-500/10'
                       : 'bg-white/[0.02] hover:bg-white/[0.06] border-transparent hover:border-white/5'
                   }`}
                 >
                   {/* Circular Portrait */}
-                  <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden shadow-xl mb-3 bg-black/40">
-                    <img
-                      src={artist.image}
-                      alt={artist.name}
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                    />
+                  <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden shadow-xl mb-3 bg-neutral-900 ring-2 ring-white/10 group-hover:ring-white/25 transition-all">
+                    {hasImageError ? (
+                      <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950 text-white p-2">
+                        <span className="text-xl font-black tracking-wider text-indigo-300">
+                          {artist.name
+                            .split(' ')
+                            .map((part) => part[0])
+                            .filter(Boolean)
+                            .slice(0, 2)
+                            .join('')
+                            .toUpperCase()}
+                        </span>
+                        <span className="text-[9px] text-neutral-400 mt-1 uppercase tracking-wider">
+                          {artist.category}
+                        </span>
+                      </div>
+                    ) : (
+                      <img
+                        src={artist.image}
+                        alt={artist.name}
+                        onError={() => setFailedImages((prev) => ({ ...prev, [artist.id]: true }))}
+                        loading="lazy"
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                      />
+                    )}
 
                     {/* Hover / Active Green Play Button */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (artist.playlist) {
-                          if (isCurrent) {
-                            togglePlay();
-                          } else {
-                            playBatch(artist.playlist.tracks);
-                          }
-                        }
+                        handleArtistPlay(artist);
                       }}
                       className={`absolute bottom-1 right-1 w-9 h-9 rounded-full bg-[#1ed760] text-black shadow-xl shadow-black/80 flex items-center justify-center transition-all duration-200 cursor-pointer ${
                         isArtistPlaying
-                          ? 'opacity-100 scale-100'
+                          ? 'opacity-100 scale-100 ring-2 ring-black/50'
                           : 'opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95'
                       }`}
                       title={isArtistPlaying ? `Pause ${artist.name}` : `Play ${artist.name}`}
+                      aria-label={isArtistPlaying ? `Pause ${artist.name}` : `Play ${artist.name}`}
                     >
                       {isArtistPlaying ? (
                         <Pause size={14} className="fill-current" />
@@ -646,11 +747,15 @@ export const HomeView: React.FC = () => {
                     className={`text-xs sm:text-sm font-bold truncate max-w-full transition-colors ${
                       isCurrent ? 'text-[#1ed760]' : 'text-white group-hover:text-indigo-200'
                     }`}
+                    title={artist.name}
                   >
                     {artist.name}
                   </h4>
-                  <p className="text-[10px] text-neutral-400 truncate max-w-full mt-0.5">
-                    {artist.role}
+                  <p
+                    className="text-[10px] text-neutral-400 truncate max-w-full mt-0.5"
+                    title={artist.subtitle}
+                  >
+                    {artist.subtitle}
                   </p>
                 </div>
               );

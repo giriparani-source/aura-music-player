@@ -12,7 +12,8 @@ import {
   SortOption,
   ViewMode,
   ScanProgress,
-  ScanResult
+  ScanResult,
+  DownloadState
 } from '../types/music';
 import { musicDB } from '../services/db';
 import { calculateLibraryHealth, healthToLegacyStats } from '../services/healthService';
@@ -22,6 +23,7 @@ import {
   collectFilesFromFileList,
   runDifferentialScan
 } from '../services/scannerService';
+import { downloadService } from '../services/downloadService';
 
 interface LibraryStoreState {
   songs: Song[];
@@ -47,6 +49,12 @@ interface LibraryStoreState {
   highBitrateOnly: boolean;
   favoritesOnly: boolean;
 
+  // Offline Download State
+  downloadedSongIds: Set<string>;
+  downloadingStates: Record<string, { progress: number; status: DownloadState }>;
+  offlineStorage: { songCount: number; totalBytes: number };
+  isOnline: boolean;
+
   // Actions
   loadLibrary: () => Promise<void>;
   setActiveTab: (tab: NavigationTab) => void;
@@ -70,6 +78,10 @@ interface LibraryStoreState {
   batchAddToPlaylist: (playlistId: string, songIds: string[]) => Promise<void>;
   removeSongFromPlaylist: (playlistId: string, songId: string) => Promise<void>;
   registerOnlineSong: (song: Song) => Promise<void>;
+  downloadTrack: (song: Song) => Promise<boolean>;
+  deleteDownloadedTrack: (songId: string) => Promise<void>;
+  clearAllDownloads: () => Promise<void>;
+  refreshDownloads: () => Promise<void>;
   scanFromDirectoryHandle: (dirHandle: FileSystemDirectoryHandle) => Promise<ScanResult>;
   scanFromFileList: (files: FileList) => Promise<ScanResult>;
   clearLibrary: () => Promise<void>;
@@ -135,6 +147,11 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   formatFilter: null,
   highBitrateOnly: false,
   favoritesOnly: false,
+
+  downloadedSongIds: new Set(),
+  downloadingStates: {},
+  offlineStorage: { songCount: 0, totalBytes: 0 },
+  isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
 
   loadLibrary: async () => {
     set({ isLoading: true });
@@ -224,6 +241,17 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       const stats = healthToLegacyStats(health, artists.length, albums.length, playlists.length);
       const duplicates = detectDuplicates(songs);
 
+      // Refresh downloads
+      let downloadedSet = new Set<string>();
+      let offlineStorage = { songCount: 0, totalBytes: 0 };
+      try {
+        const downloaded = await downloadService.getDownloadedTracks();
+        downloadedSet = new Set(downloaded.map((s) => s.id));
+        offlineStorage = await downloadService.getOfflineStorageUsage();
+      } catch (dlErr) {
+        console.warn('Could not load offline downloads:', dlErr);
+      }
+
       set({
         songs,
         albums,
@@ -232,6 +260,8 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         stats,
         health,
         duplicates,
+        downloadedSongIds: downloadedSet,
+        offlineStorage,
         isLoading: false
       });
     } catch (err) {
@@ -404,6 +434,77 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     }
   },
 
+  downloadTrack: async (song: Song): Promise<boolean> => {
+    set((state) => ({
+      downloadingStates: {
+        ...state.downloadingStates,
+        [song.id]: { progress: 0, status: 'downloading' }
+      }
+    }));
+
+    const success = await downloadService.downloadTrack(song, (pct) => {
+      set((state) => ({
+        downloadingStates: {
+          ...state.downloadingStates,
+          [song.id]: { progress: pct, status: 'downloading' }
+        }
+      }));
+    });
+
+    if (success) {
+      await get().refreshDownloads();
+    } else {
+      set((state) => ({
+        downloadingStates: {
+          ...state.downloadingStates,
+          [song.id]: { progress: 0, status: 'failed' }
+        }
+      }));
+    }
+    return success;
+  },
+
+  deleteDownloadedTrack: async (songId: string) => {
+    await downloadService.deleteDownloadedTrack(songId);
+    await get().refreshDownloads();
+  },
+
+  clearAllDownloads: async () => {
+    await downloadService.clearAllDownloads();
+    await get().refreshDownloads();
+  },
+
+  refreshDownloads: async () => {
+    const downloaded = await downloadService.getDownloadedTracks();
+    const downloadedSet = new Set(downloaded.map((s) => s.id));
+    const offlineStorage = await downloadService.getOfflineStorageUsage();
+
+    set((state) => {
+      const nextDownloading = { ...state.downloadingStates };
+      downloadedSet.forEach((id) => {
+        delete nextDownloading[id];
+      });
+
+      const currentSongMap = new Map(state.songs.map((s) => [s.id, s]));
+      // Update existing songs
+      downloaded.forEach((dlSong) => {
+        currentSongMap.set(dlSong.id, { ...dlSong, isDownloaded: true });
+      });
+
+      const updatedSongs = Array.from(currentSongMap.values()).map((s) => ({
+        ...s,
+        isDownloaded: downloadedSet.has(s.id)
+      }));
+
+      return {
+        downloadedSongIds: downloadedSet,
+        downloadingStates: nextDownloading,
+        offlineStorage,
+        songs: updatedSongs
+      };
+    });
+  },
+
   scanFromDirectoryHandle: async (dirHandle: FileSystemDirectoryHandle): Promise<ScanResult> => {
     set({
       scanProgress: {
@@ -469,3 +570,18 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     await get().loadLibrary();
   }
 }));
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    useLibraryStore.setState({ isOnline: true });
+  });
+  window.addEventListener('offline', () => {
+    useLibraryStore.setState({ isOnline: false });
+  });
+
+  // Listen for background download updates
+  downloadService.subscribe(() => {
+    useLibraryStore.getState().refreshDownloads();
+  });
+}
+

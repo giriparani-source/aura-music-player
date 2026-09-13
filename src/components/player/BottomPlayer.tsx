@@ -17,13 +17,18 @@ import {
   Sliders,
   Mic2,
   Sparkles,
-  Users
+  Users,
+  Download,
+  CheckCircle2,
+  Loader2,
+  Infinity as InfinityIcon
 } from 'lucide-react';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useJamStore } from '../../store/useJamStore';
 import { formatTime } from '../../utils/formatters';
 import { Artwork } from '../common/Artwork';
+import { SleepTimerMenu } from './SleepTimerMenu';
 
 export const BottomPlayer: React.FC = () => {
   const {
@@ -52,20 +57,32 @@ export const BottomPlayer: React.FC = () => {
     karaokeDepth,
     spatialPreset,
     toggleKaraoke,
-    setAiAssistantOpen
+    setAiAssistantOpen,
+    isAuraFlow,
+    toggleAuraFlow
   } = usePlayerStore();
 
   const { isInRoom, roomCode, setJamModalOpen } = useJamStore();
-  const { toggleFavorite } = useLibraryStore();
+  const {
+    toggleFavorite,
+    downloadedSongIds,
+    downloadingStates,
+    downloadTrack,
+    deleteDownloadedTrack
+  } = useLibraryStore();
 
   if (!currentSong) {
     return null;
   }
 
+  const isDownloaded = downloadedSongIds.has(currentSong.id);
+  const dlState = downloadingStates[currentSong.id];
+  const isDownloading = dlState?.status === 'downloading';
+
   return (
     <div className="fixed bottom-16 md:bottom-0 left-0 right-0 h-20 bg-[#0e1118]/90 backdrop-blur-2xl border-t border-white/10 px-4 sm:px-6 flex items-center justify-between z-40 select-none shadow-2xl">
       {/* 1. Track Info (Left) */}
-      <div className="flex items-center gap-3.5 w-1/4 min-w-[180px] max-w-[280px]">
+      <div className="flex items-center gap-2 sm:gap-3 w-1/4 min-w-[190px] max-w-[300px]">
         <div
           onClick={() => setNowPlayingOpen(true)}
           className="cursor-pointer transition-transform hover:scale-105 shrink-0"
@@ -92,19 +109,63 @@ export const BottomPlayer: React.FC = () => {
                 320K
               </span>
             )}
+            {currentSong.isAuraFlow && (
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 shrink-0">
+                <Sparkles size={8} />
+                FLOW
+              </span>
+            )}
           </div>
           <p className="text-xs text-neutral-400 truncate mt-0.5">{currentSong.artist}</p>
         </div>
 
-        <button
-          onClick={() => toggleFavorite(currentSong.id, currentSong)}
-          className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors shrink-0 ${
-            currentSong.isFavorite ? 'text-rose-500' : 'text-neutral-400'
-          }`}
-          title="Favorite"
-        >
-          <Heart size={16} className={currentSong.isFavorite ? 'fill-rose-500' : ''} />
-        </button>
+        <div className="flex items-center gap-0.5 shrink-0">
+          {!currentSong.isLiveRadio && (
+            <button
+              onClick={() => {
+                if (isDownloading) return;
+                if (isDownloaded) {
+                  deleteDownloadedTrack(currentSong.id);
+                } else {
+                  downloadTrack(currentSong);
+                }
+              }}
+              disabled={isDownloading}
+              className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors shrink-0 ${
+                isDownloaded
+                  ? 'text-emerald-400'
+                  : isDownloading
+                  ? 'text-indigo-400'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+              title={
+                isDownloaded
+                  ? 'Downloaded for offline playback (Click to remove)'
+                  : isDownloading
+                  ? `Downloading... ${dlState?.progress || 0}%`
+                  : 'Download for offline playback'
+              }
+            >
+              {isDownloading ? (
+                <Loader2 size={16} className="animate-spin text-indigo-400" />
+              ) : isDownloaded ? (
+                <CheckCircle2 size={16} className="text-emerald-400" />
+              ) : (
+                <Download size={16} />
+              )}
+            </button>
+          )}
+
+          <button
+            onClick={() => toggleFavorite(currentSong.id, currentSong)}
+            className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors shrink-0 ${
+              currentSong.isFavorite ? 'text-rose-500' : 'text-neutral-400'
+            }`}
+            title="Favorite"
+          >
+            <Heart size={16} className={currentSong.isFavorite ? 'fill-rose-500' : ''} />
+          </button>
+        </div>
       </div>
 
       {/* 2. Main Playback Controls & Seekbar (Center) */}
@@ -262,6 +323,26 @@ export const BottomPlayer: React.FC = () => {
           {isInRoom && (
             <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-pink-500 animate-ping" />
           )}
+        </button>
+
+        {/* Smart Sleep Timer Control */}
+        <SleepTimerMenu compact={true} />
+
+        {/* Aura Flow Smart Autoplay Toggle */}
+        <button
+          onClick={toggleAuraFlow}
+          className={`p-2 rounded-lg transition-all cursor-pointer relative ${
+            isAuraFlow
+              ? 'text-fuchsia-400 bg-fuchsia-500/20 border border-fuchsia-500/40 shadow-sm shadow-fuchsia-500/30'
+              : 'text-neutral-400 hover:text-fuchsia-400 hover:bg-white/5'
+          }`}
+          title={
+            isAuraFlow
+              ? 'Aura Flow: ON (Continuous smart autoplay active)'
+              : 'Turn ON Aura Flow (Continuous smart autoplay)'
+          }
+        >
+          <InfinityIcon size={17} className={isAuraFlow ? 'animate-pulse text-fuchsia-400' : ''} />
         </button>
 
         <button

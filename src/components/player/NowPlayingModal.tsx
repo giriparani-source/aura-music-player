@@ -17,7 +17,11 @@ import {
   Sliders,
   Sparkles,
   Mic2,
-  Film
+  Film,
+  Download,
+  CheckCircle2,
+  Loader2,
+  Infinity as InfinityIcon
 } from 'lucide-react';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
@@ -27,6 +31,7 @@ import { AudioVisualizer } from './AudioVisualizer';
 import { EqualizerPanel } from './EqualizerPanel';
 import { LyricsView } from './LyricsView';
 import { AiSongInsights } from './AiSongInsights';
+import { SleepTimerMenu } from './SleepTimerMenu';
 import { NowPlayingTab } from '../../types/music';
 
 export const NowPlayingModal: React.FC = () => {
@@ -54,10 +59,23 @@ export const NowPlayingModal: React.FC = () => {
     isKaraoke,
     karaokeDepth,
     toggleKaraoke,
-    spatialPreset
+    spatialPreset,
+    isAuraFlow,
+    toggleAuraFlow
   } = usePlayerStore();
 
-  const { toggleFavorite } = useLibraryStore();
+  const {
+    toggleFavorite,
+    downloadedSongIds,
+    downloadingStates,
+    downloadTrack,
+    deleteDownloadedTrack,
+    isOnline
+  } = useLibraryStore();
+
+  const isDownloaded = currentSong ? (downloadedSongIds.has(currentSong.id) || Boolean(currentSong.isDownloaded)) : false;
+  const dlState = currentSong ? downloadingStates[currentSong.id] : undefined;
+  const isDownloading = dlState?.status === 'downloading';
 
   const tabContainerRef = React.useRef<HTMLDivElement>(null);
   const activeTabRef = React.useRef<HTMLButtonElement>(null);
@@ -234,6 +252,9 @@ export const NowPlayingModal: React.FC = () => {
               </span>
             </button>
 
+            {/* Smart Sleep Timer Control */}
+            <SleepTimerMenu />
+
             {/* Top Close (Cancel) Button */}
             <button
               onClick={(e) => {
@@ -279,18 +300,67 @@ export const NowPlayingModal: React.FC = () => {
                     )}
                   </div>
 
-                  <button
-                    onClick={() => toggleFavorite(currentSong.id, currentSong)}
-                    className={`p-2.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors ${
-                      currentSong.isFavorite ? 'text-rose-500' : 'text-neutral-400'
-                    }`}
-                  >
-                    <Heart size={20} className={currentSong.isFavorite ? 'fill-rose-500' : ''} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        if (isDownloading) return;
+                        if (isDownloaded) {
+                          deleteDownloadedTrack(currentSong.id);
+                        } else {
+                          downloadTrack(currentSong);
+                        }
+                      }}
+                      disabled={isDownloading}
+                      className={`p-2.5 rounded-full transition-colors cursor-pointer ${
+                        isDownloaded
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                          : isDownloading
+                          ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                          : 'bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/5'
+                      }`}
+                      title={
+                        isDownloaded
+                          ? 'Downloaded for offline playback (Click to remove)'
+                          : isDownloading
+                          ? `Downloading... ${dlState?.progress || 0}%`
+                          : 'Download track for offline playback'
+                      }
+                    >
+                      {isDownloading ? (
+                        <Loader2 size={20} className="animate-spin text-indigo-400" />
+                      ) : isDownloaded ? (
+                        <CheckCircle2 size={20} className="text-emerald-400" />
+                      ) : (
+                        <Download size={20} />
+                      )}
+                    </button>
+
+                    <button
+                      onClick={() => toggleFavorite(currentSong.id, currentSong)}
+                      className={`p-2.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors cursor-pointer ${
+                        currentSong.isFavorite ? 'text-rose-500' : 'text-neutral-400'
+                      }`}
+                      title={currentSong.isFavorite ? 'Remove from Favourites' : 'Add to Favourites'}
+                    >
+                      <Heart size={20} className={currentSong.isFavorite ? 'fill-rose-500' : ''} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Technical Metadata pill */}
                 <div className="flex items-center gap-2 mb-6 flex-wrap">
+                  {isDownloaded && (
+                    <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 shadow-sm shadow-emerald-500/20">
+                      <CheckCircle2 size={12} className="text-emerald-400" />
+                      <span>Playing downloaded copy</span>
+                    </span>
+                  )}
+                  {!isOnline && (
+                    <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5 animate-pulse">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      <span>Offline</span>
+                    </span>
+                  )}
                   {currentSong.isLiveRadio ? (
                     <>
                       <span className="px-2.5 py-0.5 text-[10px] font-extrabold rounded-full bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-1.5">
@@ -312,6 +382,12 @@ export const NowPlayingModal: React.FC = () => {
                       {currentSong.isSaavn && (
                         <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                           JioSaavn 320k
+                        </span>
+                      )}
+                      {currentSong.isAuraFlow && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30">
+                          <Sparkles size={10} />
+                          Aura Flow
                         </span>
                       )}
                       {currentSong.bitrate && (
@@ -438,15 +514,29 @@ export const NowPlayingModal: React.FC = () => {
 
           {/* Playback & Volume Row */}
           <div className="flex items-center justify-between">
-            <button
-              onClick={toggleShuffle}
-              className={`p-2 rounded-full transition-colors cursor-pointer ${
-                isShuffle ? 'text-indigo-400 bg-indigo-500/15' : 'text-neutral-400 hover:text-white'
-              }`}
-              title="Shuffle"
-            >
-              <Shuffle size={18} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={toggleShuffle}
+                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                  isShuffle ? 'text-indigo-400 bg-indigo-500/15' : 'text-neutral-400 hover:text-white'
+                }`}
+                title="Shuffle"
+              >
+                <Shuffle size={18} />
+              </button>
+
+              <button
+                onClick={toggleAuraFlow}
+                className={`p-2 rounded-full transition-all cursor-pointer ${
+                  isAuraFlow
+                    ? 'text-fuchsia-400 bg-fuchsia-500/20 border border-fuchsia-500/40 shadow-sm shadow-fuchsia-500/30'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+                title={`Aura Flow: ${isAuraFlow ? 'ON (Smart continuous autoplay)' : 'OFF'}`}
+              >
+                <InfinityIcon size={18} className={isAuraFlow ? 'animate-pulse text-fuchsia-400' : ''} />
+              </button>
+            </div>
 
             <div className="flex items-center gap-4 sm:gap-6">
               <button

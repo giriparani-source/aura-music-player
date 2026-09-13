@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Heart, PlusCircle, Check, ListPlus } from 'lucide-react';
+import { Play, Heart, PlusCircle, Check, ListPlus, Download, CheckCircle2, Loader2 } from 'lucide-react';
 import { Song } from '../../types/music';
 import { formatTime } from '../../utils/formatters';
 import { Artwork } from './Artwork';
@@ -25,12 +25,23 @@ export const SongRow: React.FC<SongRowProps> = ({
   onToggleSelect
 }) => {
   const { currentSong, isPlaying, playSong, togglePlay, addToQueueNext } = usePlayerStore();
-  const { songs: librarySongs, toggleFavorite } = useLibraryStore();
+  const {
+    songs: librarySongs,
+    toggleFavorite,
+    downloadedSongIds,
+    downloadingStates,
+    downloadTrack,
+    deleteDownloadedTrack
+  } = useLibraryStore();
   const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
 
   const isCurrent = currentSong?.id === song.id;
   const libSong = librarySongs.find((s) => s.id === song.id);
   const isFav = libSong ? libSong.isFavorite : (isCurrent ? currentSong.isFavorite : song.isFavorite);
+
+  const isDownloaded = downloadedSongIds.has(song.id) || Boolean(song.isDownloaded);
+  const dlState = downloadingStates[song.id];
+  const isDownloading = dlState?.status === 'downloading';
 
   const handleRowClick = () => {
     if (isSelectMode && onToggleSelect) {
@@ -104,7 +115,12 @@ export const SongRow: React.FC<SongRowProps> = ({
       </div>
 
       {/* Folder tag, JioSaavn badge, or Live Radio badge (hidden on mobile) */}
-      {song.isLiveRadio ? (
+      {isDownloaded ? (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0" title="Downloaded for offline playback">
+          <CheckCircle2 size={11} className="text-emerald-400" />
+          <span className="hidden lg:inline">Offline</span>
+        </span>
+      ) : song.isLiveRadio ? (
         <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
           <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
           Live FM
@@ -157,6 +173,42 @@ export const SongRow: React.FC<SongRowProps> = ({
       {/* Action buttons (only in non-selection mode) */}
       {!isSelectMode && (
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {/* Download / Remove Download Action */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isDownloading) return;
+              if (isDownloaded) {
+                deleteDownloadedTrack(song.id);
+              } else {
+                downloadTrack(song);
+              }
+            }}
+            disabled={isDownloading}
+            className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors ${
+              isDownloaded
+                ? 'text-emerald-400 opacity-100'
+                : isDownloading
+                ? 'text-indigo-400 opacity-100'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+            title={
+              isDownloaded
+                ? 'Downloaded for offline playback (Click to remove)'
+                : isDownloading
+                ? `Downloading... ${dlState?.progress || 0}%`
+                : 'Download for offline playback'
+            }
+          >
+            {isDownloading ? (
+              <Loader2 size={15} className="animate-spin text-indigo-400" />
+            ) : isDownloaded ? (
+              <CheckCircle2 size={15} className="text-emerald-400" />
+            ) : (
+              <Download size={15} />
+            )}
+          </button>
+
           <button
             onClick={(e) => {
               e.stopPropagation();

@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import { Song, RepeatMode, NowPlayingTab, SpatialPreset } from '../types/music';
 import { audioService } from '../services/audioService';
-import { audioEffectsService } from '../services/audioEffectsService';
+import { audioEffectsService, BassExciterLevel } from '../services/audioEffectsService';
+import { sleepTimerService, SleepTimerPreset } from '../services/sleepTimerService';
 import { musicDB } from '../services/db';
 import { useLibraryStore, onFavoriteChanged, registerSongLookup } from './useLibraryStore';
 import { generateFairShuffleIndices, generatePureRandomIndices } from '../utils/fairShuffle';
+import { auraFlowService, FlowContext } from '../services/auraFlowService';
 
 interface PlayerStoreState {
   currentSong: Song | null;
@@ -31,6 +33,18 @@ interface PlayerStoreState {
   isAiAssistantOpen: boolean;
   aiEqStatus: string | null;
 
+  // Aura Flow: Continuous Smart Autoplay
+  isAuraFlow: boolean;
+
+  // Smart Sleep Timer
+  sleepTimerRemaining: number | null;
+  sleepTimerMode: SleepTimerPreset;
+
+  // Audiophile Pro DSP
+  isLimiterActive: boolean;
+  bassExciterLevel: BassExciterLevel;
+  isSubsonicActive: boolean;
+
   // History stack for predictable previous navigation
   playbackHistory: string[];
 
@@ -46,6 +60,8 @@ interface PlayerStoreState {
   toggleShuffle: () => void;
   toggleFairShuffle: () => void;
   cycleRepeat: () => void;
+  toggleAuraFlow: () => void;
+  setAuraFlow: (enabled: boolean) => void;
   addToQueueNext: (song: Song) => void;
   addToQueueEnd: (song: Song) => void;
   addMultipleToQueue: (songs: Song[]) => void;
@@ -63,6 +79,15 @@ interface PlayerStoreState {
   setCrossfadeSeconds: (seconds: number) => void;
   setAiAssistantOpen: (open: boolean) => void;
   autoTuneCurrentSong: () => void;
+
+  // Sleep Timer Actions
+  setSleepTimer: (preset: SleepTimerPreset, customMinutes?: number) => void;
+  cancelSleepTimer: () => void;
+
+  // Audiophile Pro Actions
+  toggleLimiter: () => void;
+  setBassExciterLevel: (level: BassExciterLevel) => void;
+  toggleSubsonicFilter: () => void;
 }
 
 export const usePlayerStore = create<PlayerStoreState>((set, get) => {
@@ -84,7 +109,18 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       isKaraoke: audioEffectsService.isKaraokeEnabled(),
       karaokeDepth: audioEffectsService.getKaraokeDepth(),
       spatialPreset: audioEffectsService.getSpatialPreset(),
-      spatialMix: audioEffectsService.getSpatialMix()
+      spatialMix: audioEffectsService.getSpatialMix(),
+      isLimiterActive: audioEffectsService.isLimiterEnabled(),
+      bassExciterLevel: audioEffectsService.getBassExciterLevel(),
+      isSubsonicActive: audioEffectsService.isSubsonicFilterActive()
+    });
+  });
+
+  // Wire up sleepTimerService subscriber
+  sleepTimerService.subscribe((state) => {
+    set({
+      sleepTimerRemaining: state.remainingSeconds,
+      sleepTimerMode: state.mode
     });
   });
 
@@ -93,15 +129,23 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     musicDB.incrementPlayCount(song.id).catch((err) => {
       console.warn('Failed to increment play count:', err);
     });
+    auraFlowService.recordMeaningfulListen(song.id);
   });
 
   // Auto-advance to next song when current track ends
   audioService.setOnSongEnd(() => {
+    const current = get().currentSong;
+    if (current) {
+      auraFlowService.recordCompletedListen(current.id);
+    }
     get().nextSong();
   });
 
   // Synchronize favorites between library/db and player store (currentSong & queue)
   onFavoriteChanged((songId, isFavorite) => {
+    if (isFavorite) {
+      auraFlowService.recordFavorite(songId);
+    }
     const { currentSong, queue } = get();
     const updatedQueue = queue.map((s) => (s.id === songId ? { ...s, isFavorite } : s));
     const updatedCurrent = currentSong && currentSong.id === songId ? { ...currentSong, isFavorite } : currentSong;
@@ -116,6 +160,50 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     if (currentSong && currentSong.id === id) return currentSong;
     return queue.find((s) => s.id === id);
   });
+
+  // Aura Flow buffer helper: maintains max 1 upcoming track buffer when queue is nearing end
+  const ensureAuraFlowBuffer = () => {
+    const state = get();
+    if (!state.isAuraFlow || !state.currentSong || state.queue.length === 0) return;
+
+    // In shuffle mode, check position within shuffled order; in sequential mode, check queueIndex
+    const currentPos =
+      state.isShuffle && state.shuffledQueueOrder && state.shuffledQueueOrder.length === state.queue.length
+        ? state.shuffledQueueOrder.indexOf(state.queueIndex)
+        : -1;
+
+    const upcomingCount =
+      state.isShuffle && currentPos !== -1
+        ? state.shuffledQueueOrder.length - 1 - currentPos
+        : state.queue.length - 1 - state.queueIndex;
+
+    if (upcomingCount <= 0) {
+      const libState = useLibraryStore.getState();
+      const context: FlowContext = {
+        currentSong: state.currentSong,
+        queue: state.queue,
+        queueIndex: state.queueIndex,
+        playbackHistory: state.playbackHistory,
+        allSongs: libState.songs || [],
+        downloadedSongIds: libState.downloadedSongIds || new Set(),
+        isOnline: libState.isOnline ?? true
+      };
+
+      const nextTrack = auraFlowService.getNextTrack(context);
+      if (nextTrack) {
+        const flowSong: Song = {
+          ...nextTrack,
+          isAuraFlow: true
+        };
+        const newQueue = [...state.queue, flowSong];
+        let newShuffleOrder = state.shuffledQueueOrder;
+        if (state.isShuffle && newShuffleOrder && newShuffleOrder.length > 0) {
+          newShuffleOrder = [...newShuffleOrder, newQueue.length - 1];
+        }
+        set({ queue: newQueue, shuffledQueueOrder: newShuffleOrder });
+      }
+    }
+  };
 
   return {
     currentSong: null,
@@ -141,6 +229,12 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     crossfadeSeconds: audioService.getCrossfadeSeconds(),
     isAiAssistantOpen: false,
     aiEqStatus: null,
+    isAuraFlow: false,
+    sleepTimerRemaining: sleepTimerService.getRemainingSeconds(),
+    sleepTimerMode: sleepTimerService.getMode(),
+    isLimiterActive: audioEffectsService.isLimiterEnabled(),
+    bassExciterLevel: audioEffectsService.getBassExciterLevel(),
+    isSubsonicActive: audioEffectsService.isSubsonicFilterActive(),
     playbackHistory: [],
 
     playSong: async (song: Song, customQueue?: Song[], targetIndex?: number) => {
@@ -204,6 +298,9 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       });
 
       await audioService.playSong(song);
+      if (get().isAuraFlow) {
+        setTimeout(() => ensureAuraFlowBuffer(), 100);
+      }
     },
 
     playBatch: async (songs: Song[]) => {
@@ -220,6 +317,9 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         shuffledQueueOrder: []
       });
       await audioService.playSong(songs[0]);
+      if (get().isAuraFlow) {
+        setTimeout(() => ensureAuraFlowBuffer(), 100);
+      }
     },
 
     togglePlay: () => {
@@ -240,8 +340,24 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     },
 
     nextSong: () => {
-      const { queue, queueIndex, isShuffle, isFairShuffle, repeatMode, currentSong, playbackHistory } = get();
+      const {
+        queue,
+        queueIndex,
+        isShuffle,
+        isFairShuffle,
+        repeatMode,
+        currentSong,
+        playbackHistory,
+        currentTime,
+        isAuraFlow
+      } = get();
+
       if (queue.length === 0) return;
+
+      // Feedback: Quick skip (< 15 seconds)
+      if (currentSong && currentTime < 15) {
+        auraFlowService.recordSkip(currentSong.id, currentSong.artist);
+      }
 
       if (repeatMode === 'one' && currentSong) {
         audioService.seek(0);
@@ -268,6 +384,39 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
             : generatePureRandomIndices(queue.length, 0);
           set({ shuffledQueueOrder: freshOrder });
           nextIndex = freshOrder[0];
+        } else if (isAuraFlow) {
+          // Reached shuffle queue end with Aura Flow ON: generate next song
+          const libState = useLibraryStore.getState();
+          const context: FlowContext = {
+            currentSong,
+            queue,
+            queueIndex,
+            playbackHistory,
+            allSongs: libState.songs || [],
+            downloadedSongIds: libState.downloadedSongIds || new Set(),
+            isOnline: libState.isOnline ?? true
+          };
+          const nextTrack = auraFlowService.getNextTrack(context);
+          if (nextTrack) {
+            const flowSong: Song = { ...nextTrack, isAuraFlow: true };
+            const newQueue = [...queue, flowSong];
+            const nextIdx = newQueue.length - 1;
+            const newOrder = [...order, nextIdx];
+            const updatedHistory = currentSong ? [...playbackHistory, currentSong.id] : playbackHistory;
+            set({
+              queue: newQueue,
+              queueIndex: nextIdx,
+              shuffledQueueOrder: newOrder,
+              currentSong: flowSong,
+              playbackHistory: updatedHistory
+            });
+            audioService.playSong(flowSong);
+            setTimeout(() => ensureAuraFlowBuffer(), 100);
+            return;
+          } else {
+            audioService.pause();
+            return;
+          }
         } else {
           audioService.pause();
           return;
@@ -277,27 +426,66 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
           nextIndex = queueIndex + 1;
         } else if (repeatMode === 'all') {
           nextIndex = 0;
+        } else if (isAuraFlow) {
+          // Reached sequential queue end with Aura Flow ON: generate next song
+          const libState = useLibraryStore.getState();
+          const context: FlowContext = {
+            currentSong,
+            queue,
+            queueIndex,
+            playbackHistory,
+            allSongs: libState.songs || [],
+            downloadedSongIds: libState.downloadedSongIds || new Set(),
+            isOnline: libState.isOnline ?? true
+          };
+          const nextTrack = auraFlowService.getNextTrack(context);
+          if (nextTrack) {
+            const flowSong: Song = { ...nextTrack, isAuraFlow: true };
+            const newQueue = [...queue, flowSong];
+            const nextIdx = newQueue.length - 1;
+            const updatedHistory = currentSong ? [...playbackHistory, currentSong.id] : playbackHistory;
+            set({
+              queue: newQueue,
+              queueIndex: nextIdx,
+              currentSong: flowSong,
+              playbackHistory: updatedHistory
+            });
+            audioService.playSong(flowSong);
+            setTimeout(() => ensureAuraFlowBuffer(), 100);
+            return;
+          } else {
+            audioService.pause();
+            return;
+          }
         } else {
           audioService.pause();
           return;
         }
       }
 
-      const nextSong = queue[nextIndex];
-      if (nextSong) {
+      const nextSongItem = queue[nextIndex];
+      if (nextSongItem) {
         const updatedHistory = currentSong ? [...playbackHistory, currentSong.id] : playbackHistory;
         set({
-          currentSong: nextSong,
+          currentSong: nextSongItem,
           queueIndex: nextIndex,
           playbackHistory: updatedHistory
         });
-        audioService.playSong(nextSong);
+        audioService.playSong(nextSongItem);
+        if (get().isAuraFlow) {
+          setTimeout(() => ensureAuraFlowBuffer(), 100);
+        }
       }
     },
 
     previousSong: () => {
-      const { queue, queueIndex, playbackHistory, currentTime, isShuffle, shuffledQueueOrder } = get();
+      const { queue, queueIndex, playbackHistory, currentTime, isShuffle, shuffledQueueOrder, currentSong } = get();
       if (queue.length === 0) return;
+
+      // Feedback: replay signal
+      if (currentSong) {
+        auraFlowService.recordReplay(currentSong.id);
+      }
 
       // If playing past 3 seconds, restart current song first
       if (currentTime > 3) {
@@ -375,6 +563,30 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       set({ repeatMode: nextMode });
     },
 
+    toggleAuraFlow: () => {
+      const nextAuraFlow = !get().isAuraFlow;
+      if (!nextAuraFlow) {
+        // Turning OFF: clean up any upcoming unplayed Aura Flow tracks
+        const { queue, queueIndex } = get();
+        const cleanedQueue = queue.filter((song, idx) => idx <= queueIndex || !song.isAuraFlow);
+        set({ isAuraFlow: false, queue: cleanedQueue });
+      } else {
+        set({ isAuraFlow: true });
+        ensureAuraFlowBuffer();
+      }
+    },
+
+    setAuraFlow: (enabled: boolean) => {
+      if (!enabled) {
+        const { queue, queueIndex } = get();
+        const cleanedQueue = queue.filter((song, idx) => idx <= queueIndex || !song.isAuraFlow);
+        set({ isAuraFlow: false, queue: cleanedQueue });
+      } else {
+        set({ isAuraFlow: true });
+        ensureAuraFlowBuffer();
+      }
+    },
+
     addToQueueNext: (song: Song) => {
       const { queue, queueIndex, shuffledQueueOrder } = get();
       const insertAt = queueIndex + 1;
@@ -390,23 +602,58 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
 
     addToQueueEnd: (song: Song) => {
       set((state) => {
-        const newIndex = state.queue.length;
-        const newShuffleOrder = state.shuffledQueueOrder && state.shuffledQueueOrder.length > 0
-          ? [...state.shuffledQueueOrder, newIndex]
-          : state.shuffledQueueOrder;
-        return { queue: [...state.queue, song], shuffledQueueOrder: newShuffleOrder };
+        // Manual queue priority: If there are upcoming aura flow tracks, insert before them
+        const upcomingStart = state.queueIndex + 1;
+        const firstFlowIdx = state.queue.findIndex((s, idx) => idx >= upcomingStart && s.isAuraFlow);
+
+        let newQueue: Song[];
+        let insertAt: number;
+
+        if (firstFlowIdx !== -1) {
+          insertAt = firstFlowIdx;
+          newQueue = [...state.queue];
+          newQueue.splice(insertAt, 0, song);
+        } else {
+          insertAt = state.queue.length;
+          newQueue = [...state.queue, song];
+        }
+
+        let newShuffleOrder = state.shuffledQueueOrder;
+        if (newShuffleOrder && newShuffleOrder.length > 0) {
+          newShuffleOrder = newShuffleOrder.map((i) => (i >= insertAt ? i + 1 : i));
+          newShuffleOrder.push(insertAt);
+        }
+
+        return { queue: newQueue, shuffledQueueOrder: newShuffleOrder };
       });
     },
 
     addMultipleToQueue: (songs: Song[]) => {
       if (songs.length === 0) return;
       set((state) => {
-        const startIdx = state.queue.length;
-        const newItemsShuffle = songs.map((_, i) => startIdx + i);
-        const newShuffleOrder = state.shuffledQueueOrder && state.shuffledQueueOrder.length > 0
-          ? [...state.shuffledQueueOrder, ...newItemsShuffle]
-          : state.shuffledQueueOrder;
-        return { queue: [...state.queue, ...songs], shuffledQueueOrder: newShuffleOrder };
+        const upcomingStart = state.queueIndex + 1;
+        const firstFlowIdx = state.queue.findIndex((s, idx) => idx >= upcomingStart && s.isAuraFlow);
+
+        let newQueue: Song[];
+        let insertAt: number;
+
+        if (firstFlowIdx !== -1) {
+          insertAt = firstFlowIdx;
+          newQueue = [...state.queue];
+          newQueue.splice(insertAt, 0, ...songs);
+        } else {
+          insertAt = state.queue.length;
+          newQueue = [...state.queue, ...songs];
+        }
+
+        let newShuffleOrder = state.shuffledQueueOrder;
+        if (newShuffleOrder && newShuffleOrder.length > 0) {
+          newShuffleOrder = newShuffleOrder.map((i) => (i >= insertAt ? i + songs.length : i));
+          const newIndices = songs.map((_, i) => insertAt + i);
+          newShuffleOrder.push(...newIndices);
+        }
+
+        return { queue: newQueue, shuffledQueueOrder: newShuffleOrder };
       });
     },
 
@@ -493,6 +740,29 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       if (!currentSong) return;
       const result = audioEffectsService.autoTuneForSong(currentSong.title, currentSong.artist);
       set({ aiEqStatus: result.profileName });
+    },
+
+    setSleepTimer: (preset: SleepTimerPreset, customMinutes?: number) => {
+      sleepTimerService.setSleepTimer(preset, customMinutes);
+    },
+
+    cancelSleepTimer: () => {
+      sleepTimerService.cancelSleepTimer();
+    },
+
+    toggleLimiter: () => {
+      const next = audioEffectsService.toggleLimiter();
+      set({ isLimiterActive: next });
+    },
+
+    setBassExciterLevel: (level: BassExciterLevel) => {
+      audioEffectsService.setBassExciterLevel(level);
+      set({ bassExciterLevel: level });
+    },
+
+    toggleSubsonicFilter: () => {
+      const next = audioEffectsService.toggleSubsonicFilter();
+      set({ isSubsonicActive: next });
     }
   };
 });

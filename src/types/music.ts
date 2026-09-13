@@ -30,7 +30,12 @@ export interface Song {
   sourceId?: string;
   isLiveRadio?: boolean;
   isSaavn?: boolean;
+  isDownloaded?: boolean;
+  downloadedAt?: number;
+  isAuraFlow?: boolean;
 }
+
+export type DownloadState = 'not-downloaded' | 'downloading' | 'downloaded' | 'failed';
 
 export interface Album {
   id: string;
@@ -116,7 +121,7 @@ export interface LibraryStats {
 }
 
 export type NavigationTab = 'home' | 'library' | 'search' | 'playlists' | 'ai-studio' | 'settings';
-export type LibrarySubTab = 'songs' | 'albums' | 'artists' | 'playlists' | 'folders';
+export type LibrarySubTab = 'songs' | 'albums' | 'artists' | 'playlists' | 'folders' | 'downloads';
 export type SortOption = 'recent' | 'title' | 'artist' | 'album' | 'duration' | 'mostPlayed' | 'bitrate' | 'fileSize';
 export type ViewMode = 'grid' | 'list';
 

@@ -129,6 +129,34 @@ class MusicDatabase {
     }
   }
 
+  async updateSongLyrics(id: string, lyrics: string): Promise<void> {
+    const song = await this.getSongById(id);
+    if (song) {
+      song.lyrics = lyrics;
+      await this.saveSong(song);
+    }
+  }
+
+  async updateSongDownloadStatus(
+    id: string,
+    isDownloaded: boolean,
+    downloadedAt?: number,
+    fileSize?: number
+  ): Promise<void> {
+    const song = await this.getSongById(id);
+    if (song) {
+      song.isDownloaded = isDownloaded;
+      if (downloadedAt !== undefined) song.downloadedAt = downloadedAt;
+      if (fileSize !== undefined) song.fileSize = fileSize;
+      await this.saveSong(song);
+    }
+  }
+
+  async getDownloadedSongs(): Promise<Song[]> {
+    const songs = await this.getAllSongs();
+    return songs.filter((s) => Boolean(s.isDownloaded));
+  }
+
   async incrementPlayCount(id: string): Promise<void> {
     const song = await this.getSongById(id);
     if (song) {

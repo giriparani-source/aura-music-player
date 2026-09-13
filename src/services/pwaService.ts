@@ -55,7 +55,9 @@ class PwaService {
       if ('caches' in window) {
         caches.keys().then((keys) => {
           for (const key of keys) {
-            caches.delete(key);
+            if (!key.startsWith('aura-offline-audio')) {
+              caches.delete(key);
+            }
           }
         });
       }

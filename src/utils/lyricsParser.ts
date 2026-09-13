@@ -83,6 +83,14 @@ export function findActiveLyricIndex(lyrics: LyricLine[], currentTime: number): 
 }
 
 /**
+ * Applies a manual sync offset (in seconds) to a playback time or lyric timestamp.
+ * Positive offset brings lyrics forward (earlier); negative delays lyrics.
+ */
+export function applySyncOffset(time: number, offsetSeconds: number): number {
+  return Math.max(0, Math.round((time + offsetSeconds) * 1000) / 1000);
+}
+
+/**
  * Creates dynamic demo synced lyrics for any track if no LRC or USLT is available,
  * allowing instant verification and fun karaoke testing.
  */

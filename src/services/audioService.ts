@@ -3,6 +3,7 @@ import { getRegisteredFile } from './scannerService';
 import { audioEffectsService } from './audioEffectsService';
 import { cloudPlayerService } from './cloudPlayerService';
 import { searchJioSaavn, PRESET_SAAVN_320K_HITS } from './jiosaavnService';
+import { downloadService } from './downloadService';
 
 type AudioEventListener = (state: AudioServiceState) => void;
 
@@ -46,15 +47,32 @@ class AudioService {
   private isFadingOut: boolean = false;
 
   constructor() {
-    this.audio = new Audio();
-    this.audio.preload = 'auto';
-    this.audio.crossOrigin = 'anonymous';
-    this.audio.volume = 0.8;
-    if (typeof window !== 'undefined') {
-      (window as any).__auraAudio = this.audio;
+    if (typeof Audio !== 'undefined') {
+      this.audio = new Audio();
+      this.audio.preload = 'auto';
+      this.audio.crossOrigin = 'anonymous';
+      this.audio.volume = 0.8;
+      if (typeof window !== 'undefined') {
+        (window as any).__auraAudio = this.audio;
+      }
+      this.setupListeners();
+      this.setupCloudListeners();
+    } else {
+      this.audio = {
+        preload: 'auto',
+        crossOrigin: 'anonymous',
+        volume: 0.8,
+        currentTime: 0,
+        duration: 0,
+        paused: true,
+        src: '',
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        pause: () => {},
+        play: () => Promise.resolve(),
+        load: () => {}
+      } as any;
     }
-    this.setupListeners();
-    this.setupCloudListeners();
   }
 
   private setupListeners() {
@@ -279,7 +297,68 @@ class AudioService {
       URL.revokeObjectURL(this.currentObjectUrl);
       this.currentObjectUrl = null;
     }
+    downloadService.revokeCachedAudioUrl();
 
+    // 1. Local Track Playback Path (preserved untouched)
+    const registeredFile = getRegisteredFile(song.id);
+    const isLocalFile = Boolean(
+      registeredFile ||
+      (!song.isOnline && !song.isSaavn && song.path && !song.path.startsWith('http://') && !song.path.startsWith('https://'))
+    );
+
+    if (isLocalFile) {
+      this.isUsingCloudPlayer = false;
+      cloudPlayerService.pause();
+      try {
+        let source = audioSourceUrl;
+        if (!source) {
+          if (registeredFile) {
+            source = URL.createObjectURL(registeredFile);
+            this.currentObjectUrl = source;
+          } else if (song.filePath && (song.filePath.startsWith('/api/') || song.filePath.startsWith('blob:'))) {
+            source = song.filePath;
+          } else if (song.path && !song.path.startsWith('blob:')) {
+            source = `/api/audio?path=${encodeURIComponent(song.path)}`;
+          } else if (song.fileName) {
+            source = `/api/audio?path=${encodeURIComponent(song.fileName)}`;
+          }
+        }
+        if (source) {
+          await this.playDirectHtml5Audio(song, source, thisRequestId);
+          return;
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError' || thisRequestId !== this.playRequestId) return;
+        console.warn('Local audio playback error:', err);
+        this.notify('Cannot play local audio file.');
+        return;
+      }
+    }
+
+    // 2. Remote/Online Track: Check Offline Cache Storage First
+    try {
+      const cachedAudioUrl = await downloadService.getCachedAudioUrl(song.id);
+      if (cachedAudioUrl) {
+        if (thisRequestId !== this.playRequestId) {
+          downloadService.revokeCachedAudioUrl(song.id);
+          return;
+        }
+        this.isUsingCloudPlayer = false;
+        cloudPlayerService.pause();
+        await this.playDirectHtml5Audio(song, cachedAudioUrl, thisRequestId);
+        return;
+      }
+    } catch (cacheErr) {
+      console.warn('Error reading offline cached audio:', cacheErr);
+    }
+
+    // 3. Graceful Offline Detection for un-cached remote tracks
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      this.notify('You are offline. Only downloaded tracks can be played.');
+      return;
+    }
+
+    // 4. Standard Online Track Playback (JioSaavn / Direct Stream / YouTube Cloud)
     // Check if track is a direct audio stream (JioSaavn 320k master or Live FM Radio)
     const isDirectAudioStream = Boolean(
       song.isSaavn ||
@@ -316,8 +395,7 @@ class AudioService {
       return;
     }
 
-    // Local track OR Direct Audio Stream (JioSaavn 320k / Live Radio):
-    // Runs through HTML5 Audio Element & Full Web Audio DSP chain (10-Band EQ, 3D Reverb, Visualizer)
+    // Direct Audio Stream (JioSaavn 320k / Live Radio):
     this.isUsingCloudPlayer = false;
     cloudPlayerService.pause();
 
@@ -326,31 +404,21 @@ class AudioService {
       if (!source) {
         if (isDirectAudioStream && song.filePath) {
           source = song.filePath;
-        } else {
-          const registeredFile = getRegisteredFile(song.id);
-          if (registeredFile) {
-            source = URL.createObjectURL(registeredFile);
-            this.currentObjectUrl = source;
-          } else if (song.filePath && (song.filePath.startsWith('http://') || song.filePath.startsWith('https://') || song.filePath.startsWith('/api/'))) {
+        } else if (song.filePath && (song.filePath.startsWith('http://') || song.filePath.startsWith('https://') || song.filePath.startsWith('/api/'))) {
+          source = song.filePath;
+        } else if (song.path && (song.path.startsWith('http://') || song.path.startsWith('https://') || song.path.startsWith('/api/'))) {
+          source = song.path;
+        } else if (song.title) {
+          // Dynamically resolve audio stream for this specific song
+          const searchResults = await searchJioSaavn(song.title);
+          if (thisRequestId !== this.playRequestId) return;
+          if (searchResults.length > 0 && searchResults[0].filePath) {
+            source = searchResults[0].filePath;
+            song.filePath = source;
+            song.path = source;
+            song.isSaavn = true;
+          } else {
             source = song.filePath;
-          } else if (song.path && (song.path.startsWith('http://') || song.path.startsWith('https://') || song.path.startsWith('/api/'))) {
-            source = song.path;
-          } else if (song.path && !song.path.startsWith('blob:')) {
-            source = `/api/audio?path=${encodeURIComponent(song.path)}`;
-          } else if (song.fileName) {
-            source = `/api/audio?path=${encodeURIComponent(song.fileName)}`;
-          } else if (song.title) {
-            // Dynamically resolve audio stream for this specific song
-            const searchResults = await searchJioSaavn(song.title);
-            if (thisRequestId !== this.playRequestId) return;
-            if (searchResults.length > 0 && searchResults[0].filePath) {
-              source = searchResults[0].filePath;
-              song.filePath = source;
-              song.path = source;
-              song.isSaavn = true;
-            } else {
-              source = song.filePath;
-            }
           }
         }
       }
@@ -359,7 +427,7 @@ class AudioService {
     } catch (err: any) {
       if (err.name === 'AbortError' || thisRequestId !== this.playRequestId) return;
       console.warn('Audio playback note:', err);
-      this.notify('Cannot play audio file. Please re-select the folder.');
+      this.notify('Cannot play audio stream. Please check connection.');
     }
   }
 
@@ -590,6 +658,10 @@ class AudioService {
       this.isMuted = false;
     }
     this.notify();
+  }
+
+  public getVolume(): number {
+    return this.audio.volume;
   }
 
   public toggleMute(): void {

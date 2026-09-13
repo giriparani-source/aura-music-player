@@ -12,9 +12,13 @@ import {
   ShieldCheck,
   Music,
   ArrowRightLeft,
-  Volume2
+  Volume2,
+  Moon,
+  Zap,
+  Check
 } from 'lucide-react';
 import { audioEffectsService } from '../../services/audioEffectsService';
+import { SleepTimerPreset } from '../../services/sleepTimerService';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { EqualizerBand, EqualizerPreset, SpatialPreset } from '../../types/music';
 
@@ -79,7 +83,7 @@ const SPATIAL_ROOMS: {
   }
 ];
 
-type PanelSubTab = 'eq' | 'spatial' | 'karaoke-dj';
+type PanelSubTab = 'eq' | 'pro' | 'spatial' | 'karaoke-dj';
 
 export const EqualizerPanel: React.FC = () => {
   const {
@@ -94,7 +98,17 @@ export const EqualizerPanel: React.FC = () => {
     karaokeDepth,
     setKaraokeDepth,
     crossfadeSeconds,
-    setCrossfadeSeconds
+    setCrossfadeSeconds,
+    isLimiterActive,
+    toggleLimiter,
+    bassExciterLevel,
+    setBassExciterLevel,
+    isSubsonicActive,
+    toggleSubsonicFilter,
+    sleepTimerRemaining,
+    sleepTimerMode,
+    setSleepTimer,
+    cancelSleepTimer
   } = usePlayerStore();
 
   const [activeTab, setActiveTab] = useState<PanelSubTab>('eq');
@@ -142,6 +156,7 @@ export const EqualizerPanel: React.FC = () => {
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-inner">
             {activeTab === 'eq' && <Sliders size={20} />}
+            {activeTab === 'pro' && <ShieldCheck size={20} className="text-cyan-400" />}
             {activeTab === 'spatial' && <Film size={20} className="text-amber-400" />}
             {activeTab === 'karaoke-dj' && <Mic2 size={20} className="text-emerald-400" />}
           </div>
@@ -149,6 +164,7 @@ export const EqualizerPanel: React.FC = () => {
             <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
               <span>
                 {activeTab === 'eq' && 'Graphic Equalizer'}
+                {activeTab === 'pro' && 'Audiophile Pro DSP'}
                 {activeTab === 'spatial' && '3D Spatial Room Simulator'}
                 {activeTab === 'karaoke-dj' && 'Karaoke & DJ Crossfade Studio'}
               </span>
@@ -163,6 +179,17 @@ export const EqualizerPanel: React.FC = () => {
                   {isBypassed ? 'Bypassed' : 'Active'}
                 </span>
               )}
+              {activeTab === 'pro' && (
+                <span
+                  className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded-full border ${
+                    isLimiterActive
+                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+                      : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                  }`}
+                >
+                  {isLimiterActive ? 'Anti-Clipping ON' : 'Safety Bypass'}
+                </span>
+              )}
               {activeTab === 'spatial' && spatialPreset !== 'off' && (
                 <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
                   Theatre Mode Active
@@ -171,6 +198,7 @@ export const EqualizerPanel: React.FC = () => {
             </h3>
             <p className="text-xs text-neutral-400">
               {activeTab === 'eq' && '10-band parametric studio tone & acoustic curves'}
+              {activeTab === 'pro' && 'Anti-clipping peak protection, psychoacoustic bass exciter & smart sleep timer'}
               {activeTab === 'spatial' && 'Procedural impulse-response reverb & binaural surround acoustics'}
               {activeTab === 'karaoke-dj' && 'Real-time vocal attenuation slider & seamless DJ gapless crossfading'}
             </p>
@@ -189,6 +217,18 @@ export const EqualizerPanel: React.FC = () => {
           >
             <Sliders size={13} className="shrink-0" />
             <span>10-Band EQ</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('pro')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
+              activeTab === 'pro'
+                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-600/30'
+                : 'text-neutral-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <ShieldCheck size={13} className="shrink-0" />
+            <span>Audiophile Pro</span>
           </button>
 
           <button
@@ -700,6 +740,239 @@ export const EqualizerPanel: React.FC = () => {
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= TAB 4: AUDIOPHILE PRO DSP & SAFETY ================= */}
+      {activeTab === 'pro' && (
+        <div className="space-y-5 animate-in fade-in duration-200">
+          {/* Card 1: Peak Protection / Anti-Clipping */}
+          <div className="p-5 rounded-2xl bg-gradient-to-br from-cyan-950/30 to-black/60 border border-cyan-500/20 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                  <ShieldCheck size={20} />
+                </div>
+                <div>
+                  <h4 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                    <span>Peak Protection (Anti-Clipping)</span>
+                    <span
+                      className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded-full border ${
+                        isLimiterActive
+                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+                          : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                      }`}
+                    >
+                      {isLimiterActive ? 'Active (-0.5 dBFS Ceiling)' : 'Bypassed'}
+                    </span>
+                  </h4>
+                  <p className="text-xs text-neutral-400">
+                    Transparent dynamic peak limiter safety net preventing digital clipping on positive EQ gain & spatial resonance
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={toggleLimiter}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                  isLimiterActive
+                    ? 'bg-cyan-600 text-white border-cyan-500 shadow-lg shadow-cyan-600/30'
+                    : 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-white'
+                }`}
+              >
+                <Power size={14} />
+                <span>{isLimiterActive ? 'PROTECTION ON' : 'PROTECTION OFF'}</span>
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              Acts as a transparent safety net before AudioContext destination. When equalizer bands or spatial reflections produce positive gain, this prevents harsh digital clipping and audio buffer overflow without crushing playback dynamics.
+            </p>
+          </div>
+
+          {/* Card 2: Psychoacoustic Bass Exciter */}
+          <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-950/30 to-black/60 border border-indigo-500/20 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                  <Zap size={20} />
+                </div>
+                <div>
+                  <h4 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                    <span>Psychoacoustic Bass Exciter</span>
+                    <span
+                      className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded-full border ${
+                        bassExciterLevel !== 'off'
+                          ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                          : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                      }`}
+                    >
+                      {bassExciterLevel.toUpperCase()}
+                    </span>
+                  </h4>
+                  <p className="text-xs text-neutral-400">
+                    Low-frequency harmonic synthesis (&lt;110Hz) for deep bass perception on headphones & compact speakers
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-neutral-300">Harmonic Exciter Intensity:</span>
+                <span className="font-mono font-bold text-indigo-400 bg-indigo-500/10 px-2.5 py-0.5 rounded-lg border border-indigo-500/20">
+                  {bassExciterLevel === 'off' && 'Off (Direct Lows)'}
+                  {bassExciterLevel === 'light' && 'Light (+30% Harmonics)'}
+                  {bassExciterLevel === 'medium' && 'Medium (+60% Harmonics)'}
+                  {bassExciterLevel === 'strong' && 'Strong (+90% Harmonics)'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                {(['off', 'light', 'medium', 'strong'] as const).map((lvl) => (
+                  <button
+                    key={lvl}
+                    onClick={() => setBassExciterLevel(lvl)}
+                    className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-semibold uppercase tracking-wider transition-all border cursor-pointer ${
+                      bassExciterLevel === lvl
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-600/30'
+                        : 'bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border-white/5'
+                    }`}
+                  >
+                    {bassExciterLevel === lvl && <Check size={13} />}
+                    <span>{lvl}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              Filters low frequencies, applies controlled non-linear wave shaping to synthesize upper musical harmonics, and blends them into the soundstage. Your brain perceives the fundamental bass tone even on drivers that cannot physically reproduce sub-bass, without causing speaker distortion.
+            </p>
+          </div>
+
+          {/* Card 3: Subsonic Filter (18Hz) */}
+          <div className="p-5 rounded-2xl bg-gradient-to-br from-purple-950/30 to-black/60 border border-purple-500/20 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                  <Waves size={20} />
+                </div>
+                <div>
+                  <h4 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                    <span>Subsonic Filter</span>
+                    <span
+                      className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded-full border ${
+                        isSubsonicActive
+                          ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                          : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                      }`}
+                    >
+                      {isSubsonicActive ? 'Active (18Hz High-Pass)' : 'Bypassed'}
+                    </span>
+                  </h4>
+                  <p className="text-xs text-neutral-400">
+                    High-pass filter around 18Hz to eliminate sub-audible DC offset and power-wasting rumble
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={toggleSubsonicFilter}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                  isSubsonicActive
+                    ? 'bg-purple-600 text-white border-purple-500 shadow-lg shadow-purple-600/30'
+                    : 'bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-white'
+                }`}
+              >
+                <Power size={14} />
+                <span>{isSubsonicActive ? 'FILTER ON' : 'FILTER OFF'}</span>
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              Frequencies below 18Hz are imperceptible to human hearing but waste amplifier electrical power and cause cone wobble. This steep high-pass filter cleanly attenuates sub-audible artifacts.
+            </p>
+          </div>
+
+          {/* Card 4: Smart Sleep Timer */}
+          <div className="p-5 rounded-2xl bg-gradient-to-br from-amber-950/30 to-black/60 border border-amber-500/20 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <Moon size={20} />
+                </div>
+                <div>
+                  <h4 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                    <span>Smart Sleep Timer</span>
+                    {sleepTimerRemaining !== null && (
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
+                        🌙 {Math.floor(sleepTimerRemaining / 60)}:{String(sleepTimerRemaining % 60).padStart(2, '0')}
+                      </span>
+                    )}
+                  </h4>
+                  <p className="text-xs text-neutral-400">
+                    Gradual 60-second exponential volume fade-out before pausing playback
+                  </p>
+                </div>
+              </div>
+
+              {sleepTimerRemaining !== null && (
+                <button
+                  onClick={cancelSleepTimer}
+                  className="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  Cancel Timer
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-1">
+              {[
+                { label: 'Off', preset: 'off' as SleepTimerPreset },
+                { label: '15 Minutes', preset: '15' as SleepTimerPreset },
+                { label: '30 Minutes', preset: '30' as SleepTimerPreset },
+                { label: '45 Minutes', preset: '45' as SleepTimerPreset },
+                { label: '60 Minutes', preset: '60' as SleepTimerPreset },
+                { label: 'End of Track', preset: 'end_of_track' as SleepTimerPreset }
+              ].map((item) => {
+                const isActive =
+                  (item.preset === 'off' && sleepTimerRemaining === null) ||
+                  (item.preset !== 'off' && sleepTimerMode === item.preset);
+                return (
+                  <button
+                    key={item.label}
+                    onClick={() => {
+                      if (item.preset === 'off') {
+                        cancelSleepTimer();
+                      } else {
+                        setSleepTimer(item.preset);
+                      }
+                    }}
+                    className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all border cursor-pointer ${
+                      isActive
+                        ? 'bg-amber-600 text-white border-amber-500 shadow-md shadow-amber-600/30'
+                        : 'bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border-white/5'
+                    }`}
+                  >
+                    🌙 {item.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              When the timer reaches the final 60 seconds, Aura gently lowers volume to silence before pausing playback. Your normal baseline volume is automatically restored so future listening remains at your preferred level.
+            </p>
+          </div>
+
+          {/* Card 5: Audio Quality Transparency Statement */}
+          <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 flex items-start gap-3">
+            <Volume2 size={16} className="text-neutral-500 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-neutral-400 leading-relaxed italic">
+              "Aura's audio pipeline is designed for high-quality playback with configurable DSP, clipping protection, loudness/gain management, and spatial effects while preserving the original source as much as possible."
+            </p>
           </div>
         </div>
       )}
