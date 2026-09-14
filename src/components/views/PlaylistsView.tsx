@@ -7,7 +7,7 @@ import { EmptyState } from '../common/EmptyState';
 
 export const PlaylistsView: React.FC = () => {
   const { songs, playlists, activePlaylistId, setActivePlaylistId, createPlaylist, deletePlaylist } = useLibraryStore();
-  const { playSong } = usePlayerStore();
+  const playSong = usePlayerStore((s) => s.playSong);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');

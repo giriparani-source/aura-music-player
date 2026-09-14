@@ -199,11 +199,13 @@ async function parseID3v2(file: File | Blob): Promise<Partial<ParsedMetadata>> {
 
         if (picOffset < frameData.length) {
           const imgBytes = frameData.subarray(picOffset);
-          // Convert to base64 data URL
+          // Convert to base64 data URL using 8KB chunks to prevent main-thread freeze
+          const CHUNK_SIZE = 8192;
           let binary = '';
-          const len = imgBytes.byteLength;
-          for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(imgBytes[i]);
+          const len = imgBytes.length;
+          for (let i = 0; i < len; i += CHUNK_SIZE) {
+            const chunk = imgBytes.subarray(i, Math.min(i + CHUNK_SIZE, len));
+            binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
           }
           const base64 = btoa(binary);
           meta.artwork = `data:${mime || 'image/jpeg'};base64,${base64}`;

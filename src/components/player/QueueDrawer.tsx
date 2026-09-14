@@ -6,22 +6,20 @@ import { Artwork } from '../common/Artwork';
 import { getAuraReasonLabel } from '../../services/auraFlowService';
 
 export const QueueDrawer: React.FC = () => {
-  const {
-    queue,
-    queueIndex,
-    isQueueOpen,
-    setQueueOpen,
-    playSong,
-    togglePlay,
-    removeFromQueue,
-    clearQueue,
-    isShuffle,
-    isFairShuffle,
-    toggleShuffle,
-    toggleFairShuffle,
-    isAuraFlow,
-    toggleAuraFlow
-  } = usePlayerStore();
+  const queue = usePlayerStore((s) => s.queue);
+  const queueIndex = usePlayerStore((s) => s.queueIndex);
+  const isQueueOpen = usePlayerStore((s) => s.isQueueOpen);
+  const setQueueOpen = usePlayerStore((s) => s.setQueueOpen);
+  const playSong = usePlayerStore((s) => s.playSong);
+  const togglePlay = usePlayerStore((s) => s.togglePlay);
+  const removeFromQueue = usePlayerStore((s) => s.removeFromQueue);
+  const clearQueue = usePlayerStore((s) => s.clearQueue);
+  const isShuffle = usePlayerStore((s) => s.isShuffle);
+  const isFairShuffle = usePlayerStore((s) => s.isFairShuffle);
+  const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
+  const toggleFairShuffle = usePlayerStore((s) => s.toggleFairShuffle);
+  const isAuraFlow = usePlayerStore((s) => s.isAuraFlow);
+  const toggleAuraFlow = usePlayerStore((s) => s.toggleAuraFlow);
 
   if (!isQueueOpen) return null;
 

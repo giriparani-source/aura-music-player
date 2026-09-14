@@ -13,6 +13,7 @@ export interface TamilArtist {
   image: string;
   category: 'composer' | 'legend' | 'contemporary';
   playlistId?: string;
+  aliases?: string[];
 }
 
 export const TAMIL_ARTISTS: TamilArtist[] = [

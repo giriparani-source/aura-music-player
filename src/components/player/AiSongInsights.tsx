@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Sparkles, BookOpen, Music2, Sliders, Check, Loader2, Quote, Lightbulb } from 'lucide-react';
 import { Song, SongAiInsights } from '../../types/music';
 import { audioEffectsService } from '../../services/audioEffectsService';
+import { buildApiUrl } from '../../utils/apiConfig';
 
 interface AiSongInsightsProps {
   song: Song;
@@ -96,9 +97,11 @@ export const AiSongInsights: React.FC<AiSongInsightsProps> = ({ song }) => {
     const fetchInsights = async () => {
       try {
         const res = await fetch(
-          `/api/ai/insights?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(
-            song.artist || ''
-          )}`
+          buildApiUrl(
+            `/api/ai/insights?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(
+              song.artist || ''
+            )}`
+          )
         );
         if (res.ok) {
           const contentType = res.headers.get('content-type') || '';
@@ -110,7 +113,7 @@ export const AiSongInsights: React.FC<AiSongInsightsProps> = ({ song }) => {
             }
           }
         }
-      } catch (err) {
+      } catch {
         // Backend not accessible (e.g. Vercel static or offline); fallback gracefully
       }
 

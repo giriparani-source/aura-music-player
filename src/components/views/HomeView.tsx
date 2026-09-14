@@ -4,31 +4,23 @@ import {
   Pause,
   Sparkles,
   Radio,
-  Music2,
   Heart,
-  Disc,
-  Clock,
-  Flame,
-  Coffee,
   Moon,
   Sun,
   Sunrise,
   Sunset,
-  CheckCircle2,
-  ListMusic,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
-import { Song } from '../../types/music';
-import { LIVE_RADIO_STATIONS, getStationAsSong, RadioStation } from '../../services/radioService';
+import { LIVE_RADIO_STATIONS, getStationAsSong } from '../../services/radioService';
 import { PRESET_SAAVN_320K_HITS } from '../../services/jiosaavnService';
 import {
   INBUILT_PLAYLISTS,
-  InbuiltPlaylist,
-  inbuiltPlaylistsService
+  InbuiltPlaylist
 } from '../../services/inbuiltPlaylistsService';
+import { getPlaylistArtwork } from '../../services/playlistArtworkConfig';
 import {
   TAMIL_ARTISTS,
   TamilArtist,
@@ -36,14 +28,20 @@ import {
   ARTIST_CATEGORY_LABELS
 } from '../../services/tamilArtistsData';
 import { InbuiltPlaylistModal } from '../common/InbuiltPlaylistModal';
-import { Artwork } from '../common/Artwork';
+import { ArtistPlaylistView } from './ArtistPlaylistView';
+import { artistPlaylistService } from '../../services/artistPlaylistService';
 
 export const HomeView: React.FC = () => {
-  const { songs: localSongs, playlists, stats, setActiveTab, setSearchQuery } = useLibraryStore();
-  const { currentSong, isPlaying, playSong, togglePlay, playBatch } = usePlayerStore();
+  const { songs: localSongs } = useLibraryStore();
+  const currentSong = usePlayerStore((s) => s.currentSong);
+  const isPlaying = usePlayerStore((s) => s.isPlaying);
+  const playSong = usePlayerStore((s) => s.playSong);
+  const togglePlay = usePlayerStore((s) => s.togglePlay);
+  const playBatch = usePlayerStore((s) => s.playBatch);
 
   const [activeFilter, setActiveFilter] = useState<'all' | 'playlists' | 'radio'>('all');
   const [selectedInbuiltPlaylist, setSelectedInbuiltPlaylist] = useState<InbuiltPlaylist | null>(null);
+  const [selectedArtist, setSelectedArtist] = useState<TamilArtist | null>(null);
   const [artistCategoryFilter, setArtistCategoryFilter] = useState<ArtistCategory>('all');
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const artistScrollRef = useRef<HTMLDivElement>(null);
@@ -85,7 +83,7 @@ export const HomeView: React.FC = () => {
         id: 'liked_songs',
         title: 'Liked Songs',
         subtitle: `${localSongs.filter((s) => s.isFavorite).length || 0} tracks`,
-        coverArt: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=300',
+        coverArt: getPlaylistArtwork('liked_songs'),
         gradient: 'from-violet-700 to-indigo-900',
         icon: <Heart size={20} className="fill-white text-white" />,
         onClick: () => {
@@ -104,7 +102,7 @@ export const HomeView: React.FC = () => {
         id: 'mudhal_kaadhal',
         title: 'Mudhal Kaadhal',
         subtitle: '40 Songs • First Love Hits',
-        coverArt: playlistMap['mudhal_kaadhal']?.coverArt || 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=300',
+        coverArt: playlistMap['mudhal_kaadhal']?.coverArt || getPlaylistArtwork('mudhal_kaadhal'),
         gradient: 'from-rose-600 to-pink-900',
         playlist: playlistMap['mudhal_kaadhal']
       },
@@ -112,7 +110,7 @@ export const HomeView: React.FC = () => {
         id: '90s_vibe',
         title: '90s Vibe',
         subtitle: '35 Songs • Ilaiyaraaja & Rahman',
-        coverArt: playlistMap['90s_vibe']?.coverArt || 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=300',
+        coverArt: playlistMap['90s_vibe']?.coverArt || getPlaylistArtwork('90s_vibe'),
         gradient: 'from-amber-600 to-yellow-950',
         playlist: playlistMap['90s_vibe']
       },
@@ -120,7 +118,7 @@ export const HomeView: React.FC = () => {
         id: 'top_50_tamil',
         title: 'Top 50 – Tamil Hits',
         subtitle: '50 Blockbusters • Trending',
-        coverArt: playlistMap['top_50_tamil']?.coverArt || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300',
+        coverArt: playlistMap['top_50_tamil']?.coverArt || getPlaylistArtwork('top_50_tamil'),
         gradient: 'from-amber-600 to-orange-900',
         playlist: playlistMap['top_50_tamil']
       },
@@ -128,7 +126,7 @@ export const HomeView: React.FC = () => {
         id: 'night_drive',
         title: 'Night Drive',
         subtitle: '30 Songs • Midnight Mood',
-        coverArt: playlistMap['night_drive']?.coverArt || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=300',
+        coverArt: playlistMap['night_drive']?.coverArt || getPlaylistArtwork('night_drive'),
         gradient: 'from-indigo-600 to-slate-950',
         playlist: playlistMap['night_drive']
       },
@@ -136,7 +134,7 @@ export const HomeView: React.FC = () => {
         id: 'beast_mode_workout',
         title: 'Beast Workout',
         subtitle: '30 Songs • High BPM Gym Hype',
-        coverArt: playlistMap['beast_mode_workout']?.coverArt || 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300',
+        coverArt: playlistMap['beast_mode_workout']?.coverArt || getPlaylistArtwork('beast_mode_workout'),
         gradient: 'from-red-600 to-rose-950',
         playlist: playlistMap['beast_mode_workout']
       }
@@ -150,20 +148,15 @@ export const HomeView: React.FC = () => {
   }, [artistCategoryFilter]);
 
   const handleArtistClick = (artist: TamilArtist) => {
-    if (artist.playlistId && playlistMap[artist.playlistId]) {
-      setSelectedInbuiltPlaylist(playlistMap[artist.playlistId]);
-    } else {
-      setSearchQuery(artist.name);
-      setActiveTab('search');
-    }
+    setSelectedArtist(artist);
   };
 
-  const handleArtistPlay = (artist: TamilArtist) => {
+  const handleArtistPlay = async (artist: TamilArtist) => {
     const isCurrent = Boolean(
       currentSong &&
         (
           (artist.playlistId && playlistMap[artist.playlistId]?.tracks.some((t) => t.id === currentSong.id)) ||
-          (currentSong.artist && currentSong.artist.toLowerCase().includes(artist.name.toLowerCase()))
+          (currentSong.artist && artistPlaylistService.matchTrackToArtist(currentSong, artist))
         )
     );
 
@@ -172,31 +165,24 @@ export const HomeView: React.FC = () => {
       return;
     }
 
-    if (artist.playlistId && playlistMap[artist.playlistId]) {
-      playBatch(playlistMap[artist.playlistId].tracks);
-      return;
+    try {
+      const artistPlaylist = await artistPlaylistService.getArtistPlaylist(artist, localSongs);
+      if (artistPlaylist.tracks.length > 0) {
+        playBatch(artistPlaylist.tracks);
+      }
+    } catch (err) {
+      console.error('Failed to play artist playlist:', err);
     }
-
-    const localMatches = localSongs.filter(
-      (s) => s.artist && s.artist.toLowerCase().includes(artist.name.toLowerCase())
-    );
-    if (localMatches.length > 0) {
-      playBatch(localMatches);
-      return;
-    }
-
-    const allInbuiltTracks = INBUILT_PLAYLISTS.flatMap((p) => p.tracks);
-    const inbuiltMatches = allInbuiltTracks.filter(
-      (t) => t.artist && t.artist.toLowerCase().includes(artist.name.toLowerCase())
-    );
-    if (inbuiltMatches.length > 0) {
-      playBatch(inbuiltMatches);
-      return;
-    }
-
-    setSearchQuery(artist.name);
-    setActiveTab('search');
   };
+
+  if (selectedArtist) {
+    return (
+      <ArtistPlaylistView
+        artist={selectedArtist}
+        onBack={() => setSelectedArtist(null)}
+      />
+    );
+  }
 
   return (
     <div className="p-4 sm:p-8 space-y-9 max-w-7xl mx-auto select-none pb-28">
@@ -678,7 +664,7 @@ export const HomeView: React.FC = () => {
                 currentSong &&
                   (
                     (artist.playlistId && playlistMap[artist.playlistId]?.tracks.some((t) => t.id === currentSong.id)) ||
-                    (currentSong.artist && currentSong.artist.toLowerCase().includes(artist.name.toLowerCase()))
+                    (currentSong.artist && artistPlaylistService.matchTrackToArtist(currentSong, artist))
                   )
               );
               const isArtistPlaying = isCurrent && isPlaying;

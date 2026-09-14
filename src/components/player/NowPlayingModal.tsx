@@ -34,6 +34,7 @@ import { AiSongInsights } from './AiSongInsights';
 import { SleepTimerMenu } from './SleepTimerMenu';
 import { NowPlayingTab } from '../../types/music';
 import { getAuraReasonLabel } from '../../services/auraFlowService';
+import { getAuraReasonExplanation } from '../../services/auraProfileExplainer';
 
 export const NowPlayingModal: React.FC = () => {
   const {
@@ -77,6 +78,7 @@ export const NowPlayingModal: React.FC = () => {
   const isDownloaded = currentSong ? (downloadedSongIds.has(currentSong.id) || Boolean(currentSong.isDownloaded)) : false;
   const dlState = currentSong ? downloadingStates[currentSong.id] : undefined;
   const isDownloading = dlState?.status === 'downloading';
+  const [showAuraReasonDetail, setShowAuraReasonDetail] = React.useState(false);
 
   const tabContainerRef = React.useRef<HTMLDivElement>(null);
   const activeTabRef = React.useRef<HTMLButtonElement>(null);
@@ -386,13 +388,45 @@ export const NowPlayingModal: React.FC = () => {
                         </span>
                       )}
                       {currentSong.isAuraFlow && (
-                        <span
-                          className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30"
-                          title={`Aura Flow Recommendation: ${getAuraReasonLabel(currentSong.auraReason)}`}
-                        >
-                          <Sparkles size={10} />
-                          {getAuraReasonLabel(currentSong.auraReason)}
-                        </span>
+                        <div className="relative inline-block">
+                          <button
+                            type="button"
+                            onClick={() => setShowAuraReasonDetail((prev) => !prev)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 hover:border-fuchsia-400/60 transition-colors cursor-pointer"
+                            title={`Aura Flow: ${getAuraReasonLabel(currentSong.auraReason)} (Click for details)`}
+                            aria-label="Aura Flow Recommendation Reason"
+                          >
+                            <Sparkles size={10} />
+                            <span>{getAuraReasonLabel(currentSong.auraReason)}</span>
+                          </button>
+
+                          {showAuraReasonDetail && (
+                            <div
+                              className="absolute bottom-full left-0 mb-2 z-50 w-64 p-3 rounded-2xl bg-neutral-900/95 border border-fuchsia-500/30 shadow-2xl backdrop-blur-xl animate-fade-in text-left"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-white/10">
+                                <div className="flex items-center gap-1.5 text-fuchsia-300 text-xs font-bold">
+                                  <Sparkles size={12} />
+                                  <span>{getAuraReasonLabel(currentSong.auraReason)}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAuraReasonDetail(false)}
+                                  className="text-[10px] text-neutral-400 hover:text-white px-1 cursor-pointer"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                              <p className="text-[11px] text-neutral-200 leading-relaxed">
+                                {getAuraReasonExplanation(currentSong.auraReason)}
+                              </p>
+                              <p className="text-[9px] text-neutral-500 mt-1.5">
+                                Aura Flow continuous smart autoplay
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       )}
                       {currentSong.bitrate && (
                         <span className={`px-2 py-0.5 text-[10px] font-mono rounded border ${

@@ -42,3 +42,15 @@ export interface JamRoomData {
 export const searchCache = new Map<string, any>();
 export const streamUrlCache = new Map<string, { url: string; expiresAt: number }>();
 export const jamRooms = new Map<string, JamRoomData>();
+
+const MAX_SEARCH_CACHE_SIZE = 200;
+
+export function setBoundedSearchCache(key: string, data: any): void {
+  if (searchCache.has(key)) {
+    searchCache.delete(key);
+  } else if (searchCache.size >= MAX_SEARCH_CACHE_SIZE) {
+    const oldest = searchCache.keys().next().value;
+    if (oldest) searchCache.delete(oldest);
+  }
+  searchCache.set(key, data);
+}

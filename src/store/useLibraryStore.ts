@@ -18,6 +18,7 @@ import {
 import { musicDB } from '../services/db';
 import { calculateLibraryHealth, healthToLegacyStats } from '../services/healthService';
 import { detectDuplicates } from '../services/duplicateService';
+import { buildApiUrl } from '../utils/apiConfig';
 import {
   collectFilesFromDirectoryHandle,
   collectFilesFromFileList,
@@ -87,6 +88,7 @@ interface LibraryStoreState {
   scanFromDirectoryHandle: (dirHandle: FileSystemDirectoryHandle) => Promise<ScanResult>;
   scanFromFileList: (files: FileList) => Promise<ScanResult>;
   clearLibrary: () => Promise<void>;
+  syncCloudCatalog: () => Promise<number>;
 }
 
 type FavoriteListener = (songId: string, isFavorite: boolean) => void;
@@ -158,7 +160,25 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   loadLibrary: async () => {
     set({ isLoading: true });
     try {
-      const songs = await musicDB.getAllSongs();
+      let songs = await musicDB.getAllSongs();
+
+      // Cloud Metadata Auto-Hydration:
+      // When a user opens the app with 0 local songs, auto-populate the cloud catalog metadata
+      if (songs.length === 0) {
+        try {
+          const cloudRes = await fetch(buildApiUrl('/api/library/cloud-songs'));
+          if (cloudRes.ok) {
+            const data = await cloudRes.json();
+            if (data.tracks && Array.isArray(data.tracks) && data.tracks.length > 0) {
+              await musicDB.saveSongsBatch(data.tracks);
+              songs = await musicDB.getAllSongs();
+            }
+          }
+        } catch {
+          // Offline or dev mode fallback
+        }
+      }
+
       let playlists = await musicDB.getAllPlaylists();
 
       // Ensure Core Smart Playlists exist
@@ -580,6 +600,22 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   clearLibrary: async () => {
     await musicDB.clearAllSongs();
     await get().loadLibrary();
+  },
+
+  syncCloudCatalog: async () => {
+    try {
+      const res = await fetch(buildApiUrl('/api/library/cloud-songs'));
+      if (!res.ok) return 0;
+      const data = await res.json();
+      if (data.tracks && Array.isArray(data.tracks) && data.tracks.length > 0) {
+        await musicDB.saveSongsBatch(data.tracks);
+        await get().loadLibrary();
+        return data.tracks.length;
+      }
+      return 0;
+    } catch {
+      return 0;
+    }
   }
 }));
 

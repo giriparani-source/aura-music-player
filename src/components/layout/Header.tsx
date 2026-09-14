@@ -7,7 +7,7 @@ import { Sparkles } from 'lucide-react';
 
 export const Header: React.FC = () => {
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const { setAiAssistantOpen } = usePlayerStore();
+  const setAiAssistantOpen = usePlayerStore((s) => s.setAiAssistantOpen);
   const {
     searchQuery,
     setSearchQuery,
@@ -40,22 +40,27 @@ export const Header: React.FC = () => {
 
   return (
     <header className="h-16 border-b border-white/5 bg-[#0b0d13]/60 backdrop-blur-md px-6 flex items-center justify-between shrink-0 select-none z-10">
-      {/* Search Input shortcut */}
-      <div className="relative w-72 max-w-sm">
-        <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => {
-            setSearchQuery(e.target.value);
-            if (activeTab !== 'search') {
+      {/* Search Input shortcut (hidden on dedicated Search view to avoid duplicate inputs) */}
+      {activeTab !== 'search' ? (
+        <div className="relative w-72 max-w-sm">
+          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
               setActiveTab('search');
-            }
-          }}
-          placeholder="Search songs, artists, albums..."
-          className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-indigo-500/60 transition-all"
-        />
-      </div>
+            }}
+            placeholder="Search songs, artists, albums..."
+            className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-indigo-500/60 transition-all"
+          />
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <Search size={15} className="text-neutral-400" />
+          <span className="text-xs font-bold text-neutral-300 tracking-wide">Search Music</span>
+        </div>
+      )}
 
       {/* Hidden Folder Picker Input */}
       <input

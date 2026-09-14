@@ -4,6 +4,7 @@ import { audioEffectsService } from './audioEffectsService';
 import { cloudPlayerService } from './cloudPlayerService';
 import { searchJioSaavn, PRESET_SAAVN_320K_HITS } from './jiosaavnService';
 import { downloadService } from './downloadService';
+import { buildApiUrl } from '../utils/apiConfig';
 
 type AudioEventListener = (state: AudioServiceState) => void;
 
@@ -234,19 +235,42 @@ class AudioService {
     };
 
     this.listeners.forEach((listener) => listener(state));
-    this.updateMediaSession();
+    this.updateMediaSession(isActuallyPlaying);
   }
 
-  private updateMediaSession() {
-    if ('mediaSession' in navigator && this.currentSong) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: this.currentSong.title,
-        artist: this.currentSong.artist !== 'Not set' ? this.currentSong.artist : 'Aura Music',
-        album: this.currentSong.album !== 'Not set' ? this.currentSong.album : 'Aura Collection',
-        artwork: (this.currentSong.artwork || this.currentSong.coverArt)
-          ? [{ src: (this.currentSong.artwork || this.currentSong.coverArt)!, sizes: '512x512', type: 'image/png' }]
-          : []
-      });
+  private lastMediaSessionKey: string | null = null;
+
+  private updateMediaSession(isActuallyPlaying: boolean) {
+    if (!('mediaSession' in navigator)) return;
+
+    try {
+      const desiredState: MediaSessionPlaybackState = isActuallyPlaying ? 'playing' : 'paused';
+      if (navigator.mediaSession.playbackState !== desiredState) {
+        navigator.mediaSession.playbackState = desiredState;
+      }
+
+      if (!this.currentSong) {
+        if (this.lastMediaSessionKey !== null) {
+          navigator.mediaSession.metadata = null;
+          this.lastMediaSessionKey = null;
+        }
+        return;
+      }
+
+      const songKey = `${this.currentSong.id}_${this.currentSong.title}_${this.currentSong.artist}_${this.currentSong.artwork || this.currentSong.coverArt}`;
+      if (songKey !== this.lastMediaSessionKey) {
+        this.lastMediaSessionKey = songKey;
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: this.currentSong.title,
+          artist: this.currentSong.artist !== 'Not set' ? this.currentSong.artist : 'Aura Music',
+          album: this.currentSong.album !== 'Not set' ? this.currentSong.album : 'Aura Collection',
+          artwork: (this.currentSong.artwork || this.currentSong.coverArt)
+            ? [{ src: (this.currentSong.artwork || this.currentSong.coverArt)!, sizes: '512x512', type: 'image/png' }]
+            : []
+        });
+      }
+    } catch {
+      // Ignore mediaSession errors on platforms without SMTC
     }
   }
 
@@ -318,9 +342,9 @@ class AudioService {
           } else if (song.filePath && (song.filePath.startsWith('/api/') || song.filePath.startsWith('blob:'))) {
             source = song.filePath;
           } else if (song.path && !song.path.startsWith('blob:')) {
-            source = `/api/audio?path=${encodeURIComponent(song.path)}`;
+            source = buildApiUrl(`/api/audio?path=${encodeURIComponent(song.path)}`);
           } else if (song.fileName) {
-            source = `/api/audio?path=${encodeURIComponent(song.fileName)}`;
+            source = buildApiUrl(`/api/audio?path=${encodeURIComponent(song.fileName)}`);
           }
         }
         if (source) {
@@ -531,7 +555,7 @@ class AudioService {
 
       // If direct audio search didn't yield a stream, try YouTube online search
       try {
-        const ytRes = await fetch(`/api/online/search?q=${encodeURIComponent(cleanTitle + ' ' + (song.artist || 'Tamil'))}`);
+        const ytRes = await fetch(buildApiUrl(`/api/online/search?q=${encodeURIComponent(cleanTitle + ' ' + (song.artist || 'Tamil'))}`));
         if (ytRes.ok) {
           const ytData = await ytRes.json();
           const firstYt = ytData.results?.[0];

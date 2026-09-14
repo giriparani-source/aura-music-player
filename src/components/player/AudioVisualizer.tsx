@@ -40,14 +40,25 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ isPlaying, cla
     const render = () => {
       ctx.clearRect(0, 0, logicalWidth, logicalHeight);
 
+      let hasSignal = false;
       if (analyser && isPlaying) {
         audioEffectsService.getFrequencyData(freqData);
         audioEffectsService.getTimeDomainData(timeData);
+        hasSignal = true;
       } else {
         // Smoothly decay to zero when paused
+        let maxVal = 0;
         for (let i = 0; i < freqData.length; i++) {
-          freqData[i] = Math.max(0, freqData[i] * 0.92);
+          freqData[i] = Math.max(0, Math.floor(freqData[i] * 0.92));
+          if (freqData[i] > maxVal) maxVal = freqData[i];
           timeData[i] = 128;
+        }
+        let maxPeak = 0;
+        for (let i = 0; i < peaksRef.current.length; i++) {
+          if (peaksRef.current[i] > maxPeak) maxPeak = peaksRef.current[i];
+        }
+        if (maxVal > 1 || maxPeak > 1) {
+          hasSignal = true;
         }
       }
 
@@ -60,6 +71,13 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ isPlaying, cla
       }
 
       rotation += 0.005;
+
+      // If paused and fully decayed, stop scheduling frames to save CPU/GPU
+      if (!isPlaying && !hasSignal) {
+        animFrameRef.current = null;
+        return;
+      }
+
       animFrameRef.current = requestAnimationFrame(render);
     };
 

@@ -69,6 +69,16 @@ export function runPythonCommand(args: string[]): Promise<any> {
     const proc = spawn(PYTHON_BIN, [pythonScript, ...args]);
     let stdout = '';
     let stderr = '';
+    let isSettled = false;
+
+    // 15-second child process watchdog timeout
+    const timeout = setTimeout(() => {
+      if (!isSettled) {
+        isSettled = true;
+        try { proc.kill(); } catch {}
+        reject(new Error('Python command timed out after 15s'));
+      }
+    }, 15000);
 
     proc.stdout.on('data', (data) => {
       stdout += data.toString('utf-8');
@@ -79,6 +89,9 @@ export function runPythonCommand(args: string[]): Promise<any> {
     });
 
     proc.on('close', (code) => {
+      if (isSettled) return;
+      isSettled = true;
+      clearTimeout(timeout);
       if (code !== 0 && !stdout.trim()) {
         reject(new Error(stderr || `Process exited with code ${code}`));
         return;
@@ -92,6 +105,9 @@ export function runPythonCommand(args: string[]): Promise<any> {
     });
 
     proc.on('error', (err) => {
+      if (isSettled) return;
+      isSettled = true;
+      clearTimeout(timeout);
       reject(err);
     });
   });
@@ -114,6 +130,16 @@ export function runAiCommand(args: string[]): Promise<any> {
     const proc = spawn(PYTHON_BIN, [pythonScript, ...args]);
     let stdout = '';
     let stderr = '';
+    let isSettled = false;
+
+    // 15-second child process watchdog timeout
+    const timeout = setTimeout(() => {
+      if (!isSettled) {
+        isSettled = true;
+        try { proc.kill(); } catch {}
+        reject(new Error('AI Python command timed out after 15s'));
+      }
+    }, 15000);
 
     proc.stdout.on('data', (data) => {
       stdout += data.toString();
@@ -124,6 +150,9 @@ export function runAiCommand(args: string[]): Promise<any> {
     });
 
     proc.on('close', (code) => {
+      if (isSettled) return;
+      isSettled = true;
+      clearTimeout(timeout);
       if (code !== 0) {
         reject(new Error(`AI Script failed with code ${code}: ${stderr}`));
         return;
@@ -137,6 +166,9 @@ export function runAiCommand(args: string[]): Promise<any> {
     });
 
     proc.on('error', (err) => {
+      if (isSettled) return;
+      isSettled = true;
+      clearTimeout(timeout);
       reject(err);
     });
   });

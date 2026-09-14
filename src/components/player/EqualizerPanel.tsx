@@ -86,30 +86,28 @@ const SPATIAL_ROOMS: {
 type PanelSubTab = 'eq' | 'pro' | 'spatial' | 'karaoke-dj';
 
 export const EqualizerPanel: React.FC = () => {
-  const {
-    setNowPlayingOpen,
-    currentSong,
-    spatialPreset,
-    setSpatialPreset,
-    spatialMix,
-    setSpatialMix,
-    isKaraoke,
-    toggleKaraoke,
-    karaokeDepth,
-    setKaraokeDepth,
-    crossfadeSeconds,
-    setCrossfadeSeconds,
-    isLimiterActive,
-    toggleLimiter,
-    bassExciterLevel,
-    setBassExciterLevel,
-    isSubsonicActive,
-    toggleSubsonicFilter,
-    sleepTimerRemaining,
-    sleepTimerMode,
-    setSleepTimer,
-    cancelSleepTimer
-  } = usePlayerStore();
+  const setNowPlayingOpen = usePlayerStore((s) => s.setNowPlayingOpen);
+  const currentSong = usePlayerStore((s) => s.currentSong);
+  const spatialPreset = usePlayerStore((s) => s.spatialPreset);
+  const setSpatialPreset = usePlayerStore((s) => s.setSpatialPreset);
+  const spatialMix = usePlayerStore((s) => s.spatialMix);
+  const setSpatialMix = usePlayerStore((s) => s.setSpatialMix);
+  const isKaraoke = usePlayerStore((s) => s.isKaraoke);
+  const toggleKaraoke = usePlayerStore((s) => s.toggleKaraoke);
+  const karaokeDepth = usePlayerStore((s) => s.karaokeDepth);
+  const setKaraokeDepth = usePlayerStore((s) => s.setKaraokeDepth);
+  const crossfadeSeconds = usePlayerStore((s) => s.crossfadeSeconds);
+  const setCrossfadeSeconds = usePlayerStore((s) => s.setCrossfadeSeconds);
+  const isLimiterActive = usePlayerStore((s) => s.isLimiterActive);
+  const toggleLimiter = usePlayerStore((s) => s.toggleLimiter);
+  const bassExciterLevel = usePlayerStore((s) => s.bassExciterLevel);
+  const setBassExciterLevel = usePlayerStore((s) => s.setBassExciterLevel);
+  const isSubsonicActive = usePlayerStore((s) => s.isSubsonicActive);
+  const toggleSubsonicFilter = usePlayerStore((s) => s.toggleSubsonicFilter);
+  const sleepTimerRemaining = usePlayerStore((s) => s.sleepTimerRemaining);
+  const sleepTimerMode = usePlayerStore((s) => s.sleepTimerMode);
+  const setSleepTimer = usePlayerStore((s) => s.setSleepTimer);
+  const cancelSleepTimer = usePlayerStore((s) => s.cancelSleepTimer);
 
   const [activeTab, setActiveTab] = useState<PanelSubTab>('eq');
   const [bands, setBands] = useState<EqualizerBand[]>(audioEffectsService.getBands());

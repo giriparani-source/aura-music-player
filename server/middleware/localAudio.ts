@@ -11,11 +11,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { isCloudStorageConfigured, getStorageProvider, streamCloudAudio } from '../helpers/cloudStorage.ts';
+
 function getSongsBaseDir(): string {
   return process.env.MUSIC_DIR || './songs';
 }
 
-export function localAudioHandler(req: any, res: any) {
+export async function localAudioHandler(req: any, res: any) {
   try {
     const url = new URL(req.url, 'http://localhost:3000');
     const relPath = url.searchParams.get('path');
@@ -25,11 +27,39 @@ export function localAudioHandler(req: any, res: any) {
       return;
     }
 
-    const songsBaseDir = getSongsBaseDir();
+    const decodedRelPath = decodeURIComponent(relPath).replace(/^[\\/]+/, '').replace(/\\/g, '/');
 
-    // Clean normalized path
-    const decodedRelPath = decodeURIComponent(relPath).replace(/^[\\/]+/, '');
+    // 1. Cloud Storage Streaming (R2 / S3) if enabled
+    if (isCloudStorageConfigured() && getStorageProvider() !== 'local') {
+      try {
+        const cloudResult = await streamCloudAudio(decodedRelPath, req.headers.range);
+        if (cloudResult) {
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Headers', '*');
+          for (const [key, value] of Object.entries(cloudResult.headers)) {
+            res.setHeader(key, value);
+          }
+          res.statusCode = cloudResult.statusCode;
+          cloudResult.stream.pipe(res);
+          return;
+        }
+      } catch (cloudErr: any) {
+        console.warn(`[localAudio] Cloud streaming error for ${decodedRelPath}, falling back to local if available:`, cloudErr.message);
+      }
+    }
+
+    // 2. Local Filesystem Streaming Fallback
+    const songsBaseDir = getSongsBaseDir();
+    const resolvedBase = path.resolve(songsBaseDir);
+
     let fullPath = path.join(songsBaseDir, decodedRelPath);
+
+    // Security: reject directory traversal attempts
+    if (!path.resolve(fullPath).startsWith(resolvedBase)) {
+      res.statusCode = 403;
+      res.end('Access denied: path traversal forbidden');
+      return;
+    }
 
     // If file not found directly, search case-insensitively or by filename
     if (!fs.existsSync(fullPath)) {
@@ -38,7 +68,7 @@ export function localAudioHandler(req: any, res: any) {
         const subdirs = fs.readdirSync(songsBaseDir);
         for (const dir of subdirs) {
           const candidate = path.join(songsBaseDir, dir, fileName);
-          if (fs.existsSync(candidate)) {
+          if (fs.existsSync(candidate) && path.resolve(candidate).startsWith(resolvedBase)) {
             fullPath = candidate;
             break;
           }
@@ -46,7 +76,7 @@ export function localAudioHandler(req: any, res: any) {
       }
     }
 
-    if (!fs.existsSync(fullPath)) {
+    if (!fs.existsSync(fullPath) || !path.resolve(fullPath).startsWith(resolvedBase)) {
       res.statusCode = 404;
       res.end('Audio file not found');
       return;

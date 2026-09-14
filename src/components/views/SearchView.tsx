@@ -1,12 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Search,
   X,
   Mic2,
   Disc,
   History,
-  Sparkles,
-  Cloud,
   HardDrive,
   Play,
   Pause,
@@ -24,7 +22,8 @@ import { Song } from '../../types/music';
 import { useDebounce } from '../../utils/useDebounce';
 import { fuzzySearchSongs } from '../../utils/fuzzySearch';
 import { searchJioSaavn } from '../../services/jiosaavnService';
-import { LIVE_RADIO_STATIONS, getStationAsSong, RadioStation } from '../../services/radioService';
+import { LIVE_RADIO_STATIONS, getStationAsSong } from '../../services/radioService';
+import { buildApiUrl } from '../../utils/apiConfig';
 
 const SEARCH_HISTORY_KEY = 'aura_recent_searches';
 const ONLINE_HISTORY_KEY = 'aura_online_recent_searches';
@@ -129,9 +128,41 @@ const QUICK_TRENDING_CHIPS = [
   'Anirudh Hits'
 ];
 
+// Bounded in-memory search cache (max 50 items with LRU eviction)
+const SEARCH_CACHE_MAX = 50;
+const onlineSearchCache = new Map<string, Song[]>();
+
+function getCachedOnlineSearch(key: string): Song[] | undefined {
+  const norm = key.trim().toLowerCase();
+  const val = onlineSearchCache.get(norm);
+  if (val) {
+    onlineSearchCache.delete(norm);
+    onlineSearchCache.set(norm, val);
+    return val;
+  }
+  return undefined;
+}
+
+function setCachedOnlineSearch(key: string, results: Song[]): void {
+  const norm = key.trim().toLowerCase();
+  if (onlineSearchCache.has(norm)) {
+    onlineSearchCache.delete(norm);
+  } else if (onlineSearchCache.size >= SEARCH_CACHE_MAX) {
+    const oldestKey = onlineSearchCache.keys().next().value;
+    if (oldestKey) onlineSearchCache.delete(oldestKey);
+  }
+  onlineSearchCache.set(norm, results);
+}
+
 export const SearchView: React.FC = () => {
   const { songs, artists, albums } = useLibraryStore();
-  const { playBatch, playSong, currentSong, isPlaying } = usePlayerStore();
+  const playBatch = usePlayerStore((s) => s.playBatch);
+  const playSong = usePlayerStore((s) => s.playSong);
+  const currentSong = usePlayerStore((s) => s.currentSong);
+  const isPlaying = usePlayerStore((s) => s.isPlaying);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const latestQueryRef = useRef<string>('');
 
   // Primary streaming source defaults to YouTube Music ('online')
   const [searchMode, setSearchMode] = useState<'online' | 'radio' | 'local'>('online');
@@ -183,9 +214,17 @@ export const SearchView: React.FC = () => {
     }
   }, [debouncedLocalQuery]);
 
-  // Execute online search API
+  // Execute online search API with AbortController, stale-result guard, and bounded cache
   const performOnlineSearch = useCallback(async (query: string) => {
     const q = query.trim();
+    latestQueryRef.current = q;
+
+    // Abort pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
     if (!q || q.length < 2) {
       setOnlineResults([]);
       setIsOnlineLoading(false);
@@ -193,6 +232,19 @@ export const SearchView: React.FC = () => {
       setHasSearched(false);
       return;
     }
+
+    // Check bounded memory cache first
+    const cached = getCachedOnlineSearch(q);
+    if (cached) {
+      setOnlineResults(cached);
+      setIsOnlineLoading(false);
+      setOnlineError(null);
+      setHasSearched(true);
+      return;
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     setIsOnlineLoading(true);
     setOnlineError(null);
@@ -203,7 +255,9 @@ export const SearchView: React.FC = () => {
 
       // 1. Query YouTube Music search endpoint (Vercel Serverless Function & Local Dev)
       try {
-        const res = await fetch(`/api/online/search?q=${encodeURIComponent(q)}`);
+        const res = await fetch(buildApiUrl(`/api/online/search?q=${encodeURIComponent(q)}`), {
+          signal: controller.signal
+        });
         const contentType = res.headers.get('content-type') || '';
         if (res.ok && contentType.includes('application/json')) {
           const data = await res.json();
@@ -220,9 +274,11 @@ export const SearchView: React.FC = () => {
             }
           }
         }
-      } catch (backendErr) {
-        // Backend not available or network error
+      } catch (backendErr: any) {
+        if (backendErr.name === 'AbortError') return;
       }
+
+      if (controller.signal.aborted || latestQueryRef.current !== q) return;
 
       // 2. If YouTube search returned empty, seamlessly fallback to Studio Master audio search
       if (results.length === 0) {
@@ -233,6 +289,8 @@ export const SearchView: React.FC = () => {
           }
         } catch {}
       }
+
+      if (controller.signal.aborted || latestQueryRef.current !== q) return;
 
       // 3. If still empty, check if query matches any curated featured blockbusters
       if (results.length === 0) {
@@ -264,6 +322,10 @@ export const SearchView: React.FC = () => {
         }
       }
 
+      if (controller.signal.aborted || latestQueryRef.current !== q) return;
+
+      // Store in bounded LRU cache
+      setCachedOnlineSearch(q, results);
       setOnlineResults(results);
 
       // Add to online search history
@@ -276,10 +338,22 @@ export const SearchView: React.FC = () => {
         return updated;
       });
     } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.warn('Online search note:', err);
     } finally {
-      setIsOnlineLoading(false);
+      if (latestQueryRef.current === q) {
+        setIsOnlineLoading(false);
+      }
     }
+  }, []);
+
+  // Cleanup pending search on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
 
   // Trigger online search on debounced query changes

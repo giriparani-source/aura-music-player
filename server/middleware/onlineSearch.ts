@@ -6,7 +6,7 @@
  */
 
 import https from 'node:https';
-import { searchCache } from '../helpers/caches.ts';
+import { searchCache, setBoundedSearchCache } from '../helpers/caches.ts';
 import { runPythonCommand, isPythonAvailable } from '../helpers/pythonRunner.ts';
 
 export function onlineSearchHandler(req: any, res: any) {
@@ -25,7 +25,10 @@ export function onlineSearchHandler(req: any, res: any) {
 
       const cacheKey = q.trim().toLowerCase();
       if (searchCache.has(cacheKey)) {
-        res.end(JSON.stringify({ results: searchCache.get(cacheKey) }));
+        const cached = searchCache.get(cacheKey);
+        searchCache.delete(cacheKey);
+        searchCache.set(cacheKey, cached);
+        res.end(JSON.stringify({ results: cached }));
         return;
       }
 
@@ -126,7 +129,7 @@ export function onlineSearchHandler(req: any, res: any) {
         }));
       }
 
-      searchCache.set(cacheKey, formatted);
+      setBoundedSearchCache(cacheKey, formatted);
       res.end(JSON.stringify({ results: formatted }));
     } catch (err: any) {
       res.statusCode = 500;

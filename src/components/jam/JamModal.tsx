@@ -35,7 +35,7 @@ export const JamModal: React.FC = () => {
     sendReaction
   } = useJamStore();
 
-  const { currentSong } = usePlayerStore();
+  const currentSong = usePlayerStore((s) => s.currentSong);
 
   const [inputCode, setInputCode] = useState('');
   const [localName, setLocalName] = useState(nickname);

@@ -37,17 +37,15 @@ const ViewSkeleton: React.FC = () => (
 
 export const MainLayout: React.FC = () => {
   const { activeTab, loadLibrary, isLoading, toggleFavorite } = useLibraryStore();
-  const {
-    currentSong,
-    togglePlay,
-    nextSong,
-    previousSong,
-    seek,
-    isNowPlayingOpen,
-    setNowPlayingOpen,
-    isQueueOpen,
-    setQueueOpen
-  } = usePlayerStore();
+  const currentSong = usePlayerStore((s) => s.currentSong);
+  const togglePlay = usePlayerStore((s) => s.togglePlay);
+  const nextSong = usePlayerStore((s) => s.nextSong);
+  const previousSong = usePlayerStore((s) => s.previousSong);
+  const seek = usePlayerStore((s) => s.seek);
+  const isNowPlayingOpen = usePlayerStore((s) => s.isNowPlayingOpen);
+  const setNowPlayingOpen = usePlayerStore((s) => s.setNowPlayingOpen);
+  const isQueueOpen = usePlayerStore((s) => s.isQueueOpen);
+  const setQueueOpen = usePlayerStore((s) => s.setQueueOpen);
 
   // Load library on startup
   useEffect(() => {
@@ -158,7 +156,7 @@ export const MainLayout: React.FC = () => {
         {/* Code-split Modals in Suspense */}
         <Suspense fallback={null}>
           {isNowPlayingOpen && <NowPlayingModal />}
-          <QueueDrawer />
+          {isQueueOpen && <QueueDrawer />}
           <AuraChatDrawer />
           <JamModal />
         </Suspense>

@@ -116,7 +116,7 @@ export default async function handler(req, res) {
         const firstKey = searchCache.keys().next().value;
         searchCache.delete(firstKey);
       }
-    }
+    res.setHeader('Cache-Control', 'public, max-age=1800, s-maxage=3600, stale-while-revalidate=86400');
     return res.status(200).json({ results });
   } catch (err) {
     return res.status(500).json({ error: err.message || 'Search failed', results: [] });

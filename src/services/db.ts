@@ -122,19 +122,39 @@ class MusicDatabase {
   }
 
   async updateSongFavorite(id: string, isFavorite: boolean): Promise<void> {
-    const song = await this.getSongById(id);
-    if (song) {
-      song.isFavorite = isFavorite;
-      await this.saveSong(song);
-    }
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('songs', 'readwrite');
+      const store = tx.objectStore('songs');
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const song = getReq.result;
+        if (song) {
+          song.isFavorite = isFavorite;
+          store.put(song);
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
   }
 
   async updateSongLyrics(id: string, lyrics: string): Promise<void> {
-    const song = await this.getSongById(id);
-    if (song) {
-      song.lyrics = lyrics;
-      await this.saveSong(song);
-    }
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('songs', 'readwrite');
+      const store = tx.objectStore('songs');
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const song = getReq.result;
+        if (song) {
+          song.lyrics = lyrics;
+          store.put(song);
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
   }
 
   async updateSongDownloadStatus(
@@ -143,13 +163,23 @@ class MusicDatabase {
     downloadedAt?: number,
     fileSize?: number
   ): Promise<void> {
-    const song = await this.getSongById(id);
-    if (song) {
-      song.isDownloaded = isDownloaded;
-      if (downloadedAt !== undefined) song.downloadedAt = downloadedAt;
-      if (fileSize !== undefined) song.fileSize = fileSize;
-      await this.saveSong(song);
-    }
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('songs', 'readwrite');
+      const store = tx.objectStore('songs');
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const song = getReq.result;
+        if (song) {
+          song.isDownloaded = isDownloaded;
+          if (downloadedAt !== undefined) song.downloadedAt = downloadedAt;
+          if (fileSize !== undefined) song.fileSize = fileSize;
+          store.put(song);
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
   }
 
   async getDownloadedSongs(): Promise<Song[]> {
@@ -311,4 +341,5 @@ class MusicDatabase {
 
 export const AURA_USER_AFFINITY_KEY = 'aura_user_affinity';
 export const AURA_PERSISTENT_SKIPS_KEY = 'aura_persistent_skips';
+export const AURA_DISCOVERY_PREFERENCE_KEY = 'aura_discovery_preference';
 export const musicDB = new MusicDatabase();

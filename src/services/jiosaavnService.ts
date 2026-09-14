@@ -151,24 +151,47 @@ interface InternalMirrorState {
   totalFailures: number;
 }
 
-const REQUEST_TIMEOUT_MS = 4000;
+const REQUEST_TIMEOUT_MS = 8000;
+
+function unescapeHtml(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&#039;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function extractArtistNames(item: any): string {
+  const names: string[] = [];
+  if (Array.isArray(item.artists?.primary)) {
+    names.push(...item.artists.primary.map((a: any) => a.name));
+  }
+  if (Array.isArray(item.artists?.all)) {
+    names.push(...item.artists.all.map((a: any) => a.name));
+  }
+  if (Array.isArray(item.artists?.featured)) {
+    names.push(...item.artists.featured.map((a: any) => a.name));
+  }
+  if (typeof item.primaryArtists === 'string') names.push(item.primaryArtists);
+  if (typeof item.singers === 'string') names.push(item.singers);
+  if (typeof item.music === 'string') names.push(item.music);
+
+  const unique = Array.from(new Set(names.map((n) => n?.trim()).filter(Boolean)));
+  if (unique.length > 0) {
+    return unique.join(', ');
+  }
+  return item.artist || 'Master Artist';
+}
 
 class JioSaavnService {
   private cache: Map<string, Song[]> = new Map();
 
   private mirrors: InternalMirrorState[] = [
     {
-      url: 'https://jiosaavn-api-sage.vercel.app',
+      url: ((import.meta as any).env?.VITE_JIOSAAVN_API_URL as string) || 'https://jiosaavn-api-sage.vercel.app',
       name: 'Primary (Sage)',
-      failureCount: 0,
-      lastFailureTime: 0,
-      cooldownUntil: 0,
-      totalSuccesses: 0,
-      totalFailures: 0
-    },
-    {
-      url: 'https://jiosaavn-api-eight.vercel.app',
-      name: 'Secondary (Eight)',
       failureCount: 0,
       lastFailureTime: 0,
       cooldownUntil: 0,
@@ -197,8 +220,9 @@ class JioSaavnService {
   /**
    * Fetch from a single mirror with AbortController timeout.
    */
-  private async fetchFromMirror(mirror: InternalMirrorState, query: string): Promise<any[] | null> {
-    const endpoint = `${mirror.url}/api/search/songs?query=${encodeURIComponent(query)}`;
+  private async fetchFromMirror(mirror: InternalMirrorState, query: string, limit?: number): Promise<any[] | null> {
+    const limitParam = limit ? `&limit=${limit}` : '';
+    const endpoint = `${mirror.url}/api/search/songs?query=${encodeURIComponent(query)}${limitParam}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -247,11 +271,11 @@ class JioSaavnService {
     }
   }
 
-  public async searchJioSaavn(query: string): Promise<Song[]> {
+  public async searchJioSaavn(query: string, limit?: number): Promise<Song[]> {
     const q = query.trim();
     if (!q) return [];
 
-    const cacheKey = q.toLowerCase();
+    const cacheKey = limit ? `${q.toLowerCase()}__${limit}` : q.toLowerCase();
     if (this.cache.has(cacheKey)) {
       return this.cache.get(cacheKey)!;
     }
@@ -271,7 +295,7 @@ class JioSaavnService {
       let rawResults: any[] = [];
 
       for (const mirror of sortedMirrors) {
-        const results = await this.fetchFromMirror(mirror, q);
+        const results = await this.fetchFromMirror(mirror, q, limit);
         if (results && results.length > 0) {
           rawResults = results;
           break;
@@ -282,8 +306,8 @@ class JioSaavnService {
         const queryWords = q.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter((w) => w.length >= 3);
         const relevantResults = queryWords.length > 0
           ? rawResults.filter((item: any) => {
-              const itemTitle = (item.name || item.title || '').toLowerCase();
-              const itemArtist = (item.primaryArtists || item.singers || '').toLowerCase();
+              const itemTitle = unescapeHtml(item.name || item.title || '').toLowerCase();
+              const itemArtist = extractArtistNames(item).toLowerCase();
               return queryWords.some((w) => itemTitle.includes(w) || itemArtist.includes(w));
             })
           : rawResults;
@@ -299,9 +323,9 @@ class JioSaavnService {
           const bestImgObj = images.find((i: any) => i.quality === '500x500') || images[images.length - 1];
           const imgUrl = bestImgObj?.url || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300';
 
-          const title = item.name || item.title || 'JioSaavn Track';
-          const artist = item.primaryArtists || item.singers || item.music || 'Master Artist';
-          const album = item.album?.name || 'JioSaavn Studio Master';
+          const title = unescapeHtml(item.name || item.title || 'JioSaavn Track');
+          const artist = extractArtistNames(item);
+          const album = unescapeHtml(item.album?.name || 'JioSaavn Studio Master');
           const duration = Number(item.duration) || 210;
 
           return {
@@ -352,5 +376,5 @@ class JioSaavnService {
 }
 
 export const jiosaavnService = new JioSaavnService();
-export const searchJioSaavn = (query: string): Promise<Song[]> => jiosaavnService.searchJioSaavn(query);
+export const searchJioSaavn = (query: string, limit?: number): Promise<Song[]> => jiosaavnService.searchJioSaavn(query, limit);
 export const getMirrorHealth = (): MirrorHealth[] => jiosaavnService.getMirrorHealth();

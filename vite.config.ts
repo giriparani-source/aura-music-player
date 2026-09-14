@@ -8,6 +8,7 @@ import {
   jamRoomHandler,
   startJamRoomCleanup,
   localAudioHandler,
+  cloudManifestHandler,
   initPythonCheck
 } from './server/middleware/index.ts';
 
@@ -31,8 +32,11 @@ function localMusicServerPlugin() {
       startJamRoomCleanup();
       server.middlewares.use('/api/jam', jamRoomHandler);
 
-      // 5. Local Library Audio Endpoint
+      // 5. Local / Cloud Library Audio Endpoint
       server.middlewares.use('/api/audio', localAudioHandler);
+
+      // 6. Cloud Library Manifest Endpoint
+      server.middlewares.use('/api/library/cloud-songs', cloudManifestHandler);
     }
   };
 }

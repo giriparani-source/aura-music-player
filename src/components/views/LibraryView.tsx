@@ -60,7 +60,10 @@ export const LibraryView: React.FC = () => {
     clearAllDownloads
   } = useLibraryStore();
 
-  const { currentSong, isPlaying, playSong, togglePlay } = usePlayerStore();
+  const currentSong = usePlayerStore((s) => s.currentSong);
+  const isPlaying = usePlayerStore((s) => s.isPlaying);
+  const playSong = usePlayerStore((s) => s.playSong);
+  const togglePlay = usePlayerStore((s) => s.togglePlay);
 
   const [localSearch, setLocalSearch] = useState('');
   const [isSelectMode, setIsSelectMode] = useState(false);

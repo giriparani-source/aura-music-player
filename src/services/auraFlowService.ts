@@ -17,6 +17,15 @@ import {
 import { TOP_50_TRACKS } from './inbuiltPlaylistsService';
 import { UserAffinityProfile, auraAffinityService } from './auraAffinityService';
 import { auraSkipService } from './auraSkipService';
+import { musicDB, AURA_DISCOVERY_PREFERENCE_KEY } from './db';
+
+export type DiscoveryPreference = 'comfort' | 'balanced' | 'adventurous';
+
+export const DISCOVERY_THRESHOLDS: Record<DiscoveryPreference, number> = {
+  comfort: 5,
+  balanced: 3,
+  adventurous: 1
+};
 
 export type { UserAffinityProfile, AuraRecommendationReason };
 
@@ -161,6 +170,7 @@ class AuraFlowService {
   private sessionReplays: Set<string> = new Set();             // songId
   private skippedArtists: Map<string, number> = new Map();     // normalized artist -> count
   private consecutiveFamiliarCount: number = 0;                // Phase 5.4 discovery pacing counter
+  private discoveryPreference: DiscoveryPreference = 'balanced'; // Phase 5.5 user discovery pacing preference
 
   public setWeights(customWeights: Partial<FlowWeights>) {
     this.weights = { ...this.weights, ...customWeights };
@@ -178,8 +188,44 @@ class AuraFlowService {
     this.consecutiveFamiliarCount = Math.max(0, count);
   }
 
+  public getDiscoveryPreference(): DiscoveryPreference {
+    return this.discoveryPreference;
+  }
+
+  public async setDiscoveryPreference(preference: DiscoveryPreference): Promise<void> {
+    if (preference === 'comfort' || preference === 'balanced' || preference === 'adventurous') {
+      this.discoveryPreference = preference;
+      try {
+        await musicDB.setSetting(AURA_DISCOVERY_PREFERENCE_KEY, preference);
+      } catch {
+        // Fallback gracefully to in-memory preference
+      }
+    }
+  }
+
+  public setDiscoveryPreferenceInMemory(preference: DiscoveryPreference): void {
+    if (preference === 'comfort' || preference === 'balanced' || preference === 'adventurous') {
+      this.discoveryPreference = preference;
+    }
+  }
+
+  public async initDiscoveryPreference(): Promise<DiscoveryPreference> {
+    try {
+      const saved = await musicDB.getSetting<DiscoveryPreference>(AURA_DISCOVERY_PREFERENCE_KEY, 'balanced');
+      if (saved === 'comfort' || saved === 'balanced' || saved === 'adventurous') {
+        this.discoveryPreference = saved;
+      } else {
+        this.discoveryPreference = 'balanced';
+      }
+    } catch {
+      this.discoveryPreference = 'balanced';
+    }
+    return this.discoveryPreference;
+  }
+
   public isDiscoveryWindowActive(): boolean {
-    return this.consecutiveFamiliarCount >= 3;
+    const threshold = DISCOVERY_THRESHOLDS[this.discoveryPreference] ?? 3;
+    return this.consecutiveFamiliarCount >= threshold;
   }
 
   public resetSession() {
@@ -187,6 +233,20 @@ class AuraFlowService {
     this.sessionReplays.clear();
     this.skippedArtists.clear();
     this.consecutiveFamiliarCount = 0;
+  }
+
+  /**
+   * Resets all learned Aura intelligence:
+   * - Learned artist and vibe affinities
+   * - Persistent skip memory
+   * - Active session learning
+   * - Resets discovery preference to 'balanced'
+   */
+  public async resetAuraMemory(): Promise<void> {
+    await auraAffinityService.clearProfile();
+    await auraSkipService.clear();
+    this.resetSession();
+    await this.setDiscoveryPreference('balanced');
   }
 
   // --- Long-Term Affinity Profile (Phase 5.1) ---

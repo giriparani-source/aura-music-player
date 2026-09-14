@@ -17,6 +17,7 @@ import { usePlayerStore } from '../../store/usePlayerStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { AiChatMessage } from '../../types/music';
 import { audioEffectsService } from '../../services/audioEffectsService';
+import { buildApiUrl } from '../../utils/apiConfig';
 
 const QUICK_ACTIONS = [
   { label: '🎙️ Turn on Karaoke', query: 'turn on karaoke mode' },
@@ -27,16 +28,14 @@ const QUICK_ACTIONS = [
 ];
 
 export const AuraChatDrawer: React.FC = () => {
-  const {
-    isAiAssistantOpen,
-    setAiAssistantOpen,
-    currentSong,
-    isPlaying,
-    togglePlay,
-    nextSong,
-    toggleKaraoke,
-    openWithTab
-  } = usePlayerStore();
+  const isAiAssistantOpen = usePlayerStore((s) => s.isAiAssistantOpen);
+  const setAiAssistantOpen = usePlayerStore((s) => s.setAiAssistantOpen);
+  const currentSong = usePlayerStore((s) => s.currentSong);
+  const isPlaying = usePlayerStore((s) => s.isPlaying);
+  const togglePlay = usePlayerStore((s) => s.togglePlay);
+  const nextSong = usePlayerStore((s) => s.nextSong);
+  const toggleKaraoke = usePlayerStore((s) => s.toggleKaraoke);
+  const openWithTab = usePlayerStore((s) => s.openWithTab);
 
   const { setActiveTab } = useLibraryStore();
 
@@ -223,7 +222,7 @@ export const AuraChatDrawer: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/ai/chat', {
+      const res = await fetch(buildApiUrl('/api/ai/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

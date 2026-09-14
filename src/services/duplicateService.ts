@@ -54,23 +54,32 @@ export function detectDuplicates(songs: Song[]): DuplicateGroup[] {
   const groups: DuplicateGroup[] = [];
   const visited = new Set<string>();
 
-  for (let i = 0; i < songs.length; i++) {
-    const songA = songs[i];
+  // Precompute normalized strings in a single O(N) pass to eliminate redundant regex executions in O(N^2) loop
+  const precomputed = songs.map((song) => ({
+    song,
+    normTitle: normalizeForComparison(song.title || song.fileName),
+    normArtist: normalizeForComparison(song.artist !== 'Not set' ? song.artist : '')
+  }));
+
+  for (let i = 0; i < precomputed.length; i++) {
+    const itemA = precomputed[i];
+    const songA = itemA.song;
     if (visited.has(songA.id)) continue;
 
     const matchedSongs: Song[] = [songA];
     const groupReasons = new Set<string>();
     let highestScore = 0;
 
-    const normTitleA = normalizeForComparison(songA.title || songA.fileName);
-    const normArtistA = normalizeForComparison(songA.artist !== 'Not set' ? songA.artist : '');
+    const normTitleA = itemA.normTitle;
+    const normArtistA = itemA.normArtist;
 
-    for (let j = i + 1; j < songs.length; j++) {
-      const songB = songs[j];
+    for (let j = i + 1; j < precomputed.length; j++) {
+      const itemB = precomputed[j];
+      const songB = itemB.song;
       if (visited.has(songB.id)) continue;
 
-      const normTitleB = normalizeForComparison(songB.title || songB.fileName);
-      const normArtistB = normalizeForComparison(songB.artist !== 'Not set' ? songB.artist : '');
+      const normTitleB = itemB.normTitle;
+      const normArtistB = itemB.normArtist;
 
       let score = 0;
       const reasons: string[] = [];

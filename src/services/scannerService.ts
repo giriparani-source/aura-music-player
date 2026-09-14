@@ -142,8 +142,9 @@ export async function runDifferentialScan(
     // Fast differential check: if size and lastModified match, file is unchanged!
     if (existing && existing.fileSize === file.size && existing.lastModified === file.lastModified) {
       scanResult.unchanged++;
-      // Still update runtime path URL so it plays seamlessly in current session
-      existing.filePath = URL.createObjectURL(file);
+      if (existing.filePath && existing.filePath.startsWith('blob:')) {
+        existing.filePath = '';
+      }
       continue;
     }
 
@@ -159,7 +160,7 @@ export async function runDifferentialScan(
       const songObj: Song = {
         id: songId,
         path: relativePath,
-        filePath: URL.createObjectURL(file),
+        filePath: existing?.filePath && !existing.filePath.startsWith('blob:') ? existing.filePath : '',
         fileName: file.name,
         title: meta.title,
         artist: meta.artist,

@@ -7,10 +7,6 @@ import {
   Loader2,
   Sliders,
   Disc,
-  Music2,
-  Volume2,
-  ArrowRight,
-  Headphones,
   Moon,
   Dumbbell,
   CloudRain,
@@ -26,6 +22,7 @@ import { usePlayerStore } from '../../store/usePlayerStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { AiDjPlaylist, Song } from '../../types/music';
 import { audioEffectsService } from '../../services/audioEffectsService';
+import { buildApiUrl } from '../../utils/apiConfig';
 
 interface QuickMood {
   label: string;
@@ -300,14 +297,14 @@ export const AiStudioView: React.FC = () => {
   const [isStreamingQueue, setIsStreamingQueue] = useState(false);
   const [streamingProgress, setStreamingProgress] = useState('');
 
-  const { playBatch } = usePlayerStore();
+  const playBatch = usePlayerStore((s) => s.playBatch);
   const { songs: localSongs } = useLibraryStore();
 
   const handleGenerate = async (targetQuery: string) => {
     const q = targetQuery.trim() || 'late night drive';
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/ai/dj?q=${encodeURIComponent(q)}`);
+      const res = await fetch(buildApiUrl(`/api/ai/dj?q=${encodeURIComponent(q)}`));
       if (res.ok) {
         const contentType = res.headers.get('content-type') || '';
         if (contentType.includes('application/json')) {
@@ -351,7 +348,7 @@ export const AiStudioView: React.FC = () => {
     // 3. Fallback to online search API if backend is running
     try {
       const searchRes = await fetch(
-        `/api/online/search?q=${encodeURIComponent(`${trackTitle} ${trackArtist}`)}`
+        buildApiUrl(`/api/online/search?q=${encodeURIComponent(`${trackTitle} ${trackArtist}`)}`)
       );
       if (searchRes.ok) {
         const searchData = await searchRes.json();

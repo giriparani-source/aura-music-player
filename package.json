@@ -8,10 +8,14 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
+    "start": "node --experimental-strip-types server.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1131.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
     "lucide-react": "^1.44.0",
     "peerjs": "^1.5.5",
     "react": "^19.2.8",
@@ -20,6 +24,8 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",

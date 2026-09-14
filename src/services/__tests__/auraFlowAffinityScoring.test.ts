@@ -12,7 +12,7 @@
  * 7. Custom weight overrides dynamically tune affinity impact.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { auraFlowService, FlowContext, DEFAULT_FLOW_WEIGHTS } from '../auraFlowService';
 import { UserAffinityProfile, AURA_AFFINITY_VERSION } from '../auraAffinityService';
 import { Song } from '../../types/music';
@@ -221,7 +221,8 @@ describe('Phase 5.2: Aura Flow Candidate Scoring Integration', () => {
       title: 'Maya Nadhi',
       artist: 'Pradeep Kumar',
       album: 'Kabali',
-      genre: 'Acoustic / Romantic'
+      genre: 'Acoustic / Romantic',
+      isDownloaded: true
     });
 
     // Candidate B: Fast dance track by lifetime favorite artist Anirudh Ravichander
@@ -230,7 +231,8 @@ describe('Phase 5.2: Aura Flow Candidate Scoring Integration', () => {
       title: 'Hukum - Thalaivar Alappara Fast Dance Beat',
       artist: 'Anirudh Ravichander',
       album: 'Jailer',
-      genre: 'Dance / EDM'
+      genre: 'Dance / EDM',
+      isDownloaded: true
     });
 
     // User has high lifetime affinity for Anirudh, and none recorded yet for Pradeep Kumar
@@ -240,6 +242,7 @@ describe('Phase 5.2: Aura Flow Candidate Scoring Integration', () => {
       vibeAffinity: { energetic: 100, romantic: 0 }
     });
 
+    const weights = { ...DEFAULT_FLOW_WEIGHTS, explorationJitter: 0 };
     const context: FlowContext = {
       currentSong: current,
       queue: [current],
@@ -247,11 +250,11 @@ describe('Phase 5.2: Aura Flow Candidate Scoring Integration', () => {
       playbackHistory: [],
       allSongs: [current, matchingCandidate, favoriteArtistCandidate],
       downloadedSongIds: new Set(),
-      isOnline: true,
-      affinityProfile: profile
+      isOnline: false,
+      affinityProfile: profile,
+      weights
     };
 
-    const weights = { ...DEFAULT_FLOW_WEIGHTS, explorationJitter: 0 };
     const scoreMatching = auraFlowService.scoreCandidate(matchingCandidate, current, context, weights);
     const scoreFavArtist = auraFlowService.scoreCandidate(favoriteArtistCandidate, current, context, weights);
 
@@ -267,8 +270,10 @@ describe('Phase 5.2: Aura Flow Candidate Scoring Integration', () => {
     expect(scoreMatching.totalScore).toBeGreaterThan(scoreFavArtist.totalScore);
 
     // Selection chooses the matching track
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.1);
     const selected = auraFlowService.getNextTrack(context);
     expect(selected?.id).toBe(matchingCandidate.id);
+    randomSpy.mockRestore();
   });
 
   it('6. Custom weights dynamically tune long-term affinity bonuses', () => {

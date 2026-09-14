@@ -16,7 +16,7 @@ interface SongRowProps {
   onToggleSelect?: (id: string) => void;
 }
 
-export const SongRow: React.FC<SongRowProps> = ({
+const SongRowComponent: React.FC<SongRowProps> = ({
   song,
   index,
   playlistContext,
@@ -24,24 +24,25 @@ export const SongRow: React.FC<SongRowProps> = ({
   isSelected = false,
   onToggleSelect
 }) => {
-  const { currentSong, isPlaying, playSong, togglePlay, addToQueueNext } = usePlayerStore();
-  const {
-    songs: librarySongs,
-    toggleFavorite,
-    downloadedSongIds,
-    downloadingStates,
-    downloadTrack,
-    deleteDownloadedTrack
-  } = useLibraryStore();
-  const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
+  const isCurrent = usePlayerStore((s) => s.currentSong?.id === song.id);
+  const isPlaying = usePlayerStore((s) => s.isPlaying && s.currentSong?.id === song.id);
+  const playSong = usePlayerStore((s) => s.playSong);
+  const togglePlay = usePlayerStore((s) => s.togglePlay);
+  const addToQueueNext = usePlayerStore((s) => s.addToQueueNext);
 
-  const isCurrent = currentSong?.id === song.id;
-  const libSong = librarySongs.find((s) => s.id === song.id);
-  const isFav = libSong ? libSong.isFavorite : (isCurrent ? currentSong.isFavorite : song.isFavorite);
-
-  const isDownloaded = downloadedSongIds.has(song.id) || Boolean(song.isDownloaded);
-  const dlState = downloadingStates[song.id];
+  const toggleFavorite = useLibraryStore((s) => s.toggleFavorite);
+  const downloadTrack = useLibraryStore((s) => s.downloadTrack);
+  const deleteDownloadedTrack = useLibraryStore((s) => s.deleteDownloadedTrack);
+  const isDownloaded = useLibraryStore((s) => s.downloadedSongIds.has(song.id) || Boolean(song.isDownloaded));
+  const dlState = useLibraryStore((s) => s.downloadingStates[song.id]);
   const isDownloading = dlState?.status === 'downloading';
+
+  const isFav = useLibraryStore((s) => {
+    const libSong = s.songs.find((item) => item.id === song.id);
+    return libSong ? libSong.isFavorite : Boolean(song.isFavorite);
+  });
+
+  const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
 
   const handleRowClick = () => {
     if (isSelectMode && onToggleSelect) {
@@ -246,12 +247,16 @@ export const SongRow: React.FC<SongRowProps> = ({
         </div>
       )}
 
-      {/* Instant Add-to-Playlist Modal */}
-      <AddToPlaylistModal
-        isOpen={isPlaylistModalOpen}
-        onClose={() => setIsPlaylistModalOpen(false)}
-        songIds={[song.id]}
-      />
+      {/* Instant Add-to-Playlist Modal: only mounted when open */}
+      {isPlaylistModalOpen && (
+        <AddToPlaylistModal
+          isOpen={true}
+          onClose={() => setIsPlaylistModalOpen(false)}
+          songIds={[song.id]}
+        />
+      )}
     </div>
   );
 };
+
+export const SongRow = React.memo(SongRowComponent);

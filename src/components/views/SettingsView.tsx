@@ -11,13 +11,26 @@ import {
   Activity,
   Download,
   Upload,
-  Database
+  Database,
+  Sparkles,
+  RotateCcw,
+  Compass,
+  Sliders
 } from 'lucide-react';
 import { useLibraryStore } from '../../store/useLibraryStore';
+import { usePlayerStore } from '../../store/usePlayerStore';
 import { formatBytes } from '../../utils/formatters';
 import { exportLibraryBackup, importLibraryBackup } from '../../services/backupService';
 import { musicDB } from '../../services/db';
 import { Song } from '../../types/music';
+import { auraFlowService, DiscoveryPreference } from '../../services/auraFlowService';
+import { auraSkipService } from '../../services/auraSkipService';
+import { UserAffinityProfile } from '../../services/auraAffinityService';
+import {
+  getTopArtists,
+  getTopVibes,
+  generateProfileSummary
+} from '../../services/auraProfileExplainer';
 
 export const SettingsView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -40,6 +53,48 @@ export const SettingsView: React.FC = () => {
     type: 'success' | 'error';
     message: string;
   } | null>(null);
+
+  // Aura Flow Controls & Taste Intelligence State
+  const discoveryPreference = usePlayerStore((s) => s.discoveryPreference);
+  const setDiscoveryPreference = usePlayerStore((s) => s.setDiscoveryPreference);
+  const resetAuraMemory = usePlayerStore((s) => s.resetAuraMemory);
+
+  const [auraProfile, setAuraProfile] = useState<UserAffinityProfile | null>(() => auraFlowService.getAffinityProfile());
+  const [skipCount, setSkipCount] = useState<number>(() => Object.keys(auraSkipService.getSkipMap()).length);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    auraFlowService.initAffinityProfile().then((p) => {
+      if (isMounted) setAuraProfile(p);
+    }).catch(() => {});
+
+    auraSkipService.init().then((m) => {
+      if (isMounted) setSkipCount(Object.keys(m).length);
+    }).catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleConfirmResetAura = async () => {
+    setIsResetting(true);
+    try {
+      await resetAuraMemory();
+      setAuraProfile(auraFlowService.getAffinityProfile());
+      setSkipCount(0);
+      setIsResetConfirmOpen(false);
+      setResetSuccessMessage('Aura memory has been safely reset.');
+      setTimeout(() => setResetSuccessMessage(null), 4000);
+    } catch (err) {
+      console.error('Failed to reset Aura memory:', err);
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   const handleRemoveDuplicateSong = async (songId: string, title: string) => {
     if (window.confirm(`Remove duplicate "${title}" from library index? (Original audio file will not be deleted)`)) {
@@ -380,6 +435,279 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Section: Aura Flow & Taste Intelligence */}
+      <div className="glass-panel p-6 rounded-3xl space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/5 pb-4 gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-2xl bg-fuchsia-500/10 border border-fuchsia-500/20 text-fuchsia-400">
+              <Sparkles size={22} />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                Aura Flow & Taste Intelligence
+              </h3>
+              <p className="text-xs text-neutral-400">
+                Autonomous personalized music sequencing and listening affinity engine
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {!auraProfile || (auraProfile.totalMeaningfulPlays ?? 0) < 3 ? (
+              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                Calibrating
+              </span>
+            ) : (
+              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                Active & Personalized
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Transient Reset Message */}
+        {resetSuccessMessage && (
+          <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs flex items-center gap-2">
+            <CheckCircle2 size={16} className="shrink-0" />
+            <span>{resetSuccessMessage}</span>
+          </div>
+        )}
+
+        {/* Telemetry Metrics */}
+        <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
+          <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/5">
+            <p className="text-xs text-neutral-400 font-medium">Total Meaningful Plays</p>
+            <p className="text-2xl font-bold text-white mt-1">
+              {auraProfile?.totalMeaningfulPlays ?? 0}
+            </p>
+            <p className="text-[11px] text-neutral-500 mt-1">
+              Plays lasting ≥ 30 seconds
+            </p>
+          </div>
+          <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/5">
+            <p className="text-xs text-neutral-400 font-medium">Persistent Skip Signals</p>
+            <p className="text-2xl font-bold text-white mt-1">{skipCount}</p>
+            <p className="text-[11px] text-neutral-500 mt-1">
+              Softened negative memory items
+            </p>
+          </div>
+        </div>
+
+        {/* Taste Summary */}
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-violet-500/5 via-fuchsia-500/5 to-indigo-500/5 border border-white/5 space-y-2">
+          <p className="text-xs font-semibold text-neutral-300 uppercase tracking-wider text-[10px]">
+            Taste Profile Summary
+          </p>
+          <p className="text-xs text-neutral-300 leading-relaxed">
+            {generateProfileSummary(auraProfile)}
+          </p>
+        </div>
+
+        {/* Top Affinities */}
+        <div className="space-y-4">
+          {/* Top Artists */}
+          <div>
+            <p className="text-xs font-semibold text-neutral-400 mb-2">Top Artist Affinities:</p>
+            {getTopArtists(auraProfile, 8).length === 0 ? (
+              <p className="text-xs text-neutral-500 italic">
+                No artist affinity recorded yet. Listen to tracks to build your profile.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {getTopArtists(auraProfile, 8).map((item) => (
+                  <span
+                    key={item.artist}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-white/[0.03] border border-white/10 text-xs text-neutral-200"
+                  >
+                    <span className="font-medium text-white">{item.displayName}</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-fuchsia-500/20 text-fuchsia-300">
+                      {item.score}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Top Vibes */}
+          <div>
+            <p className="text-xs font-semibold text-neutral-400 mb-2">Strongest Vibe Affinities:</p>
+            {getTopVibes(auraProfile, 5).length === 0 ? (
+              <p className="text-xs text-neutral-500 italic">
+                No vibe affinity recorded yet.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {getTopVibes(auraProfile, 5).map((item) => (
+                  <span
+                    key={item.vibe}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-white/[0.03] border border-white/10 text-xs text-neutral-200"
+                  >
+                    <span className="font-medium text-white">{item.displayName}</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300">
+                      {item.score}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Discovery Preference Controls */}
+        <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 space-y-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Compass size={16} className="text-indigo-400" />
+              <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                Discovery Preference
+              </h4>
+            </div>
+            <p className="text-xs text-neutral-400 mt-0.5">
+              Controls how often Aura recommends fresh discoveries vs. staying with familiar favorites.
+            </p>
+          </div>
+
+          {/* 3-way Segmented Control */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+            {[
+              {
+                id: 'comfort' as DiscoveryPreference,
+                label: 'Comfort',
+                threshold: '5 tracks',
+                desc: 'Stay closer to familiar favorites.'
+              },
+              {
+                id: 'balanced' as DiscoveryPreference,
+                label: 'Balanced',
+                threshold: '3 tracks',
+                desc: 'A mix of familiar tracks and fresh discoveries.'
+              },
+              {
+                id: 'adventurous' as DiscoveryPreference,
+                label: 'Adventurous',
+                threshold: '1 track',
+                desc: 'Discover new tracks more often.'
+              }
+            ].map((option) => {
+              const isActive = discoveryPreference === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setDiscoveryPreference(option.id)}
+                  className={`p-3 rounded-xl text-left transition-all cursor-pointer border ${
+                    isActive
+                      ? 'bg-gradient-to-r from-violet-600/30 to-fuchsia-600/30 border-fuchsia-500/40 text-white shadow-lg shadow-fuchsia-500/10'
+                      : 'bg-white/[0.02] border-white/5 text-neutral-400 hover:bg-white/5 hover:text-neutral-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold">{option.label}</span>
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                      isActive ? 'bg-fuchsia-500/20 text-fuchsia-300 font-semibold' : 'bg-white/5 text-neutral-500'
+                    }`}>
+                      {option.threshold}
+                    </span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed opacity-80">{option.desc}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Reset Memory Action */}
+        <div className="pt-2 border-t border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-white">Reset Aura Memory</p>
+            <p className="text-[11px] text-neutral-500">
+              Clear learned artist/vibe affinities and skip penalties without deleting any songs or playlists.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsResetConfirmOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-semibold flex items-center gap-2 border border-rose-500/20 transition-colors cursor-pointer shrink-0"
+          >
+            <RotateCcw size={14} />
+            <span>Reset Aura Memory</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Reset Confirmation Modal */}
+      {isResetConfirmOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="glass-panel p-6 rounded-3xl max-w-md w-full border border-white/10 space-y-4 shadow-2xl animate-fade-in">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="p-2.5 rounded-2xl bg-rose-500/10 border border-rose-500/20">
+                <AlertCircle size={22} />
+              </div>
+              <div>
+                <h4 className="text-base font-bold text-white">Reset Aura Flow Memory?</h4>
+                <p className="text-xs text-neutral-400">This action recalibrates recommendation intelligence</p>
+              </div>
+            </div>
+
+            <div className="space-y-2.5 text-xs">
+              <div className="p-3 rounded-xl bg-rose-500/5 border border-rose-500/20 text-rose-300 space-y-1">
+                <p className="font-semibold">This will reset:</p>
+                <ul className="list-disc list-inside space-y-0.5 text-neutral-300 text-[11px]">
+                  <li>Learned artist affinities</li>
+                  <li>Learned vibe affinities</li>
+                  <li>Persistent skip memory</li>
+                  <li>Active Aura session learning</li>
+                  <li>Discovery preference (returns to Balanced)</li>
+                </ul>
+              </div>
+
+              <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20 text-emerald-300 space-y-1">
+                <p className="font-semibold">This will NOT delete:</p>
+                <ul className="list-disc list-inside space-y-0.5 text-neutral-300 text-[11px]">
+                  <li>Your audio files or library songs</li>
+                  <li>Playlists and smart playlists</li>
+                  <li>Favorite songs or play counts</li>
+                  <li>Listening history & downloaded offline tracks</li>
+                  <li>Lyrics and general settings</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/5">
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={() => setIsResetConfirmOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-neutral-300 hover:bg-white/5 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isResetting}
+                onClick={handleConfirmResetAura}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-500 hover:bg-rose-600 text-white transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                {isResetting ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" />
+                    <span>Resetting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} />
+                    <span>Confirm Reset</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Section 4: Duplicate Detection & Resolution */}
       <div className="glass-panel p-6 rounded-3xl space-y-4">

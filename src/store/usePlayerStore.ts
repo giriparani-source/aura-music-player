@@ -6,7 +6,7 @@ import { sleepTimerService, SleepTimerPreset } from '../services/sleepTimerServi
 import { musicDB } from '../services/db';
 import { useLibraryStore, onFavoriteChanged, registerSongLookup } from './useLibraryStore';
 import { generateFairShuffleIndices, generatePureRandomIndices } from '../utils/fairShuffle';
-import { auraFlowService, FlowContext } from '../services/auraFlowService';
+import { auraFlowService, FlowContext, DiscoveryPreference } from '../services/auraFlowService';
 
 interface PlayerStoreState {
   currentSong: Song | null;
@@ -35,6 +35,7 @@ interface PlayerStoreState {
 
   // Aura Flow: Continuous Smart Autoplay
   isAuraFlow: boolean;
+  discoveryPreference: DiscoveryPreference;
 
   // Smart Sleep Timer
   sleepTimerRemaining: number | null;
@@ -62,6 +63,8 @@ interface PlayerStoreState {
   cycleRepeat: () => void;
   toggleAuraFlow: () => void;
   setAuraFlow: (enabled: boolean) => void;
+  setDiscoveryPreference: (preference: DiscoveryPreference) => Promise<void>;
+  resetAuraMemory: () => Promise<void>;
   addToQueueNext: (song: Song) => void;
   addToQueueEnd: (song: Song) => void;
   addMultipleToQueue: (songs: Song[]) => void;
@@ -231,6 +234,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     isAiAssistantOpen: false,
     aiEqStatus: null,
     isAuraFlow: false,
+    discoveryPreference: auraFlowService.getDiscoveryPreference(),
     sleepTimerRemaining: sleepTimerService.getRemainingSeconds(),
     sleepTimerMode: sleepTimerService.getMode(),
     isLimiterActive: audioEffectsService.isLimiterEnabled(),
@@ -596,6 +600,16 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       }
     },
 
+    setDiscoveryPreference: async (preference: DiscoveryPreference) => {
+      set({ discoveryPreference: preference });
+      await auraFlowService.setDiscoveryPreference(preference);
+    },
+
+    resetAuraMemory: async () => {
+      await auraFlowService.resetAuraMemory();
+      set({ discoveryPreference: 'balanced' });
+    },
+
     addToQueueNext: (song: Song) => {
       const { queue, queueIndex, shuffledQueueOrder } = get();
       const insertAt = queueIndex + 1;
@@ -775,4 +789,14 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     }
   };
 });
+
+// Asynchronously hydrate discovery preference from IndexedDB without blocking startup
+if (typeof window !== 'undefined') {
+  auraFlowService.initDiscoveryPreference().then((pref) => {
+    usePlayerStore.setState({ discoveryPreference: pref });
+  }).catch(() => {
+    // Fail gracefully, keep in-memory 'balanced' default
+  });
+}
+
 
