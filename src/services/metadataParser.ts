@@ -21,8 +21,8 @@ export function cleanFileNameFallback(filename: string): string {
   // Remove known website junk
   name = name.replace(/[-_]?MassTamilan\.[a-z0-9]+/gi, '');
   name = name.replace(/[-_]?MassTamilan/gi, '');
-  name = name.replace(/_320\(PagalWorld[^\)]*\)/gi, '');
-  name = name.replace(/\(PagalWorld[^\)]*\)/gi, '');
+  name = name.replace(/_320\(PagalWorld[^)]*\)/gi, '');
+  name = name.replace(/\(PagalWorld[^)]*\)/gi, '');
   name = name.replace(/[-_]?PagalWorld[a-zA-Z0-9]*/gi, '');
   name = name.replace(/[-_]?PagalHits/gi, '');
   name = name.replace(/\(KoshalWorld\.Com\)/gi, '');
@@ -316,7 +316,7 @@ function getAudioDuration(file: File | Blob): Promise<number> {
  * Main Metadata Extractor for Audio Files
  * Follows strict rule: If metadata is missing, set to 'Not set'. Never invent metadata.
  */
-export async function extractAudioMetadata(file: File, relativePath?: string): Promise<ParsedMetadata> {
+export async function extractAudioMetadata(file: File, _relativePath?: string): Promise<ParsedMetadata> {
   // Step 1: Attempt ID3v2
   let v2: Partial<ParsedMetadata> = {};
   let v1: Partial<ParsedMetadata> = {};

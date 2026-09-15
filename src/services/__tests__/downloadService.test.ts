@@ -72,7 +72,7 @@ describe('downloadService', () => {
     globalThis.caches = mockCaches;
 
     // Mock global URL createObjectURL and revokeObjectURL
-    globalThis.URL.createObjectURL = vi.fn((blob: Blob) => `blob:http://localhost/${Math.random()}`);
+    globalThis.URL.createObjectURL = vi.fn((_blob: Blob) => `blob:http://localhost/${Math.random()}`);
     globalThis.URL.revokeObjectURL = vi.fn();
 
     // Mock musicDB methods

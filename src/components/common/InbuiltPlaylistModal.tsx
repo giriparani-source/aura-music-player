@@ -6,8 +6,6 @@ import {
   ListPlus,
   X,
   Clock,
-  Music2,
-  Sparkles,
   WifiOff,
   Check,
   Heart
@@ -15,9 +13,7 @@ import {
 import { InbuiltPlaylist, inbuiltPlaylistsService } from '../../services/inbuiltPlaylistsService';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
-import { Song } from '../../types/music';
 import { formatTime } from '../../utils/formatters';
-import { generateFairShuffleIndices } from '../../utils/fairShuffle';
 import { Artwork } from './Artwork';
 
 interface InbuiltPlaylistModalProps {

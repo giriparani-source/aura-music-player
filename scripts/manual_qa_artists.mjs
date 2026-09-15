@@ -107,7 +107,7 @@ async function run() {
     const activeTab = await evaluate(`
       window.__libraryStore?.getState?.()?.activeTab || 'unknown'
     `);
-    const searchUrl = await evaluate(`window.location.hash`);
+    const _searchUrl = await evaluate(`window.location.hash`);
     console.log(`   ArtistPlaylistView opened: ${artistViewActive}`);
     console.log(`   Active Tab in Store: "${activeTab}" (Search tab is NOT activated!)`);
 
@@ -286,7 +286,7 @@ async function run() {
     `);
     await new Promise((r) => setTimeout(r, 1000));
     const searchInputPresent = await evaluate(`
-      Boolean(document.querySelector('input[placeholder*=\"Search\"]'))
+      Boolean(document.querySelector('input[placeholder*="Search"]'))
     `);
     console.log(`   Navigated to Search Tab: ${searchNavClicked}`);
     console.log(`   Dedicated Search bar present: ${searchInputPresent}`);

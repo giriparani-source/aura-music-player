@@ -7,21 +7,18 @@ import {
   ArrowLeft,
   Clock,
   Music2,
-  Sparkles,
   WifiOff,
   Check,
   CheckCircle2,
   HardDrive,
-  Globe,
-  Disc3,
-  Radio
+  Disc3
 } from 'lucide-react';
 import { TamilArtist, ARTIST_CATEGORY_LABELS } from '../../services/tamilArtistsData';
 import { artistPlaylistService, ArtistPlaylist } from '../../services/artistPlaylistService';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { SongRow } from '../common/SongRow';
-import { formatTime } from '../../utils/formatters';
+
 
 interface ArtistPlaylistViewProps {
   artist: TamilArtist;
@@ -81,7 +78,6 @@ export const ArtistPlaylistView: React.FC<ArtistPlaylistViewProps> = ({
   // Load real artist playlist on demand
   useEffect(() => {
     let isMounted = true;
-    setIsLoading(true);
 
     artistPlaylistService
       .getArtistPlaylist(artist, localSongs)

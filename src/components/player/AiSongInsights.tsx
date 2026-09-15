@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, BookOpen, Music2, Sliders, Check, Loader2, Quote, Lightbulb } from 'lucide-react';
+import { Sparkles, BookOpen, Sliders, Check, Loader2, Quote, Lightbulb } from 'lucide-react';
 import { Song, SongAiInsights } from '../../types/music';
 import { audioEffectsService } from '../../services/audioEffectsService';
 import { buildApiUrl } from '../../utils/apiConfig';
@@ -86,13 +86,16 @@ const generateSynthesizedInsights = (song: Song): SongAiInsights => {
 
 export const AiSongInsights: React.FC<AiSongInsightsProps> = ({ song }) => {
   const [insights, setInsights] = useState<SongAiInsights | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [appliedEq, setAppliedEq] = useState(false);
+  const [prevSongId, setPrevSongId] = useState(song.id);
+  if (song.id !== prevSongId) {
+    setPrevSongId(song.id);
+    if (appliedEq) setAppliedEq(false);
+  }
 
   useEffect(() => {
     let isMounted = true;
-    setIsLoading(true);
-    setAppliedEq(false);
 
     const fetchInsights = async () => {
       try {
@@ -131,7 +134,7 @@ export const AiSongInsights: React.FC<AiSongInsightsProps> = ({ song }) => {
     return () => {
       isMounted = false;
     };
-  }, [song.title, song.artist, song.isLiveRadio, song.format, song.bitrate]);
+  }, [song]);
 
   const handleApplyEq = () => {
     audioEffectsService.autoTuneForSong(song.title, song.artist);

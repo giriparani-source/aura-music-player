@@ -245,7 +245,7 @@ describe('Phase 5.1: Aura Flow Long-Term Affinity Profile', () => {
     });
 
     const song = mockSong({ id: 's1', artist: 'Santhosh Narayanan', playCount: 3 });
-    const profile = await auraAffinityService.initProfile([song]);
+    const _profile = await auraAffinityService.initProfile([song]);
 
     expect(storedValue).not.toBeNull();
     expect(storedValue!.version).toBe(AURA_AFFINITY_VERSION);

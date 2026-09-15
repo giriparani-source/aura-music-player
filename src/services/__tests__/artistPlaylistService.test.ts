@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { artistPlaylistService, ArtistPlaylistService } from '../artistPlaylistService';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { ArtistPlaylistService } from '../artistPlaylistService';
 import { TamilArtist } from '../tamilArtistsData';
 import { Song } from '../../types/music';
 

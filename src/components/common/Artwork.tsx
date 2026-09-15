@@ -12,15 +12,17 @@ interface ArtworkProps {
 export const Artwork: React.FC<ArtworkProps> = ({
   src,
   title,
-  artist,
+  artist: _artist,
   size = 'md',
   className = ''
 }) => {
+  const [prevSrc, setPrevSrc] = React.useState(src);
   const [hasError, setHasError] = React.useState(false);
 
-  React.useEffect(() => {
+  if (src !== prevSrc) {
+    setPrevSrc(src);
     setHasError(false);
-  }, [src]);
+  }
 
   const sizeClasses = {
     sm: 'w-10 h-10 rounded-md text-xs',

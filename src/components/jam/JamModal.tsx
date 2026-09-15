@@ -37,20 +37,29 @@ export const JamModal: React.FC = () => {
 
   const currentSong = usePlayerStore((s) => s.currentSong);
 
-  const [inputCode, setInputCode] = useState('');
+  const [inputCode, setInputCode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return (params.get('jam') || '').toUpperCase();
+    }
+    return '';
+  });
   const [localName, setLocalName] = useState(nickname);
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'create' | 'join'>('create');
+  const [activeTab, setActiveTab] = useState<'create' | 'join'>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('jam')) return 'join';
+    }
+    return 'create';
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Check URL query param ?jam=JAM-XXXX on first open
+  // Auto-open modal if ?jam param is present in URL
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      const jamParam = params.get('jam');
-      if (jamParam && !isInRoom) {
-        setInputCode(jamParam.toUpperCase());
-        setActiveTab('join');
+      if (params.get('jam') && !isInRoom) {
         setJamModalOpen(true);
       }
     }

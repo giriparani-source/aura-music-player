@@ -6,6 +6,7 @@
  */
 
 import { runAiCommand, isPythonAvailable } from '../helpers/pythonRunner.ts';
+import { generateDjMix, getSongInsights, processChat } from '../helpers/aiEngineNative.ts';
 
 export function aiRouterHandler(req: any, res: any, next: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -15,69 +16,48 @@ export function aiRouterHandler(req: any, res: any, next: any) {
   const parsedUrl = new URL(req.url, 'http://localhost:3000/api/ai');
   const pathname = parsedUrl.pathname.replace(/^\/api\/ai/, '') || '/';
 
-  if (!isPythonAvailable()) {
-    // Return a graceful fallback when Python is unavailable
-    if (pathname === '/dj' || pathname === '/dj/') {
-      res.end(JSON.stringify({
-        title: 'AI DJ Offline ✨',
-        intro: 'Python AI engine is not available. Try the built-in mood playlists instead!',
-        vibe: 'Offline',
-        suggested_eq: 'flat',
-        tracks: []
-      }));
-      return;
-    }
-    if (pathname === '/insights' || pathname === '/insights/') {
-      res.end(JSON.stringify({
-        theme: 'AI insights require the Python engine.',
-        emotion: 'N/A',
-        story: 'The AI engine is currently unavailable.',
-        lines: [],
-        composer_notes: '',
-        recommended_eq: 'flat'
-      }));
-      return;
-    }
-    if (pathname === '/chat' || pathname === '/chat/') {
-      res.end(JSON.stringify({
-        reply: 'AI assistant is currently offline. Python engine is not available on this server.',
-        action: null
-      }));
-      return;
-    }
-    next();
-    return;
-  }
-
+  // 1. AI DJ Endpoint
   if (pathname === '/dj' || pathname === '/dj/') {
     (async () => {
+      const q = parsedUrl.searchParams.get('q') || 'late night drive';
       try {
-        const q = parsedUrl.searchParams.get('q') || 'late night drive';
-        const data = await runAiCommand(['dj', q]);
-        res.end(JSON.stringify(data));
-      } catch (err: any) {
-        res.statusCode = 500;
-        res.end(JSON.stringify({ error: err.message }));
+        if (isPythonAvailable()) {
+          const data = await runAiCommand(['dj', q]);
+          res.end(JSON.stringify(data));
+          return;
+        }
+      } catch (pythonErr) {
+        console.warn('[Aura AI] Python DJ failed, falling back to Native TS Engine:', pythonErr);
       }
+      // Pure Node.js / Serverless Native Fallback
+      const nativeData = generateDjMix(q);
+      res.end(JSON.stringify(nativeData));
     })();
     return;
   }
 
+  // 2. AI Insights Endpoint
   if (pathname === '/insights' || pathname === '/insights/') {
     (async () => {
+      const title = parsedUrl.searchParams.get('title') || '';
+      const artist = parsedUrl.searchParams.get('artist') || '';
       try {
-        const title = parsedUrl.searchParams.get('title') || '';
-        const artist = parsedUrl.searchParams.get('artist') || '';
-        const data = await runAiCommand(['insights', title, artist]);
-        res.end(JSON.stringify(data));
-      } catch (err: any) {
-        res.statusCode = 500;
-        res.end(JSON.stringify({ error: err.message }));
+        if (isPythonAvailable()) {
+          const data = await runAiCommand(['insights', title, artist]);
+          res.end(JSON.stringify(data));
+          return;
+        }
+      } catch (pythonErr) {
+        console.warn('[Aura AI] Python Insights failed, falling back to Native TS Engine:', pythonErr);
       }
+      // Pure Node.js / Serverless Native Fallback
+      const nativeData = getSongInsights(title, artist);
+      res.end(JSON.stringify(nativeData));
     })();
     return;
   }
 
+  // 3. AI Chat Assistant Endpoint
   if (pathname === '/chat' || pathname === '/chat/') {
     if (req.method === 'POST') {
       let body = '';
@@ -86,9 +66,21 @@ export function aiRouterHandler(req: any, res: any, next: any) {
         try {
           const parsed = JSON.parse(body || '{}');
           const msg = parsed.message || 'hi';
-          const currentSong = JSON.stringify(parsed.currentSong || {});
-          const data = await runAiCommand(['chat', msg, currentSong]);
-          res.end(JSON.stringify(data));
+          const currentSong = parsed.currentSong || {};
+
+          try {
+            if (isPythonAvailable()) {
+              const data = await runAiCommand(['chat', msg, JSON.stringify(currentSong)]);
+              res.end(JSON.stringify(data));
+              return;
+            }
+          } catch (pythonErr) {
+            console.warn('[Aura AI] Python Chat failed, falling back to Native TS Engine:', pythonErr);
+          }
+
+          // Pure Node.js / Serverless Native Fallback
+          const nativeData = processChat(msg, currentSong);
+          res.end(JSON.stringify(nativeData));
         } catch (err: any) {
           res.statusCode = 500;
           res.end(JSON.stringify({ error: err.message }));
@@ -96,14 +88,19 @@ export function aiRouterHandler(req: any, res: any, next: any) {
       });
     } else {
       (async () => {
+        const msg = parsedUrl.searchParams.get('message') || 'hi';
         try {
-          const msg = parsedUrl.searchParams.get('message') || 'hi';
-          const data = await runAiCommand(['chat', msg, '{}']);
-          res.end(JSON.stringify(data));
-        } catch (err: any) {
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: err.message }));
+          if (isPythonAvailable()) {
+            const data = await runAiCommand(['chat', msg, '{}']);
+            res.end(JSON.stringify(data));
+            return;
+          }
+        } catch (pythonErr) {
+          console.warn('[Aura AI] Python Chat failed, falling back to Native TS Engine:', pythonErr);
         }
+
+        const nativeData = processChat(msg, {});
+        res.end(JSON.stringify(nativeData));
       })();
     }
     return;

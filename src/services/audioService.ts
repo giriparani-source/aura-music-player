@@ -190,7 +190,7 @@ class AudioService {
       }
     });
 
-    cloudPlayerService.onTimeUpdate((current, duration) => {
+    cloudPlayerService.onTimeUpdate((_current, _duration) => {
       if (this.isUsingCloudPlayer) {
         this.notify();
       }

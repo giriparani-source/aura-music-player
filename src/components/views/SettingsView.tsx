@@ -14,8 +14,7 @@ import {
   Database,
   Sparkles,
   RotateCcw,
-  Compass,
-  Sliders
+  Compass
 } from 'lucide-react';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';

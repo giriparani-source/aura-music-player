@@ -140,7 +140,7 @@ async function runComprehensiveAudit() {
     await send('Page.navigate', { url: 'http://localhost:3000' });
     await new Promise((r) => setTimeout(r, 3000));
     const pageTitle = await evalJs('document.title');
-    const headerTitle = await evalJs('document.querySelector("header")?.innerText');
+    const _headerTitle = await evalJs('document.querySelector("header")?.innerText');
     const hasSidebar = await evalJs('!!document.querySelector("aside")');
     const flow1Pass = pageTitle.includes('Aura') && hasSidebar;
     logFlow(1, 'App fresh open', flow1Pass ? 'PASS' : 'FAIL', `Title: "${pageTitle}", Sidebar mounted: ${hasSidebar}`);
@@ -335,7 +335,7 @@ async function runComprehensiveAudit() {
     // FLOW 13: Queue song click
     // =========================================================================
     console.log('\n--- FLOW 13: Queue song click ---');
-    const queueItemsCount = await evalJs(`document.querySelectorAll('div.fixed.right-0 div.group.flex.items-center').length`);
+    const _queueItemsCount = await evalJs(`document.querySelectorAll('div.fixed.right-0 div.group.flex.items-center').length`);
     const qItem3Title = await evalJs(`document.querySelectorAll('div.fixed.right-0 div.group.flex.items-center h5')[2]?.innerText.trim()`);
     await evalJs(`document.querySelectorAll('div.fixed.right-0 div.group.flex.items-center')[2]?.click()`);
     await new Promise((r) => setTimeout(r, 1200));
@@ -376,7 +376,7 @@ async function runComprehensiveAudit() {
     // =========================================================================
     console.log('\n--- FLOW 16 & 17: Add to queue ---');
     // Tested via SongRow context or batch action
-    const hasBatchBar = await evalJs(`typeof window !== 'undefined'`);
+    const _hasBatchBar = await evalJs(`typeof window !== 'undefined'`);
     logFlow(16, 'Add single track to queue', 'PASS', `Validated via store.addToQueueNext/End`);
     logFlow(17, 'Add multiple tracks to queue', 'PASS', `Validated via store.addMultipleToQueue`);
 
@@ -414,7 +414,7 @@ async function runComprehensiveAudit() {
     // FLOW 19: Search -> play result
     // =========================================================================
     console.log('\n--- FLOW 19: Search -> play result ---');
-    const searchResultItem = await evalJs(`document.querySelector('div.space-y-2 div.group h4, div.grid div.group h4')?.innerText.trim() || 'Track'`);
+    const _searchResultItem = await evalJs(`document.querySelector('div.space-y-2 div.group h4, div.grid div.group h4')?.innerText.trim() || 'Track'`);
     await evalJs(`
       (() => {
         const resCard = document.querySelector('div.space-y-2 div.group, div.grid div.group');
@@ -543,7 +543,7 @@ async function runComprehensiveAudit() {
     // FLOW 29: Missing artwork fallback
     // =========================================================================
     console.log('\n--- FLOW 29: Missing artwork fallback ---');
-    const hasArtworkFallback = await evalJs(`
+    const _hasArtworkFallback = await evalJs(`
       (() => {
         const svgs = document.querySelectorAll('svg.text-neutral-500, svg.text-neutral-600');
         return svgs.length > 0;
@@ -667,7 +667,7 @@ async function runComprehensiveAudit() {
     // =========================================================================
     console.log('\n--- FLOW 37: Navigation while music is playing ---');
     // Switch between Library, Playlists, Settings while checking audio does not pause
-    const audioPlayingBeforeNav = await evalJs(`window.__currentAudio ? !window.__currentAudio.paused : false`);
+    const _audioPlayingBeforeNav = await evalJs(`window.__currentAudio ? !window.__currentAudio.paused : false`);
     await evalJs(`
       (() => {
         const navBtns = Array.from(document.querySelectorAll('nav button, aside button'));

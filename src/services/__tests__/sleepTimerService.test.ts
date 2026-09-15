@@ -4,14 +4,14 @@ import { audioService } from '../audioService';
 
 describe('sleepTimerService', () => {
   let volumeSpy: any;
-  let getVolumeSpy: any;
+  let _getVolumeSpy: any;
   let pauseSpy: any;
 
   beforeEach(() => {
     vi.useFakeTimers();
     sleepTimerService.cancelSleepTimer(false);
 
-    getVolumeSpy = vi.spyOn(audioService, 'getVolume').mockReturnValue(0.75);
+    _getVolumeSpy = vi.spyOn(audioService, 'getVolume').mockReturnValue(0.75);
     volumeSpy = vi.spyOn(audioService, 'setVolume').mockImplementation(() => {});
     pauseSpy = vi.spyOn(audioService, 'pause').mockImplementation(() => {});
   });

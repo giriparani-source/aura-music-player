@@ -9,7 +9,7 @@
  */
 
 import { Song } from '../types/music';
-import { VibeCluster, inferSongVibe, normalizeArtistName } from './flowKnowledgeBase';
+import { inferSongVibe, normalizeArtistName } from './flowKnowledgeBase';
 import { musicDB, AURA_USER_AFFINITY_KEY } from './db';
 
 export const AURA_AFFINITY_VERSION = 1;

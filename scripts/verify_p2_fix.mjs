@@ -12,7 +12,7 @@ async function run() {
     if (fs.existsSync(USER_DATA_DIR)) {
       fs.rmSync(USER_DATA_DIR, { recursive: true, force: true });
     }
-  } catch (e) {}
+  } catch {}
 
   const edgeProc = spawn(EDGE_PATH, [
     `--remote-debugging-port=${EDGE_PORT}`,

@@ -28,6 +28,49 @@ export interface JamRoomState {
   reactions: JamReaction[];
 }
 
+export const JAM_ICE_SERVERS: RTCIceServer[] = [
+  // High Availability Google STUNs
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun4.l.google.com:19302' },
+  // Cloudflare STUN
+  { urls: 'stun:stun.cloudflare.com:3478' },
+  // Metered STUN
+  { urls: 'stun:stun.relay.metered.ca:80' },
+  // OpenRelay TURN Servers (Bypasses strict symmetric NAT, college Wi-Fi & UDP blocking)
+  {
+    urls: 'turn:openrelay.metered.ca:80',
+    username: 'openrelay',
+    credential: 'openrelay'
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443',
+    username: 'openrelay',
+    credential: 'openrelay'
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelay',
+    credential: 'openrelay'
+  },
+  {
+    urls: 'turns:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelay',
+    credential: 'openrelay'
+  }
+];
+
+export const JAM_PEER_CONFIG = {
+  debug: 1,
+  config: {
+    iceServers: JAM_ICE_SERVERS,
+    iceCandidatePoolSize: 10,
+    iceTransportPolicy: 'all' as RTCIceTransportPolicy
+  }
+};
+
 type JamEventListener = (state: {
   isInRoom: boolean;
   isHost: boolean;
@@ -91,11 +134,9 @@ class JamService {
 
     return new Promise((resolve, reject) => {
       try {
-        this.peer = new Peer(peerId, {
-          debug: 1
-        });
+        this.peer = new Peer(peerId, JAM_PEER_CONFIG);
 
-        this.peer.on('open', (id) => {
+        this.peer.on('open', (_id) => {
           this.isInRoom = true;
           this.isHost = true;
           this.roomCode = code;
@@ -175,9 +216,19 @@ class JamService {
     const targetPeerId = this.generatePeerId(cleanCode);
 
     return new Promise((resolve) => {
+      let isSettled = false;
       try {
         const myPeerId = `listener-${Math.random().toString(36).substring(2, 8)}`;
-        this.peer = new Peer(myPeerId, { debug: 1 });
+        this.peer = new Peer(myPeerId, JAM_PEER_CONFIG);
+
+        const connectionTimeout = setTimeout(() => {
+          if (!isSettled) {
+            isSettled = true;
+            this.error = 'Connection timed out. Host offline-a irukalam or network firewall block pannalam.';
+            this.notify();
+            resolve(false);
+          }
+        }, 12000);
 
         this.peer.on('open', () => {
           if (!this.peer) return;
@@ -188,6 +239,10 @@ class JamService {
           this.hostConnection = conn;
 
           conn.on('open', () => {
+            if (isSettled) return;
+            isSettled = true;
+            clearTimeout(connectionTimeout);
+
             this.isInRoom = true;
             this.isHost = false;
             this.roomCode = cleanCode;
@@ -222,6 +277,9 @@ class JamService {
           });
 
           conn.on('error', (err) => {
+            if (isSettled) return;
+            isSettled = true;
+            clearTimeout(connectionTimeout);
             console.error('Peer connection error:', err);
             this.error = 'Could not connect to host. Room code check pannunga nanba.';
             this.notify();
@@ -230,6 +288,9 @@ class JamService {
         });
 
         this.peer.on('error', (err) => {
+          if (isSettled) return;
+          isSettled = true;
+          clearTimeout(connectionTimeout);
           console.error('Peer listener error:', err);
           this.error = 'WebRTC Peer error. Please retry.';
           this.notify();

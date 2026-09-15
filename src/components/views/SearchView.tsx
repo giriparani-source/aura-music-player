@@ -178,26 +178,28 @@ export const SearchView: React.FC = () => {
   const [isOnlineLoading, setIsOnlineLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [onlineError, setOnlineError] = useState<string | null>(null);
-  const [onlineHistory, setOnlineHistory] = useState<string[]>([]);
+  const [onlineHistory, setOnlineHistory] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(ONLINE_HISTORY_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Local Search State
   const [localQuery, setLocalQuery] = useState('');
   const debouncedLocalQuery = useDebounce(localQuery, 160);
   const [localFilterType, setLocalFilterType] = useState<'all' | 'songs' | 'artists' | 'albums'>('all');
-  const [localHistory, setLocalHistory] = useState<string[]>([]);
-
-  // Load histories on mount
-  useEffect(() => {
+  const [localHistory, setLocalHistory] = useState<string[]>(() => {
     try {
-      const savedLocal = localStorage.getItem(SEARCH_HISTORY_KEY);
-      if (savedLocal) setLocalHistory(JSON.parse(savedLocal));
-
-      const savedOnline = localStorage.getItem(ONLINE_HISTORY_KEY);
-      if (savedOnline) setOnlineHistory(JSON.parse(savedOnline));
+      const saved = localStorage.getItem(SEARCH_HISTORY_KEY);
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      // ignore
+      return [];
     }
-  }, []);
+  });
+
 
   // Save local history
   useEffect(() => {

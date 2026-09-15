@@ -91,7 +91,7 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ song, currentTime, onSee
     return () => {
       isCancelled = true;
     };
-  }, [song.id, song.title, song.artist, song.lyrics]);
+  }, [song]);
 
   // Parse lyrics from fetchedLyrics or demo
   const { syncedLines, isLrc, plainLines } = useMemo(() => {
