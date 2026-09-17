@@ -7,6 +7,10 @@ import { downloadService } from './downloadService';
 import { buildApiUrl } from '../utils/apiConfig';
 import { radioService } from './radioService';
 
+// Base64 1-sec silent WAV audio buffer
+// Keeps Chromium WebView, OS audio HAL, and CPU awake during background and screen-off playback
+const SILENT_AUDIO_DATA_URI = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
 type AudioEventListener = (state: AudioServiceState) => void;
 
 export interface AudioServiceState {
@@ -507,8 +511,8 @@ class AudioService {
 
     if (ytVideoId) {
       this.isUsingCloudPlayer = true;
-      this.audio.pause();
-      // BUG-12 fix: isCloudPlaying should remain false until onPlay fires!
+      // Engage Silent Audio Anchor to prevent Chromium and Android from suspending background/screen-off audio
+      this.startSilentAudioAnchor();
       this.isCloudPlaying = false;
       cloudPlayerService.loadVideo(ytVideoId, 0);
       this.notify();
@@ -762,11 +766,30 @@ class AudioService {
     await this.handlePlaybackFailure(song);
   }
 
+  private startSilentAudioAnchor(): void {
+    try {
+      if (this.audio.src !== SILENT_AUDIO_DATA_URI) {
+        this.audio.src = SILENT_AUDIO_DATA_URI;
+        this.audio.loop = true;
+      }
+      this.audio.play().catch(() => {});
+    } catch (_) {}
+  }
+
+  private pauseSilentAudioAnchor(): void {
+    try {
+      if (this.audio.src === SILENT_AUDIO_DATA_URI) {
+        this.audio.pause();
+      }
+    } catch (_) {}
+  }
+
   public pause(): void {
     this.isUserPaused = true;
     if (this.isUsingCloudPlayer) {
       cloudPlayerService.pause();
       this.isCloudPlaying = false;
+      this.pauseSilentAudioAnchor();
     } else if (this.currentSong?.isLiveRadio) {
       this.radioAudio.pause();
     } else {
@@ -778,6 +801,7 @@ class AudioService {
   public async resume(): Promise<void> {
     this.isUserPaused = false;
     if (this.isUsingCloudPlayer) {
+      this.startSilentAudioAnchor();
       cloudPlayerService.play();
       this.isCloudPlaying = true;
       this.notify();

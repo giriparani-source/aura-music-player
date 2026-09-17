@@ -68,17 +68,18 @@ class CloudPlayerService {
   private mountPlayer() {
     if (!window.YT || !window.YT.Player) return;
 
-    // Create container if not exists
+    // Create container if not exists with on-screen dimensions to prevent Chromium WebView
+    // background video suspension and aggressive offscreen frame throttling
     let container = document.getElementById('aura-headless-cloud-player');
     if (!container) {
       container = document.createElement('div');
       container.id = 'aura-headless-cloud-player';
       container.style.position = 'fixed';
-      container.style.bottom = '-200px';
-      container.style.right = '-200px';
-      container.style.width = '1px';
-      container.style.height = '1px';
-      container.style.opacity = '0.01';
+      container.style.top = '0';
+      container.style.left = '0';
+      container.style.width = '240px';
+      container.style.height = '240px';
+      container.style.opacity = '0.001';
       container.style.pointerEvents = 'none';
       container.style.zIndex = '-9999';
       document.body.appendChild(container);
@@ -86,8 +87,8 @@ class CloudPlayerService {
 
     try {
       this.player = new window.YT.Player('aura-headless-cloud-player', {
-        height: '1',
-        width: '1',
+        height: '240',
+        width: '240',
         playerVars: {
           autoplay: 1,
           controls: 0,

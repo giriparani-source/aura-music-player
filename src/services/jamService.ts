@@ -121,15 +121,26 @@ class JamService {
   }
 
   private generatePeerId(code: string): string {
-    return `aurajam-${code.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    // Normalize: strip non-alphanumerics, map 'o' to '0', and 'i'/'l' to '1'
+    const normalized = code
+      .toLowerCase()
+      .replace(/[\s-]/g, '')
+      .replace(/^jam/i, '')
+      .replace(/o/g, '0')
+      .replace(/[il]/g, '1');
+    return `aurajam-${normalized}`;
   }
 
   public async createRoom(hostName: string = 'Aura Host'): Promise<string> {
     this.leaveRoom();
     this.myName = hostName.trim() || 'Aura Host';
 
-    // Generate random 4-letter code, e.g. JAM-W623
-    const randomChars = Math.random().toString(36).substring(2, 6).toUpperCase();
+    // Generate unambiguous 4-character code (excludes confusing characters: 0, O, 1, I, L)
+    const SAFE_CHARS = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+    let randomChars = '';
+    for (let i = 0; i < 4; i++) {
+      randomChars += SAFE_CHARS.charAt(Math.floor(Math.random() * SAFE_CHARS.length));
+    }
     const code = `JAM-${randomChars}`;
     const peerId = this.generatePeerId(code);
 
@@ -212,7 +223,8 @@ class JamService {
 
   public async joinRoom(code: string, participantName: string = 'Friend'): Promise<boolean> {
     this.leaveRoom();
-    const cleanCode = code.trim().toUpperCase();
+    const rawChars = code.trim().toUpperCase().replace(/[\s-]/g, '').replace(/^JAM/i, '');
+    const cleanCode = `JAM-${rawChars}`;
     this.myName = participantName.trim() || 'Friend';
     const targetPeerId = this.generatePeerId(cleanCode);
 
@@ -225,7 +237,7 @@ class JamService {
         const connectionTimeout = setTimeout(() => {
           if (!isSettled) {
             isSettled = true;
-            this.error = 'Connection timed out. Host offline-a irukalam or network firewall block pannalam.';
+            this.error = `Room "${cleanCode}" connect timeout. Host room start panni app-ah open-la vachurukara nu check pannunga nanba.`;
             this.notify();
             resolve(false);
           }
@@ -277,23 +289,30 @@ class JamService {
             this.leaveRoom();
           });
 
-          conn.on('error', (err) => {
+          conn.on('error', (err: any) => {
             if (isSettled) return;
             isSettled = true;
             clearTimeout(connectionTimeout);
-            console.error('Peer connection error:', err);
-            this.error = 'Could not connect to host. Room code check pannunga nanba.';
+            console.warn('Peer connection error:', err);
+            this.error = `Host "${cleanCode}" kooda connect aagala. Host online-la irukara nu check pannunga nanba.`;
             this.notify();
             resolve(false);
           });
         });
 
-        this.peer.on('error', (err) => {
+        this.peer.on('error', (err: any) => {
           if (isSettled) return;
           isSettled = true;
           clearTimeout(connectionTimeout);
-          console.error('Peer listener error:', err);
-          this.error = 'WebRTC Peer error. Please retry.';
+          console.warn('Peer listener error:', err);
+          const errType = (err?.type || '').toLowerCase();
+          if (errType === 'peer-unavailable') {
+            this.error = `Room "${cleanCode}" kedaikala nanba. Host room create panni online-la irukara nu check pannunga.`;
+          } else if (errType.includes('network') || errType.includes('socket') || errType.includes('server')) {
+            this.error = 'Signaling network error. Internet connection check pannitu retry pannunga.';
+          } else {
+            this.error = err.message || 'WebRTC Peer error. Please verify room code and retry.';
+          }
           this.notify();
           resolve(false);
         });

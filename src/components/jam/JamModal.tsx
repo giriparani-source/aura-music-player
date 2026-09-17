@@ -217,7 +217,7 @@ export const JamModal: React.FC = () => {
                 <div>
                   <h4 className="text-sm font-bold text-white">Join Friend's Jam Session</h4>
                   <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
-                    Enter the 6-character room code shared by your friend (e.g. JAM-8842).
+                    Enter the 4 or 6-character room code shared by your friend (e.g. JAM-8842 or 8842).
                   </p>
                 </div>
 
@@ -225,16 +225,25 @@ export const JamModal: React.FC = () => {
                   <input
                     type="text"
                     value={inputCode}
-                    onChange={(e) => setInputCode(e.target.value.toUpperCase())}
+                    onChange={(e) => {
+                      let val = e.target.value.toUpperCase().replace(/[\s_]/g, '');
+                      if (val.length > 0 && !val.startsWith('JAM-') && !val.startsWith('JAM')) {
+                        val = `JAM-${val.replace(/[^A-Z0-9]/g, '')}`;
+                      }
+                      setInputCode(val);
+                    }}
                     placeholder="JAM-XXXX"
                     className="w-full px-4 py-3 rounded-xl bg-black/60 border border-white/15 text-white font-mono text-center tracking-widest text-lg font-bold focus:outline-none focus:border-indigo-500 transition-colors uppercase"
                   />
+                  <p className="text-[11px] text-neutral-500 text-center">
+                    💡 Host must create room first & keep app open before you connect.
+                  </p>
                 </div>
 
                 <button
                   onClick={handleJoin}
                   disabled={isSubmitting || !inputCode.trim()}
-                  className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white text-sm font-bold transition-all shadow-lg shadow-indigo-600/30 cursor-pointer"
+                  className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white text-sm font-bold transition-all shadow-lg shadow-indigo-600/30 cursor-pointer active:scale-98"
                 >
                   <span>{isSubmitting ? 'Connecting...' : 'Connect to Jam'}</span>
                   <ArrowRight size={16} />
