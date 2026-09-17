@@ -30,6 +30,7 @@ export interface Song {
   sourceId?: string;
   isLiveRadio?: boolean;
   isSaavn?: boolean;
+  isPreview?: boolean;
   isDownloaded?: boolean;
   downloadedAt?: number;
   isAuraFlow?: boolean;
@@ -129,7 +130,7 @@ export interface LibraryStats {
   possibleDuplicates: number;
 }
 
-export type NavigationTab = 'home' | 'library' | 'search' | 'playlists' | 'ai-studio' | 'settings';
+export type NavigationTab = 'home' | 'library' | 'radio' | 'search' | 'playlists' | 'ai-studio' | 'settings';
 export type LibrarySubTab = 'songs' | 'albums' | 'artists' | 'playlists' | 'folders' | 'downloads';
 export type SortOption = 'recent' | 'title' | 'artist' | 'album' | 'duration' | 'mostPlayed' | 'bitrate' | 'fileSize';
 export type ViewMode = 'grid' | 'list';
@@ -189,9 +190,22 @@ export interface AiChatMessage {
   text: string;
   timestamp: number;
   action?: {
-    type: 'TOGGLE_KARAOKE' | 'SET_EQ_PRESET' | 'PAUSE' | 'PLAY' | 'NEXT_TRACK' | 'OPEN_AI_INSIGHTS' | 'NAVIGATE_TAB';
+    type:
+      | 'TOGGLE_KARAOKE'
+      | 'SET_EQ_PRESET'
+      | 'PAUSE'
+      | 'PLAY'
+      | 'NEXT_TRACK'
+      | 'PREV_TRACK'
+      | 'TOGGLE_SHUFFLE'
+      | 'SEARCH_AND_PLAY'
+      | 'SET_VOLUME'
+      | 'OPEN_AI_INSIGHTS'
+      | 'NAVIGATE_TAB';
     preset?: EqualizerPreset;
     tab?: NavigationTab;
+    query?: string;
+    volume?: number;
   };
 }
 

@@ -158,6 +158,13 @@ class AudioEffectsService {
         this.audioCtx = new AudioCtxClass();
       }
 
+      // Automatically recover if mobile browser/Android power manager suspends the AudioContext
+      this.audioCtx.onstatechange = () => {
+        if (this.audioCtx && this.audioCtx.state === 'suspended' && !audioElement.paused) {
+          this.audioCtx.resume().catch(() => {});
+        }
+      };
+
       this.sourceNode = this.audioCtx.createMediaElementSource(audioElement);
 
       // 0. Subsonic High-Pass Filter (18Hz DC rumble roll-off)
@@ -301,6 +308,10 @@ class AudioEffectsService {
         console.warn('Could not resume audio context:', err);
       }
     }
+  }
+
+  public async ensureRunning(): Promise<void> {
+    return this.resumeContext();
   }
 
   /**

@@ -23,10 +23,13 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ isPlaying, cla
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const analyser = audioEffectsService.getAnalyserNode();
-    const bufferLength = analyser ? analyser.frequencyBinCount : 128;
+    let activeAnalyser = audioEffectsService.getAnalyserNode();
+    const bufferLength = activeAnalyser ? activeAnalyser.frequencyBinCount : 128;
     const freqData = new Uint8Array(bufferLength);
     const timeData = new Uint8Array(bufferLength);
+
+    // BUG-18 fix: Cancellation flag to avoid zombie animation loops
+    let isCancelled = false;
 
     // Initialize peaks
     if (peaksRef.current.length !== bufferLength) {
@@ -38,10 +41,16 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ isPlaying, cla
     let logicalHeight = 200;
 
     const render = () => {
+      if (isCancelled) return;
       ctx.clearRect(0, 0, logicalWidth, logicalHeight);
 
+      // BUG-17 fix: Dynamically retrieve analyser node if it was null on initial mount
+      if (!activeAnalyser) {
+        activeAnalyser = audioEffectsService.getAnalyserNode();
+      }
+
       let hasSignal = false;
-      if (analyser && isPlaying) {
+      if (activeAnalyser && isPlaying) {
         audioEffectsService.getFrequencyData(freqData);
         audioEffectsService.getTimeDomainData(timeData);
         hasSignal = true;
@@ -78,7 +87,9 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ isPlaying, cla
         return;
       }
 
-      animFrameRef.current = requestAnimationFrame(render);
+      if (!isCancelled) {
+        animFrameRef.current = requestAnimationFrame(render);
+      }
     };
 
     // Render Mode 1: Neon Spectrum Bars
@@ -238,9 +249,11 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ isPlaying, cla
     animFrameRef.current = requestAnimationFrame(render);
 
     return () => {
+      isCancelled = true;
       window.removeEventListener('resize', handleResize);
       if (animFrameRef.current) {
         cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
       }
     };
   }, [isPlaying, mode]);

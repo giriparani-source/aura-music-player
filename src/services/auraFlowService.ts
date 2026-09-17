@@ -156,6 +156,7 @@ export interface FlowContext {
   weights?: Partial<FlowWeights>;
   affinityProfile?: UserAffinityProfile | null; // Optional override for testing or custom context (Phase 5.2)
   isDiscoveryActive?: boolean;                  // Optional override for testing or custom context (Phase 5.4)
+  songArtistMap?: Map<string, string>;           // Pre-computed songId → normalized artist lookup (Performance: BUG-01 fix)
 }
 
 export interface CandidateScore {
@@ -496,13 +497,20 @@ class AuraFlowService {
     }
 
     // 8. Artist Repetition Penalty (Anti-Monopoly)
-    const recentArtists = recentHistory
-      .map((id) => {
-        const s = context.allSongs.find((x) => x.id === id);
-        return s ? normalizeArtistName(s.artist) : '';
-      })
-      .filter(Boolean)
-      .slice(-3);
+    // Use pre-computed songArtistMap for O(1) lookups instead of O(N) find() per history entry (BUG-01 fix)
+    const artistMap = context.songArtistMap;
+    const recentArtists = artistMap
+      ? recentHistory
+          .map((id) => artistMap.get(id) || '')
+          .filter(Boolean)
+          .slice(-3)
+      : recentHistory
+          .map((id) => {
+            const s = context.allSongs.find((x) => x.id === id);
+            return s ? normalizeArtistName(s.artist) : '';
+          })
+          .filter(Boolean)
+          .slice(-3);
 
     if (candidateLeadArtist && recentArtists.includes(candidateLeadArtist)) {
       breakdown.artistRepeatPenalty = -weights.artistRepeatPenalty;
@@ -667,8 +675,17 @@ class AuraFlowService {
       this.consecutiveFamiliarCount = 0;
     }
 
+    // Pre-compute songId → normalized artist lookup Map to avoid O(N) find() inside scoreCandidate (BUG-01 fix)
+    const songArtistMap = new Map<string, string>();
+    for (const s of context.allSongs) {
+      if (s.artist) {
+        songArtistMap.set(s.id, normalizeArtistName(s.artist));
+      }
+    }
+
+    const scoringContext = { ...context, isDiscoveryActive, songArtistMap };
     const scored: CandidateScore[] = candidates.map((candidate) =>
-      this.scoreCandidate(candidate, context.currentSong, { ...context, isDiscoveryActive }, weights)
+      this.scoreCandidate(candidate, context.currentSong, scoringContext, weights)
     );
 
     // Sort descending by total score

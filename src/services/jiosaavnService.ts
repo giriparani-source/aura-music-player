@@ -185,8 +185,76 @@ function extractArtistNames(item: any): string {
   return item.artist || 'Master Artist';
 }
 
+export interface JioSaavnPlaylistResult {
+  id: string;
+  name: string;
+  description: string;
+  coverArt: string;
+  songCount: number;
+  songs: Song[];
+}
+
+export interface JioSaavnPlaylistSearchResult {
+  id: string;
+  name: string;
+  songCount: number;
+  artwork: string;
+  url: string;
+}
+
+export function formatSaavnItemToSong(item: any): Song {
+  // Extract 320kbps URL
+  const dlUrls = item.downloadUrl || [];
+  const bestUrlObj = dlUrls.find((d: any) => d.quality === '320kbps') || dlUrls[dlUrls.length - 1];
+  const streamUrl = bestUrlObj?.url || '';
+
+  // Extract best image
+  const images = item.image || [];
+  const bestImgObj = images.find((i: any) => i.quality === '500x500') || images[images.length - 1];
+  const imgUrl = bestImgObj?.url || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300';
+
+  const title = unescapeHtml(item.name || item.title || 'JioSaavn Track');
+  const artist = extractArtistNames(item);
+  const album = unescapeHtml(item.album?.name || 'JioSaavn Studio Master');
+  const duration = Number(item.duration) || 210;
+
+  return {
+    id: `saavn_${item.id}`,
+    sourceId: item.id,
+    title,
+    artist,
+    album,
+    duration,
+    format: '320k AAC',
+    bitrate: 320,
+    fileSize: duration * 40000,
+    dateAdded: Date.now(),
+    playCount: 0,
+    isFavorite: false,
+    artwork: imgUrl,
+    coverArt: imgUrl,
+    filePath: streamUrl,
+    path: streamUrl,
+    fileName: `${title}_320k.m4a`,
+    isOnline: true,
+    isSaavn: true
+  };
+}
+
 class JioSaavnService {
   private cache: Map<string, Song[]> = new Map();
+
+  // BUG-15 fix: Cap search cache size to prevent unbounded memory leak
+  private setCache(key: string, songs: Song[]): void {
+    const MAX_CACHE_SIZE = 100;
+    if (this.cache.size >= MAX_CACHE_SIZE) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) {
+        this.cache.delete(oldestKey);
+      }
+    }
+    this.cache.set(key, songs);
+  }
 
   private mirrors: InternalMirrorState[] = [
     {
@@ -199,8 +267,8 @@ class JioSaavnService {
       totalFailures: 0
     },
     {
-      url: 'https://saavn.dev/api',
-      name: 'SaavnDev Mirror',
+      url: 'https://jiosaavn-api-sage.vercel.app/api',
+      name: 'Sage API Mirror',
       failureCount: 0,
       lastFailureTime: 0,
       cooldownUntil: 0,
@@ -208,8 +276,8 @@ class JioSaavnService {
       totalFailures: 0
     },
     {
-      url: 'https://jiosaavn-api-privateav.vercel.app',
-      name: 'PrivateAV Mirror',
+      url: 'https://saavn.dev/api',
+      name: 'SaavnDev Mirror',
       failureCount: 0,
       lastFailureTime: 0,
       cooldownUntil: 0,
@@ -238,11 +306,12 @@ class JioSaavnService {
   /**
    * Fetch from a single mirror with AbortController timeout.
    */
-  private async fetchFromMirror(mirror: InternalMirrorState, query: string, limit?: number): Promise<any[] | null> {
+  private async fetchFromMirror(mirror: InternalMirrorState, query: string, limit?: number, page?: number): Promise<any[] | null> {
     const limitParam = limit ? `&limit=${limit}` : '';
+    const pageParam = page && page > 1 ? `&page=${page}` : '';
     const baseUrl = mirror.url.replace(/\/+$/, '');
     const apiPath = baseUrl.endsWith('/api') ? '/search/songs' : '/api/search/songs';
-    const endpoint = `${baseUrl}${apiPath}?query=${encodeURIComponent(query)}${limitParam}`;
+    const endpoint = `${baseUrl}${apiPath}?query=${encodeURIComponent(query)}${limitParam}${pageParam}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -260,7 +329,6 @@ class JioSaavnService {
       const results = data?.data?.results || data?.results;
 
       if (Array.isArray(results)) {
-        // Success: reset failure counter and cooldown
         mirror.failureCount = 0;
         mirror.cooldownUntil = 0;
         mirror.totalSuccesses++;
@@ -268,12 +336,10 @@ class JioSaavnService {
       }
       return null;
     } catch (err: any) {
-      // Record failure and apply cooldown
       mirror.failureCount++;
       mirror.totalFailures++;
       mirror.lastFailureTime = Date.now();
 
-      // Exponential cooldown: 5s on 1st fail, 30s on 2nd, 60s, up to 5 mins max
       const cooldownMs =
         mirror.failureCount === 1
           ? 5000
@@ -291,19 +357,17 @@ class JioSaavnService {
     }
   }
 
-  public async searchJioSaavn(query: string, limit?: number): Promise<Song[]> {
+  public async searchJioSaavn(query: string, limit?: number, page: number = 1): Promise<Song[]> {
     const q = query.trim();
     if (!q) return [];
 
-    const cacheKey = limit ? `${q.toLowerCase()}__${limit}` : q.toLowerCase();
+    const cacheKey = `${q.toLowerCase()}__${limit || 20}__${page}`;
     if (this.cache.has(cacheKey)) {
       return this.cache.get(cacheKey)!;
     }
 
     try {
       const now = Date.now();
-
-      // Sort mirrors: active ones first (not in cooldown), then by earliest cooldown expiry
       const sortedMirrors = [...this.mirrors].sort((a, b) => {
         const aActive = now >= a.cooldownUntil;
         const bActive = now >= b.cooldownUntil;
@@ -315,7 +379,7 @@ class JioSaavnService {
       let rawResults: any[] = [];
 
       for (const mirror of sortedMirrors) {
-        const results = await this.fetchFromMirror(mirror, q, limit);
+        const results = await this.fetchFromMirror(mirror, q, limit, page);
         if (results && results.length > 0) {
           rawResults = results;
           break;
@@ -323,78 +387,135 @@ class JioSaavnService {
       }
 
       if (rawResults.length > 0) {
-        const queryWords = q.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter((w) => w.length >= 3);
-        const relevantResults = queryWords.length > 0
-          ? rawResults.filter((item: any) => {
-              const itemTitle = unescapeHtml(item.name || item.title || '').toLowerCase();
-              const itemArtist = extractArtistNames(item).toLowerCase();
-              return queryWords.some((w) => itemTitle.includes(w) || itemArtist.includes(w));
-            })
-          : rawResults;
-
-        const formatted: Song[] = relevantResults.map((item: any) => {
-          // Extract 320kbps URL
-          const dlUrls = item.downloadUrl || [];
-          const bestUrlObj = dlUrls.find((d: any) => d.quality === '320kbps') || dlUrls[dlUrls.length - 1];
-          const streamUrl = bestUrlObj?.url || '';
-
-          // Extract best image
-          const images = item.image || [];
-          const bestImgObj = images.find((i: any) => i.quality === '500x500') || images[images.length - 1];
-          const imgUrl = bestImgObj?.url || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300';
-
-          const title = unescapeHtml(item.name || item.title || 'JioSaavn Track');
-          const artist = extractArtistNames(item);
-          const album = unescapeHtml(item.album?.name || 'JioSaavn Studio Master');
-          const duration = Number(item.duration) || 210;
-
-          return {
-            id: `saavn_${item.id}`,
-            sourceId: item.id,
-            title,
-            artist,
-            album,
-            duration,
-            format: '320k AAC',
-            bitrate: 320,
-            fileSize: duration * 40000,
-            dateAdded: Date.now(),
-            playCount: 0,
-            isFavorite: false,
-            artwork: imgUrl,
-            coverArt: imgUrl,
-            filePath: streamUrl,
-            path: streamUrl,
-            fileName: `${title}_320k.m4a`,
-            isOnline: true,
-            isSaavn: true
-          };
-        });
-
-        this.cache.set(cacheKey, formatted);
+        const formatted: Song[] = rawResults.map((item: any) => formatSaavnItemToSong(item));
+        this.setCache(cacheKey, formatted);
         return formatted;
       }
 
-      // If all JioSaavn mirrors yielded 0 results, query high-reliability fallback streaming sources
-      const fallbackResults = await this.fetchFallbackAudioSources(q, limit);
-      if (fallbackResults.length > 0) {
-        this.cache.set(cacheKey, fallbackResults);
-        return fallbackResults;
+      // If page 1 and mirrors yielded 0 results, query high-reliability fallback streaming sources
+      if (page === 1) {
+        const fallbackResults = await this.fetchFallbackAudioSources(q, limit);
+        if (fallbackResults.length > 0) {
+          this.setCache(cacheKey, fallbackResults);
+          return fallbackResults;
+        }
       }
     } catch (err) {
       console.warn('[JioSaavn] Search exception:', err);
     }
 
-    // Fallback to matching preset hits
-    const lower = q.toLowerCase();
-    const matchingPresets = PRESET_SAAVN_320K_HITS.filter(
-      (s) =>
-        s.title.toLowerCase().includes(lower) ||
-        s.artist.toLowerCase().includes(lower) ||
-        s.album.toLowerCase().includes(lower)
-    );
+    if (page === 1) {
+      // Fallback to matching preset hits
+      const lower = q.toLowerCase();
+      const matchingPresets = PRESET_SAAVN_320K_HITS.filter(
+        (s) =>
+          s.title.toLowerCase().includes(lower) ||
+          s.artist.toLowerCase().includes(lower) ||
+          s.album.toLowerCase().includes(lower)
+      );
+      return matchingPresets;
+    }
 
-    return matchingPresets;
+    return [];
+  }
+
+  /**
+   * Fetch a full JioSaavn Playlist by ID or public URL.
+   * Converts all playlist songs directly into 320kbps Aura Songs.
+   */
+  public async fetchJioSaavnPlaylist(idOrUrl: string, limit: number = 100): Promise<JioSaavnPlaylistResult | null> {
+    const trimmed = idOrUrl.trim();
+    if (!trimmed) return null;
+
+    const isUrl = trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.includes('jiosaavn.com');
+    const param = isUrl ? `link=${encodeURIComponent(trimmed)}` : `id=${encodeURIComponent(trimmed)}`;
+
+    for (const mirror of this.mirrors) {
+      const baseUrl = mirror.url.replace(/\/+$/, '');
+      const apiPath = baseUrl.endsWith('/api') ? '/playlists' : '/api/playlists';
+      const endpoint = `${baseUrl}${apiPath}?${param}&limit=${limit}`;
+
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        const res = await fetch(endpoint, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          signal: controller.signal
+        });
+        clearTimeout(timer);
+
+        if (!res.ok) continue;
+
+        const data = await res.json();
+        const playlistData = data?.data;
+        if (!playlistData) continue;
+
+        const rawSongs = playlistData.songs || [];
+        const songs: Song[] = rawSongs.map((s: any) => formatSaavnItemToSong(s));
+
+        const images = playlistData.image || [];
+        const bestImg = images.find((i: any) => i.quality === '500x500') || images[images.length - 1];
+        const coverArt = bestImg?.url || (songs.length > 0 ? songs[0].artwork : '');
+
+        return {
+          id: playlistData.id || String(Date.now()),
+          name: unescapeHtml(playlistData.name || 'JioSaavn Playlist'),
+          description: unescapeHtml(playlistData.description || `${songs.length} songs from JioSaavn`),
+          coverArt,
+          songCount: songs.length,
+          songs
+        };
+      } catch (err) {
+        console.warn(`[JioSaavn] Failed to fetch playlist from mirror ${mirror.name}:`, err);
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Search for playlists on JioSaavn.
+   */
+  public async searchJioSaavnPlaylists(query: string, limit: number = 10): Promise<JioSaavnPlaylistSearchResult[]> {
+    const q = query.trim();
+    if (!q) return [];
+
+    for (const mirror of this.mirrors) {
+      const baseUrl = mirror.url.replace(/\/+$/, '');
+      const apiPath = baseUrl.endsWith('/api') ? '/search/playlists' : '/api/search/playlists';
+      const endpoint = `${baseUrl}${apiPath}?query=${encodeURIComponent(q)}&limit=${limit}`;
+
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        const res = await fetch(endpoint, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          signal: controller.signal
+        });
+        clearTimeout(timer);
+
+        if (!res.ok) continue;
+
+        const data = await res.json();
+        const rawResults = data?.data?.results || data?.results || [];
+
+        return rawResults.map((p: any) => {
+          const images = p.image || [];
+          const bestImg = images.find((i: any) => i.quality === '500x500') || images[images.length - 1];
+          return {
+            id: p.id,
+            name: unescapeHtml(p.name || p.title || 'Playlist'),
+            songCount: Number(p.songCount) || 0,
+            artwork: bestImg?.url || '',
+            url: p.url || ''
+          };
+        });
+      } catch (err) {
+        console.warn(`[JioSaavn] Playlist search mirror ${mirror.name} failed:`, err);
+      }
+    }
+
+    return [];
   }
 
   /**
@@ -435,7 +556,8 @@ class JioSaavnService {
               path: item.previewUrl,
               fileName: `${item.trackName || 'track'}.m4a`,
               isOnline: true,
-              isSaavn: true
+              isSaavn: false,
+              isPreview: true
             };
           });
 
@@ -456,5 +578,11 @@ class JioSaavnService {
 }
 
 export const jiosaavnService = new JioSaavnService();
-export const searchJioSaavn = (query: string, limit?: number): Promise<Song[]> => jiosaavnService.searchJioSaavn(query, limit);
+export const searchJioSaavn = (query: string, limit?: number, page?: number): Promise<Song[]> =>
+  jiosaavnService.searchJioSaavn(query, limit, page);
+export const fetchJioSaavnPlaylist = (idOrUrl: string, limit?: number): Promise<JioSaavnPlaylistResult | null> =>
+  jiosaavnService.fetchJioSaavnPlaylist(idOrUrl, limit);
+export const searchJioSaavnPlaylists = (query: string, limit?: number): Promise<JioSaavnPlaylistSearchResult[]> =>
+  jiosaavnService.searchJioSaavnPlaylists(query, limit);
 export const getMirrorHealth = (): MirrorHealth[] => jiosaavnService.getMirrorHealth();
+

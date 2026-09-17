@@ -277,18 +277,26 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         }
       }
 
-      const updatedHistory = currentSong ? [...playbackHistory, currentSong.id] : playbackHistory;
+      // BUG-22 fix: Cap playback history to 200 entries to prevent memory growth
+      const updatedHistory = (currentSong ? [...playbackHistory, currentSong.id] : playbackHistory).slice(-200);
 
       if (song.isOnline) {
         useLibraryStore.getState().registerOnlineSong(song).catch(() => {});
       }
 
-      // When shuffle is ON: regenerate the shuffle order starting at the manually clicked
-      // song's index so nextSong() can correctly navigate from this position onward.
-      // Also reset when queue changes to prevent stale indices from a prior queue.
-      let newShuffleOrder: number[] = [];
-      if (isShuffle && newQueue.length > 0) {
-        newShuffleOrder = isFairShuffle
+      // BUG-11 fix: Only regenerate shuffle order if the queue actually changed,
+      // or if there is no valid existing shuffle order containing the target index.
+      // Clicking a song inside the existing queue keeps the current shuffle sequence!
+      const currentOrder = get().shuffledQueueOrder;
+      const needsRegenerate =
+        queueChanged ||
+        !currentOrder ||
+        currentOrder.length !== newQueue.length ||
+        !currentOrder.includes(newIndex);
+
+      let resolvedShuffleOrder: number[] = currentOrder || [];
+      if (isShuffle && newQueue.length > 0 && needsRegenerate) {
+        resolvedShuffleOrder = isFairShuffle
           ? generateFairShuffleIndices(newQueue, newIndex)
           : generatePureRandomIndices(newQueue.length, newIndex);
       }
@@ -298,8 +306,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         queue: newQueue,
         queueIndex: newIndex,
         playbackHistory: updatedHistory,
-        // Reset shuffle order whenever queue changes OR shuffle is active (stale indices)
-        shuffledQueueOrder: (isShuffle || queueChanged) ? newShuffleOrder : get().shuffledQueueOrder
+        shuffledQueueOrder: resolvedShuffleOrder
       });
 
       await audioService.playSong(song);
@@ -410,7 +417,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
             const newQueue = [...queue, flowSong];
             const nextIdx = newQueue.length - 1;
             const newOrder = [...order, nextIdx];
-            const updatedHistory = currentSong ? [...playbackHistory, currentSong.id] : playbackHistory;
+            const updatedHistory = (currentSong ? [...playbackHistory, currentSong.id] : playbackHistory).slice(-200);
             set({
               queue: newQueue,
               queueIndex: nextIdx,
@@ -452,7 +459,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
             const flowSong: Song = { ...nextTrack, isAuraFlow: true, auraReason: nextTrack.auraReason };
             const newQueue = [...queue, flowSong];
             const nextIdx = newQueue.length - 1;
-            const updatedHistory = currentSong ? [...playbackHistory, currentSong.id] : playbackHistory;
+            const updatedHistory = (currentSong ? [...playbackHistory, currentSong.id] : playbackHistory).slice(-200);
             set({
               queue: newQueue,
               queueIndex: nextIdx,
@@ -475,7 +482,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
 
       const nextSongItem = queue[nextIndex];
       if (nextSongItem) {
-        const updatedHistory = currentSong ? [...playbackHistory, currentSong.id] : playbackHistory;
+        const updatedHistory = (currentSong ? [...playbackHistory, currentSong.id] : playbackHistory).slice(-200);
         set({
           currentSong: nextSongItem,
           queueIndex: nextIndex,
@@ -580,9 +587,26 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       const nextAuraFlow = !get().isAuraFlow;
       if (!nextAuraFlow) {
         // Turning OFF: clean up any upcoming unplayed Aura Flow tracks
-        const { queue, queueIndex } = get();
+        const { queue, queueIndex, shuffledQueueOrder } = get();
         const cleanedQueue = queue.filter((song, idx) => idx <= queueIndex || !song.isAuraFlow);
-        set({ isAuraFlow: false, queue: cleanedQueue });
+
+        // BUG-04 fix: Rebuild shuffledQueueOrder to match the cleaned queue
+        let newShuffleOrder = shuffledQueueOrder;
+        if (newShuffleOrder && newShuffleOrder.length > 0) {
+          // Build old-index -> new-index remap
+          const indexRemap = new Map<number, number>();
+          let newIdx = 0;
+          for (let oldIdx = 0; oldIdx < queue.length; oldIdx++) {
+            if (oldIdx <= queueIndex || !queue[oldIdx].isAuraFlow) {
+              indexRemap.set(oldIdx, newIdx++);
+            }
+          }
+          newShuffleOrder = newShuffleOrder
+            .filter((i) => indexRemap.has(i))
+            .map((i) => indexRemap.get(i)!);
+        }
+
+        set({ isAuraFlow: false, queue: cleanedQueue, shuffledQueueOrder: newShuffleOrder });
       } else {
         set({ isAuraFlow: true });
         ensureAuraFlowBuffer();
@@ -591,9 +615,25 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
 
     setAuraFlow: (enabled: boolean) => {
       if (!enabled) {
-        const { queue, queueIndex } = get();
+        const { queue, queueIndex, shuffledQueueOrder } = get();
         const cleanedQueue = queue.filter((song, idx) => idx <= queueIndex || !song.isAuraFlow);
-        set({ isAuraFlow: false, queue: cleanedQueue });
+
+        // BUG-04 fix: Rebuild shuffledQueueOrder to match the cleaned queue
+        let newShuffleOrder = shuffledQueueOrder;
+        if (newShuffleOrder && newShuffleOrder.length > 0) {
+          const indexRemap = new Map<number, number>();
+          let newIdx = 0;
+          for (let oldIdx = 0; oldIdx < queue.length; oldIdx++) {
+            if (oldIdx <= queueIndex || !queue[oldIdx].isAuraFlow) {
+              indexRemap.set(oldIdx, newIdx++);
+            }
+          }
+          newShuffleOrder = newShuffleOrder
+            .filter((i) => indexRemap.has(i))
+            .map((i) => indexRemap.get(i)!);
+        }
+
+        set({ isAuraFlow: false, queue: cleanedQueue, shuffledQueueOrder: newShuffleOrder });
       } else {
         set({ isAuraFlow: true });
         ensureAuraFlowBuffer();
@@ -617,8 +657,16 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       newQueue.splice(insertAt, 0, song);
       let newShuffleOrder = shuffledQueueOrder;
       if (newShuffleOrder && newShuffleOrder.length > 0) {
+        // Shift all indices >= insertAt by 1 to account for the new song
         newShuffleOrder = newShuffleOrder.map((i) => (i >= insertAt ? i + 1 : i));
-        newShuffleOrder.push(insertAt);
+        // BUG-03 fix: Insert new index right AFTER current position in shuffle order
+        // (not at the end) so it actually plays next in shuffle mode
+        const currentShufflePos = newShuffleOrder.indexOf(queueIndex);
+        if (currentShufflePos !== -1) {
+          newShuffleOrder.splice(currentShufflePos + 1, 0, insertAt);
+        } else {
+          newShuffleOrder.push(insertAt);
+        }
       }
       set({ queue: newQueue, shuffledQueueOrder: newShuffleOrder });
     },
@@ -681,25 +729,56 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     },
 
     removeFromQueue: (index: number) => {
-      set((state) => {
-        const newQueue = [...state.queue];
-        newQueue.splice(index, 1);
-        let newIndex = state.queueIndex;
-        if (index < state.queueIndex) {
-          newIndex--;
-        } else if (index === state.queueIndex && newIndex >= newQueue.length) {
-          newIndex = Math.max(0, newQueue.length - 1);
-        }
+      const state = get();
+      const isCurrentSong = index === state.queueIndex;
+      const wasPlaying = state.isPlaying;
 
-        let newShuffleOrder = state.shuffledQueueOrder;
-        if (newShuffleOrder && newShuffleOrder.length > 0) {
-          newShuffleOrder = newShuffleOrder
-            .filter((i) => i !== index)
-            .map((i) => (i > index ? i - 1 : i));
-        }
+      const newQueue = [...state.queue];
+      newQueue.splice(index, 1);
 
-        return { queue: newQueue, queueIndex: newIndex, shuffledQueueOrder: newShuffleOrder };
+      if (newQueue.length === 0) {
+        audioService.pause();
+        set({
+          queue: [],
+          queueIndex: -1,
+          currentSong: null,
+          isPlaying: false,
+          shuffledQueueOrder: []
+        });
+        return;
+      }
+
+      let newIndex = state.queueIndex;
+      if (index < state.queueIndex) {
+        newIndex--;
+      } else if (index === state.queueIndex && newIndex >= newQueue.length) {
+        newIndex = Math.max(0, newQueue.length - 1);
+      }
+
+      let newShuffleOrder = state.shuffledQueueOrder;
+      if (newShuffleOrder && newShuffleOrder.length > 0) {
+        newShuffleOrder = newShuffleOrder
+          .filter((i) => i !== index)
+          .map((i) => (i > index ? i - 1 : i));
+      }
+
+      const nextSongToPlay = isCurrentSong ? newQueue[newIndex] : state.currentSong;
+
+      set({
+        queue: newQueue,
+        queueIndex: newIndex,
+        currentSong: nextSongToPlay,
+        shuffledQueueOrder: newShuffleOrder
       });
+
+      // BUG-05 fix: If the removed song was the currently playing song, advance playback or pause
+      if (isCurrentSong && nextSongToPlay) {
+        if (wasPlaying) {
+          audioService.playSong(nextSongToPlay);
+        } else {
+          audioService.pause();
+        }
+      }
     },
 
     clearQueue: () => {

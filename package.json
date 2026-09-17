@@ -1,7 +1,7 @@
 {
   "name": "music-player",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.2.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,10 +10,17 @@
     "preview": "vite preview",
     "start": "node --experimental-strip-types server.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "cap:sync": "npm run build && cap sync android",
+    "cap:open": "cap open android",
+    "apk:build": "npm run build && cap sync android && cd android && .\\gradlew assembleDebug"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1131.0",
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/status-bar": "^8.0.3",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "lucide-react": "^1.44.0",
@@ -23,6 +30,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
     "@tailwindcss/vite": "^4.3.3",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",

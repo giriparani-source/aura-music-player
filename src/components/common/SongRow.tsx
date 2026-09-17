@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Heart, PlusCircle, Check, ListPlus, Download, CheckCircle2, Loader2 } from 'lucide-react';
+import { Play, Pause, Heart, PlusCircle, Check, ListPlus, Download, CheckCircle2, Loader2, MoreHorizontal } from 'lucide-react';
 import { Song } from '../../types/music';
 import { formatTime } from '../../utils/formatters';
 import { Artwork } from './Artwork';
@@ -14,6 +14,21 @@ interface SongRowProps {
   isSelectMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: (id: string) => void;
+  showAlbum?: boolean;
+  showDateAdded?: boolean;
+}
+
+function formatDateAdded(timestamp?: number): string {
+  if (!timestamp) return 'Recently';
+  const now = Date.now();
+  const diffDays = Math.floor((now - timestamp) / (1000 * 60 * 60 * 24));
+  if (diffDays <= 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+  
+  const d = new Date(timestamp);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 const SongRowComponent: React.FC<SongRowProps> = ({
@@ -22,7 +37,9 @@ const SongRowComponent: React.FC<SongRowProps> = ({
   playlistContext,
   isSelectMode = false,
   isSelected = false,
-  onToggleSelect
+  onToggleSelect,
+  showAlbum = true,
+  showDateAdded = true
 }) => {
   const isCurrent = usePlayerStore((s) => s.currentSong?.id === song.id);
   const isPlaying = usePlayerStore((s) => s.isPlaying && s.currentSong?.id === song.id);
@@ -43,6 +60,7 @@ const SongRowComponent: React.FC<SongRowProps> = ({
   });
 
   const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
 
   const handleRowClick = () => {
     if (isSelectMode && onToggleSelect) {
@@ -66,186 +84,182 @@ const SongRowComponent: React.FC<SongRowProps> = ({
   return (
     <div
       onClick={handleRowClick}
-      className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all select-none cursor-pointer border ${
+      className={`group grid grid-cols-[auto_1fr_auto] md:grid-cols-[auto_1fr_minmax(120px,1.5fr)_auto] lg:grid-cols-[auto_1fr_minmax(140px,1.5fr)_minmax(100px,1fr)_auto] items-center gap-3 md:gap-4 px-3 sm:px-4 py-2 rounded-xl transition-all select-none cursor-pointer border ${
         isSelected
-          ? 'bg-indigo-600/15 border-indigo-500/40 text-white'
+          ? 'bg-emerald-500/15 border-emerald-500/40 text-white'
           : isCurrent
-          ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-300'
-          : 'border-transparent hover:bg-white/5 text-neutral-300'
+          ? 'bg-white/10 border-emerald-500/20 text-[#1ed760]'
+          : 'border-transparent hover:bg-white/10 text-neutral-300'
       }`}
     >
-      {/* Selection checkbox or Index/Play indicator */}
-      <div className="w-7 text-center text-xs font-mono text-neutral-500 shrink-0 flex items-center justify-center">
+      {/* 1. Track Number / Play Indicator */}
+      <div className="w-6 text-center text-xs font-mono text-neutral-400 shrink-0 flex items-center justify-center">
         {isSelectMode ? (
           <div
             onClick={handleCheckboxClick}
             className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
               isSelected
-                ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm shadow-indigo-600/50'
+                ? 'bg-[#1ed760] border-[#1ed760] text-black shadow-sm'
                 : 'border-white/20 hover:border-white/40 bg-black/20'
             }`}
           >
             {isSelected && <Check size={12} strokeWidth={3} />}
           </div>
         ) : isCurrent && isPlaying ? (
-          <div className="flex items-end gap-0.5 h-3.5">
-            <span className="w-1 bg-indigo-400 h-full animate-pulse" />
-            <span className="w-1 bg-indigo-400 h-2/3 animate-bounce" />
-            <span className="w-1 bg-indigo-400 h-3/4 animate-pulse" />
+          <div className="flex items-end gap-0.5 h-3.5" title="Playing">
+            <span className="w-1 bg-[#1ed760] h-full animate-pulse" />
+            <span className="w-1 bg-[#1ed760] h-2/3 animate-bounce" />
+            <span className="w-1 bg-[#1ed760] h-3/4 animate-pulse" />
           </div>
         ) : (
           <>
-            <span className="group-hover:hidden">{index + 1}</span>
-            <Play size={14} className="hidden group-hover:block fill-current" />
+            <span className={`group-hover:hidden ${isCurrent ? 'text-[#1ed760] font-bold' : 'text-neutral-400'}`}>
+              {index + 1}
+            </span>
+            {isCurrent && !isPlaying ? (
+              <Play size={13} className="fill-[#1ed760] text-[#1ed760]" />
+            ) : (
+              <Play size={13} className="hidden group-hover:block fill-white text-white" />
+            )}
           </>
         )}
       </div>
 
-      {/* Artwork */}
-      <Artwork src={song.coverArt || song.artwork} title={song.title} artist={song.artist} size="sm" />
-
-      {/* Song details */}
-      <div className="flex-1 min-w-0">
-        <h4 className={`text-sm font-semibold truncate ${isSelected ? 'text-white' : isCurrent ? 'text-indigo-300' : 'text-neutral-200'}`}>
-          {song.title}
-        </h4>
-        <p className="text-xs text-neutral-400 truncate mt-0.5">
-          {song.artist && song.artist !== 'Not set' ? song.artist : 'Local Artist'}{' '}
-          {song.album && song.album !== 'Not set' ? `• ${song.album}` : ''}
-        </p>
+      {/* 2. Artwork + Title & Artist */}
+      <div className="flex items-center gap-3 min-w-0">
+        <Artwork src={song.coverArt || song.artwork} title={song.title} artist={song.artist} size="sm" />
+        <div className="min-w-0 flex-1">
+          <h4 className={`text-sm font-medium truncate ${isCurrent ? 'text-[#1ed760]' : 'text-white group-hover:text-white'}`}>
+            {song.title}
+          </h4>
+          <p className="text-xs text-neutral-400 truncate mt-0.5 group-hover:text-neutral-300">
+            {song.artist && song.artist !== 'Not set' ? song.artist : 'Unknown Artist'}
+          </p>
+        </div>
       </div>
 
-      {/* Folder tag, JioSaavn badge, or Live Radio badge (hidden on mobile) */}
-      {isDownloaded ? (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0" title="Downloaded for offline playback">
-          <CheckCircle2 size={11} className="text-emerald-400" />
-          <span className="hidden lg:inline">Offline</span>
-        </span>
-      ) : song.isLiveRadio ? (
-        <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
-          <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-          Live FM
-        </span>
-      ) : song.isSaavn ? (
-        <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          JioSaavn 320k
-        </span>
-      ) : song.isOnline ? (
-        <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-semibold rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-          Cloud Stream
-        </span>
-      ) : song.folder ? (
-        <span className="hidden md:inline-block px-2 py-0.5 text-[11px] font-medium rounded-full bg-white/5 text-neutral-400 border border-white/5 max-w-[130px] truncate">
-          {song.folder}
-        </span>
-      ) : null}
-
-      {/* Audio Bitrate / Format badge */}
-      <div className="hidden sm:flex items-center gap-1.5">
-        {song.bitrate && (
-          <span
-            className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-              song.bitrate >= 320
-                ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold'
-                : 'bg-white/5 text-neutral-400'
-            }`}
-          >
-            {song.bitrate}k
-          </span>
-        )}
-        <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-white/5 text-neutral-500">
-          {song.format || 'MP3'}
-        </span>
-      </div>
-
-      {/* Duration or LIVE indicator */}
-      {song.isLiveRadio ? (
-        <span className="text-[10px] font-extrabold text-red-400 uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/20">
-          LIVE
-        </span>
-      ) : (
-        <span className="text-xs font-mono text-neutral-400 tabular-nums">
-          {formatTime(song.duration)}
-        </span>
+      {/* 3. Album (Clean Spotify column - hidden on small screens) */}
+      {showAlbum && (
+        <div className="hidden md:block min-w-0 pr-2">
+          <p className="text-xs text-neutral-400 truncate group-hover:text-neutral-300">
+            {song.album && song.album !== 'Not set' && song.album !== 'JioSaavn Studio Master'
+              ? song.album
+              : 'Single'}
+          </p>
+        </div>
       )}
 
-      {/* Action buttons (only in non-selection mode) */}
-      {!isSelectMode && (
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {/* Download / Remove Download Action */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (isDownloading) return;
-              if (isDownloaded) {
-                deleteDownloadedTrack(song.id);
-              } else {
-                downloadTrack(song);
-              }
-            }}
-            disabled={isDownloading}
-            className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors ${
-              isDownloaded
-                ? 'text-emerald-400 opacity-100'
-                : isDownloading
-                ? 'text-indigo-400 opacity-100'
-                : 'text-neutral-400 hover:text-white'
-            }`}
-            title={
-              isDownloaded
-                ? 'Downloaded for offline playback (Click to remove)'
-                : isDownloading
-                ? `Downloading... ${dlState?.progress || 0}%`
-                : 'Download for offline playback'
-            }
-          >
-            {isDownloading ? (
-              <Loader2 size={15} className="animate-spin text-indigo-400" />
-            ) : isDownloaded ? (
-              <CheckCircle2 size={15} className="text-emerald-400" />
-            ) : (
-              <Download size={15} />
-            )}
-          </button>
+      {/* 4. Date Added (Clean Spotify column - hidden on small/medium screens) */}
+      {showDateAdded && (
+        <div className="hidden lg:block min-w-0 pr-2">
+          <p className="text-xs text-neutral-400 font-mono truncate">
+            {formatDateAdded(song.dateAdded)}
+          </p>
+        </div>
+      )}
 
+      {/* 5. Actions & Duration */}
+      <div className="flex items-center justify-end gap-2.5 shrink-0">
+        {/* Offline downloaded badge icon */}
+        {isDownloaded && (
+          <span title="Downloaded for offline playback" className="text-[#1ed760]">
+            <CheckCircle2 size={14} />
+          </span>
+        )}
+
+        {/* Favorite / Heart Button */}
+        {!isSelectMode && (
           <button
             onClick={(e) => {
               e.stopPropagation();
               toggleFavorite(song.id, song);
             }}
-            className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors ${
-              isFav ? 'text-rose-500 opacity-100' : 'text-neutral-400'
+            className={`p-1 transition-colors cursor-pointer ${
+              isFav ? 'text-[#1ed760] opacity-100' : 'text-neutral-400 opacity-0 group-hover:opacity-100 hover:text-white'
             }`}
-            title={isFav ? 'Remove from Favourites' : 'Add to Favourites'}
+            title={isFav ? 'Remove from Liked Songs' : 'Save to Liked Songs'}
           >
-            <Heart size={15} className={isFav ? 'fill-rose-500' : ''} />
+            <Heart size={15} className={isFav ? 'fill-[#1ed760]' : ''} />
           </button>
+        )}
 
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              addToQueueNext(song);
-            }}
-            className="p-1.5 rounded-lg hover:bg-white/10 text-neutral-400 hover:text-white transition-colors"
-            title="Play Next"
-          >
-            <PlusCircle size={15} />
-          </button>
+        {/* Duration */}
+        <span className="text-xs font-mono text-neutral-400 tabular-nums w-9 text-right">
+          {formatTime(song.duration)}
+        </span>
 
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsPlaylistModalOpen(true);
-            }}
-            className="p-1.5 rounded-lg hover:bg-white/10 text-neutral-400 hover:text-white transition-colors"
-            title="Add to Playlist"
-          >
-            <ListPlus size={15} />
-          </button>
-        </div>
-      )}
+        {/* More Options / Context Actions */}
+        {!isSelectMode && (
+          <div className="relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowDropdown(!showDropdown);
+              }}
+              className="p-1 rounded-md text-neutral-400 opacity-0 group-hover:opacity-100 hover:text-white hover:bg-white/10 transition-all cursor-pointer"
+              title="More options"
+            >
+              <MoreHorizontal size={16} />
+            </button>
+
+            {showDropdown && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="absolute right-0 top-full mt-1 w-44 py-1.5 rounded-xl bg-neutral-900 border border-white/10 shadow-2xl backdrop-blur-xl z-50 text-xs text-neutral-300"
+              >
+                <button
+                  onClick={() => {
+                    addToQueueNext(song);
+                    setShowDropdown(false);
+                  }}
+                  className="w-full px-3 py-2 text-left hover:bg-white/10 flex items-center gap-2 cursor-pointer"
+                >
+                  <PlusCircle size={14} />
+                  <span>Play Next in Queue</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setIsPlaylistModalOpen(true);
+                    setShowDropdown(false);
+                  }}
+                  className="w-full px-3 py-2 text-left hover:bg-white/10 flex items-center gap-2 cursor-pointer"
+                >
+                  <ListPlus size={14} />
+                  <span>Add to Playlist</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (isDownloaded) {
+                      deleteDownloadedTrack(song.id);
+                    } else {
+                      downloadTrack(song);
+                    }
+                    setShowDropdown(false);
+                  }}
+                  className="w-full px-3 py-2 text-left hover:bg-white/10 flex items-center gap-2 cursor-pointer"
+                >
+                  {isDownloading ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin text-indigo-400" />
+                      <span>Downloading...</span>
+                    </>
+                  ) : isDownloaded ? (
+                    <>
+                      <CheckCircle2 size={14} className="text-[#1ed760]" />
+                      <span>Remove Download</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download size={14} />
+                      <span>Download Offline</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Instant Add-to-Playlist Modal: only mounted when open */}
       {isPlaylistModalOpen && (

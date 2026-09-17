@@ -1,6 +1,7 @@
 import { Peer, DataConnection } from 'peerjs';
 import { Song } from '../types/music';
 import { audioService } from './audioService';
+import { cloudPlayerService } from './cloudPlayerService';
 
 export interface JamParticipant {
   id: string;
@@ -178,8 +179,8 @@ class JamService {
         roomCode: this.roomCode,
         hostName: this.myName,
         currentSong,
-        currentTime: audioService.getAudioElement().currentTime || 0,
-        isPlaying: !audioService.getAudioElement().paused,
+        currentTime: audioService.getCurrentPlaybackTime(),
+        isPlaying: audioService.isCurrentlyPlaying(),
         timestamp: Date.now()
       });
     });
@@ -321,10 +322,9 @@ class JamService {
     this.syncInterval = setInterval(() => {
       if (!this.isHost || !this.isInRoom) return;
 
-      const audioEl = audioService.getAudioElement();
       const currentSong = audioService.getCurrentSong();
-      const currentTime = audioEl.currentTime || 0;
-      const isPlaying = !audioEl.paused;
+      const currentTime = audioService.getCurrentPlaybackTime();
+      const isPlaying = audioService.isCurrentlyPlaying();
 
       const payload = {
         type: 'SYNC',
@@ -364,28 +364,46 @@ class JamService {
     const expectedTime = isPlaying ? currentTime + networkLatencySec : currentTime;
 
     const mySong = audioService.getCurrentSong();
-    const audioEl = audioService.getAudioElement();
-    const myTime = audioEl.currentTime || 0;
+    const myTime = audioService.getCurrentPlaybackTime();
     const drift = Math.abs(myTime - expectedTime);
     this.driftMs = Math.round(drift * 1000);
 
     // Song difference check
     if (currentSong && (!mySong || mySong.id !== currentSong.id)) {
       audioService.playSong(currentSong);
-      setTimeout(() => {
+      
+      let synced = false;
+      const onReadyToSync = () => {
+        if (synced) return;
+        synced = true;
         audioService.seek(expectedTime);
-        if (isPlaying) audioService.play();
-        else audioService.pause();
-      }, 300);
+        if (isPlaying) {
+          audioService.play();
+        } else {
+          audioService.pause();
+        }
+      };
+
+      const audioEl = audioService.getAudioElement();
+      if (audioEl) {
+        audioEl.addEventListener('loadedmetadata', onReadyToSync, { once: true });
+        audioEl.addEventListener('canplay', onReadyToSync, { once: true });
+      }
+      const unsubCloud = cloudPlayerService.onPlay(() => {
+        onReadyToSync();
+        unsubCloud();
+      });
+      setTimeout(onReadyToSync, 800);
     } else {
       // Drift compensation: only seek if drift > 1.2s to prevent audio stutter
       if (drift > 1.2) {
         audioService.seek(expectedTime);
       }
 
-      if (isPlaying && audioEl.paused) {
+      const currentlyPlaying = audioService.isCurrentlyPlaying();
+      if (isPlaying && !currentlyPlaying) {
         audioService.play();
-      } else if (!isPlaying && !audioEl.paused) {
+      } else if (!isPlaying && currentlyPlaying) {
         audioService.pause();
       }
     }

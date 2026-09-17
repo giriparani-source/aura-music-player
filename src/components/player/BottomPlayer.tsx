@@ -80,9 +80,84 @@ export const BottomPlayer: React.FC = () => {
   const isDownloading = dlState?.status === 'downloading';
 
   return (
-    <div className="fixed bottom-16 md:bottom-0 left-0 right-0 h-20 bg-[#0e1118]/90 backdrop-blur-2xl border-t border-white/10 px-4 sm:px-6 flex items-center justify-between z-40 select-none shadow-2xl">
+    <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] md:bottom-0 left-0 right-0 h-20 bg-[#0e1118]/95 backdrop-blur-2xl border-t border-white/10 px-3 sm:px-6 flex items-center justify-between z-40 select-none shadow-2xl">
+      {/* 0. Mobile Sleek Top Progress Bar (Spotify-style) */}
+      <div className="absolute top-0 left-0 right-0 h-[2.5px] bg-white/10 overflow-hidden sm:hidden">
+        <div
+          className="h-full bg-indigo-500 transition-all duration-300"
+          style={{
+            width: `${duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0}%`
+          }}
+        />
+      </div>
+
+      {/* ========================================================================= */}
+      {/* MOBILE MINI PLAYER (< sm) — Clean, Touch-Friendly, Zero Clutter */}
+      {/* ========================================================================= */}
+      <div className="flex sm:hidden items-center justify-between w-full h-full gap-2">
+        {/* Track Artwork & Info (Tapping opens Now Playing Modal) */}
+        <div
+          onClick={() => setNowPlayingOpen(true)}
+          className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
+        >
+          <div className="shrink-0 transition-transform active:scale-95">
+            <Artwork src={currentSong.coverArt || currentSong.artwork} title={currentSong.title} artist={currentSong.artist} size="md" />
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <h4 className="text-xs font-bold text-white truncate">
+                {currentSong.title}
+              </h4>
+              {currentSong.isLiveRadio && (
+                <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[7px] font-black bg-rose-600 text-white shrink-0 shadow">
+                  <span className="w-1 h-1 rounded-full bg-white animate-ping" />
+                  LIVE
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-neutral-400 truncate mt-0.5">{currentSong.artist}</p>
+          </div>
+        </div>
+
+        {/* Action Controls: Favorite, Play/Pause, Next */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => toggleFavorite(currentSong.id, currentSong)}
+            className={`p-2 rounded-full transition-colors active:scale-90 ${
+              currentSong.isFavorite ? 'text-rose-500' : 'text-neutral-400'
+            }`}
+            aria-label="Favorite"
+            title="Favorite"
+          >
+            <Heart size={18} className={currentSong.isFavorite ? 'fill-rose-500' : ''} />
+          </button>
+
+          <button
+            onClick={togglePlay}
+            className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center active:scale-90 transition-transform shadow-lg shadow-white/20 cursor-pointer"
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+            title="Play/Pause"
+          >
+            {isPlaying ? <Pause size={18} className="fill-black" /> : <Play size={18} className="fill-black ml-0.5" />}
+          </button>
+
+          <button
+            onClick={nextSong}
+            className="p-2 rounded-full text-neutral-300 hover:text-white active:scale-90 transition-colors"
+            aria-label="Next Track"
+            title="Next Track"
+          >
+            <SkipForward size={20} />
+          </button>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* DESKTOP / TABLET PLAYER (>= sm) — Full 3-Column Studio Suite */}
+      {/* ========================================================================= */}
       {/* 1. Track Info (Left) */}
-      <div className="flex items-center gap-2 sm:gap-3 w-1/4 min-w-[190px] max-w-[300px]">
+      <div className="hidden sm:flex items-center gap-2 sm:gap-3 w-1/4 min-w-[190px] max-w-[300px]">
         <div
           onClick={() => setNowPlayingOpen(true)}
           className="cursor-pointer transition-transform hover:scale-105 shrink-0"
@@ -102,11 +177,6 @@ export const BottomPlayer: React.FC = () => {
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black bg-rose-600 text-white shrink-0 shadow">
                 <span className="w-1 h-1 rounded-full bg-white animate-ping" />
                 LIVE
-              </span>
-            )}
-            {currentSong.isSaavn && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-black bg-amber-400 text-black shrink-0 shadow">
-                320K
               </span>
             )}
             {currentSong.isAuraFlow && (
@@ -169,7 +239,7 @@ export const BottomPlayer: React.FC = () => {
       </div>
 
       {/* 2. Main Playback Controls & Seekbar (Center) */}
-      <div className="flex flex-col items-center gap-1.5 w-2/4 max-w-xl">
+      <div className="hidden sm:flex flex-col items-center gap-1.5 w-2/4 max-w-xl">
         {/* Buttons */}
         <div className="flex items-center gap-4 sm:gap-6">
           <button
@@ -236,6 +306,7 @@ export const BottomPlayer: React.FC = () => {
                 max={duration || 100}
                 value={currentTime}
                 onChange={(e) => seek(Number(e.target.value))}
+                aria-label="Seek track position"
                 className="w-full h-1 bg-white/15 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:h-1.5 transition-all"
               />
             </div>
@@ -384,7 +455,8 @@ export const BottomPlayer: React.FC = () => {
             step={0.01}
             value={isMuted ? 0 : volume}
             onChange={(e) => setVolume(Number(e.target.value))}
-            className="w-20 h-1 bg-white/15 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+            aria-label="Volume level"
+            className="w-20 h-1 bg-white/15 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:h-1.5 transition-all"
           />
         </div>
       </div>

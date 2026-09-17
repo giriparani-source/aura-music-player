@@ -1,59 +1,74 @@
-import React, { useRef } from 'react';
-import { Search, FolderPlus, HardDrive } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { Search, HardDrive, X, Sparkles } from 'lucide-react';
 import { useLibraryStore } from '../../store/useLibraryStore';
-
 import { usePlayerStore } from '../../store/usePlayerStore';
-import { Sparkles } from 'lucide-react';
 
 export const Header: React.FC = () => {
-  const folderInputRef = useRef<HTMLInputElement>(null);
   const setAiAssistantOpen = usePlayerStore((s) => s.setAiAssistantOpen);
   const {
     searchQuery,
     setSearchQuery,
     activeTab,
     setActiveTab,
-    stats,
-    scanFromDirectoryHandle,
-    scanFromFileList
+    stats
   } = useLibraryStore();
 
-  const handleSelectFolder = async () => {
-    if ('showDirectoryPicker' in window) {
-      try {
-        // @ts-ignore
-        const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
-        await scanFromDirectoryHandle(dirHandle);
-        return;
-      } catch (err: any) {
-        if (err.name === 'AbortError') return;
-      }
+  // Prevent browser password manager from polluting search query with user email
+  useEffect(() => {
+    if (searchQuery && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(searchQuery.trim())) {
+      setSearchQuery('');
     }
-    folderInputRef.current?.click();
-  };
-
-  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    await scanFromFileList(files);
-  };
+  }, [searchQuery, setSearchQuery]);
 
   return (
-    <header className="h-16 border-b border-white/5 bg-[#0b0d13]/60 backdrop-blur-md px-6 flex items-center justify-between shrink-0 select-none z-10">
+    <header
+      style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+      className="h-[calc(4rem+env(safe-area-inset-top,0px))] border-b border-white/5 bg-[#0b0d13]/60 backdrop-blur-md px-4 sm:px-6 flex items-center justify-between shrink-0 select-none z-10"
+    >
       {/* Search Input shortcut (hidden on dedicated Search view to avoid duplicate inputs) */}
       {activeTab !== 'search' ? (
-        <div className="relative w-72 max-w-sm">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
+        <div className="relative w-48 sm:w-72 md:w-80 max-w-sm">
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
           <input
-            type="text"
+            type="search"
+            name="aura_music_search"
+            id="aura_header_search"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            data-lpignore="true"
+            data-form-type="other"
             value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setActiveTab('search');
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && searchQuery.trim()) {
+                setActiveTab('search');
+              }
             }}
-            placeholder="Search songs, artists, albums..."
-            className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-indigo-500/60 transition-all"
+            placeholder={activeTab === 'library' ? "Filter library or press Enter for Cloud..." : "Search songs, artists (Enter for Cloud)..."}
+            className="w-full pl-9 pr-14 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-indigo-500/60 focus:bg-white/[0.07] transition-all"
           />
+          {searchQuery ? (
+            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="p-1 text-neutral-400 hover:text-white rounded-md transition-colors cursor-pointer"
+                title="Clear search"
+              >
+                <X size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('search')}
+                className="hidden sm:flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 text-[10px] font-medium transition-colors cursor-pointer"
+                title="Search online (Enter)"
+              >
+                <span>Cloud</span>
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="flex items-center gap-2">
@@ -61,18 +76,6 @@ export const Header: React.FC = () => {
           <span className="text-xs font-bold text-neutral-300 tracking-wide">Search Music</span>
         </div>
       )}
-
-      {/* Hidden Folder Picker Input */}
-      <input
-        type="file"
-        ref={folderInputRef}
-        onChange={handleFileInputChange}
-        // @ts-ignore
-        webkitdirectory="true"
-        directory="true"
-        multiple
-        className="hidden"
-      />
 
       {/* Right Header Actions */}
       <div className="flex items-center gap-2.5">
@@ -88,20 +91,11 @@ export const Header: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('library')}
-          className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-300 bg-white/5 border border-white/5 hover:bg-white/10 transition-colors cursor-pointer"
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-300 bg-white/5 border border-white/5 hover:bg-white/10 transition-colors cursor-pointer"
           title="Go to Library"
         >
           <HardDrive size={14} className="text-indigo-400" />
           <span>Local Library: {stats.totalSongs} songs</span>
-        </button>
-
-        <button
-          onClick={handleSelectFolder}
-          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/20 transition-all active:scale-[0.98] cursor-pointer"
-          title="Open Music Folder Picker"
-        >
-          <FolderPlus size={15} />
-          <span className="hidden sm:inline">Select Folder</span>
         </button>
       </div>
     </header>

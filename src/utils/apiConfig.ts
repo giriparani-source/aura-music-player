@@ -13,6 +13,17 @@ export function getApiBaseUrl(): string {
   if (envBase && typeof envBase === 'string') {
     return envBase.replace(/\/+$/, '');
   }
+  
+  // When running inside Android Capacitor native APK
+  if (typeof window !== 'undefined') {
+    const isCapacitorNative = 
+      window.location.protocol === 'capacitor:' || 
+      Boolean((window as any).Capacitor?.isNativePlatform?.());
+    if (isCapacitorNative) {
+      return 'https://aura-music-player-omega.vercel.app';
+    }
+  }
+
   return '';
 }
 

@@ -30,10 +30,15 @@ export function generateFairShuffleIndices(songs: Song[], currentIndex: number =
     }
   }
 
-  // Sort artist buckets by size descending (largest artist pool placed first)
-  const sortedBuckets = Array.from(artistGroups.values()).sort(
-    (a, b) => b.length - a.length
-  );
+  // Shuffle artist buckets beforehand so same-sized buckets do not retain original playlist order
+  const allBuckets = Array.from(artistGroups.values());
+  for (let i = allBuckets.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [allBuckets[i], allBuckets[j]] = [allBuckets[j], allBuckets[i]];
+  }
+
+  // Sort artist buckets by size descending (largest artist pool placed first with anti-clustering)
+  const sortedBuckets = allBuckets.sort((a, b) => b.length - a.length);
 
   // Distribute tracks into an interleaved array with anti-clustering spacing
   const remainingCount = total - 1;
@@ -41,27 +46,45 @@ export function generateFairShuffleIndices(songs: Song[], currentIndex: number =
 
   for (const bucket of sortedBuckets) {
     const k = bucket.length;
-    const interval = remainingCount / k;
-    let offset = Math.floor(Math.random() * Math.min(interval, 3));
-
-    for (let idx = 0; idx < k; idx++) {
-      const targetPos = Math.floor(offset + idx * interval) % remainingCount;
-
-      // Find nearest empty slot to avoid collisions
+    if (k === 1) {
+      // Single-track artist: distribute randomly across available slots
+      const randomStart = Math.floor(Math.random() * remainingCount);
       let placed = false;
       for (let step = 0; step < remainingCount; step++) {
-        const checkPos = (targetPos + step) % remainingCount;
+        const checkPos = (randomStart + step) % remainingCount;
         if (distributedSlots[checkPos] === null) {
-          distributedSlots[checkPos] = bucket[idx];
+          distributedSlots[checkPos] = bucket[0];
           placed = true;
           break;
         }
       }
       if (!placed) {
-        // Fallback: place in any remaining null
         const emptyIndex = distributedSlots.indexOf(null);
-        if (emptyIndex !== -1) {
-          distributedSlots[emptyIndex] = bucket[idx];
+        if (emptyIndex !== -1) distributedSlots[emptyIndex] = bucket[0];
+      }
+    } else {
+      // Multi-track artist: space tracks evenly with random phase offset to prevent clustering
+      const interval = remainingCount / k;
+      const baseOffset = Math.floor(Math.random() * interval);
+
+      for (let idx = 0; idx < k; idx++) {
+        const targetPos = Math.floor(baseOffset + idx * interval) % remainingCount;
+
+        // Find nearest empty slot to avoid collisions
+        let placed = false;
+        for (let step = 0; step < remainingCount; step++) {
+          const checkPos = (targetPos + step) % remainingCount;
+          if (distributedSlots[checkPos] === null) {
+            distributedSlots[checkPos] = bucket[idx];
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) {
+          const emptyIndex = distributedSlots.indexOf(null);
+          if (emptyIndex !== -1) {
+            distributedSlots[emptyIndex] = bucket[idx];
+          }
         }
       }
     }

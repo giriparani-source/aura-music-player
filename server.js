@@ -17,6 +17,8 @@ import {
   jamRoomHandler,
   localAudioHandler,
   cloudManifestHandler,
+  radioStreamHandler,
+  spotifyPlaylistHandler,
   startJamRoomCleanup,
   initPythonCheck
 } from './server/middleware/index.ts';
@@ -51,6 +53,12 @@ app.use('/api/audio', localAudioHandler);
 
 // 6. Cloud Library Manifest Catalog
 app.use('/api/library/cloud-songs', cloudManifestHandler);
+
+// 7. Live Radio FM Stream Proxy
+app.use('/api/radio/stream', radioStreamHandler);
+
+// 8. Universal Spotify Playlist Extractor Endpoint
+app.use('/api/playlist/spotify', spotifyPlaylistHandler);
 
 // Serve Static Frontend Bundle
 app.use(express.static(path.join(__dirname, 'dist')));

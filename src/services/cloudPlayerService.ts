@@ -127,7 +127,12 @@ class CloudPlayerService {
   private handleStateChange(state: number) {
     // YT.PlayerState: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (cued)
     if (state === 1) {
-      // Playing
+      // Playing - enforce maximum quality for highest Opus audio bitrate
+      if (this.player && typeof this.player.setPlaybackQuality === 'function') {
+        try {
+          this.player.setPlaybackQuality('hd1080');
+        } catch (_) {}
+      }
       this.startTimeTracking();
       this.onPlayCallbacks.forEach((cb) => cb());
     } else if (state === 2) {
@@ -171,8 +176,14 @@ class CloudPlayerService {
     try {
       this.player.loadVideoById({
         videoId,
-        startSeconds: startTime
+        startSeconds: startTime,
+        suggestedQuality: 'hd1080'
       });
+      if (typeof this.player.setPlaybackQuality === 'function') {
+        try {
+          this.player.setPlaybackQuality('hd1080');
+        } catch (_) {}
+      }
       this.player.playVideo();
     } catch (err) {
       console.error('Error loading cloud video:', err);
@@ -246,25 +257,40 @@ class CloudPlayerService {
     return this.currentVideoId;
   }
 
-  // Event Listeners Registration
-  public onPlay(cb: PlayerCallback) {
+  // Event Listeners Registration (BUG-23 fix: returns unsubscribe cleanup callback)
+  public onPlay(cb: PlayerCallback): () => void {
     this.onPlayCallbacks.push(cb);
+    return () => {
+      this.onPlayCallbacks = this.onPlayCallbacks.filter((c) => c !== cb);
+    };
   }
 
-  public onPause(cb: PlayerCallback) {
+  public onPause(cb: PlayerCallback): () => void {
     this.onPauseCallbacks.push(cb);
+    return () => {
+      this.onPauseCallbacks = this.onPauseCallbacks.filter((c) => c !== cb);
+    };
   }
 
-  public onEnded(cb: PlayerCallback) {
+  public onEnded(cb: PlayerCallback): () => void {
     this.onEndCallbacks.push(cb);
+    return () => {
+      this.onEndCallbacks = this.onEndCallbacks.filter((c) => c !== cb);
+    };
   }
 
-  public onTimeUpdate(cb: TimeUpdateCallback) {
+  public onTimeUpdate(cb: TimeUpdateCallback): () => void {
     this.onTimeUpdateCallbacks.push(cb);
+    return () => {
+      this.onTimeUpdateCallbacks = this.onTimeUpdateCallbacks.filter((c) => c !== cb);
+    };
   }
 
-  public onError(cb: ErrorCallback) {
+  public onError(cb: ErrorCallback): () => void {
     this.onErrorCallbacks.push(cb);
+    return () => {
+      this.onErrorCallbacks = this.onErrorCallbacks.filter((c) => c !== cb);
+    };
   }
 }
 

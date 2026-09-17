@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   ArrowUpDown,
@@ -10,24 +10,29 @@ import {
   Heart,
   Filter,
   X,
-  Disc,
-  Mic2,
   Folder,
   Play,
   Download,
   Trash2,
   HardDrive,
-  AlertTriangle
+  AlertTriangle,
+  Clock,
+  ListMusic,
+  Plus,
+  UploadCloud
 } from 'lucide-react';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { LibrarySubTab, SortOption } from '../../types/music';
+import { useDebounce } from '../../utils/useDebounce';
 import { formatTime, formatBytes } from '../../utils/formatters';
-import { EmptyState } from '../common/EmptyState';
 import { SongRow } from '../common/SongRow';
 import { Artwork } from '../common/Artwork';
 import { BatchActionBar } from '../common/BatchActionBar';
 import { AddToPlaylistModal } from '../common/AddToPlaylistModal';
+import { ImportPlaylistModal } from '../common/ImportPlaylistModal';
+import { PlaylistsView } from './PlaylistsView';
+import { resolveArtistImage } from '../../utils/artistImageHelper';
 
 export const LibraryView: React.FC = () => {
   const {
@@ -43,8 +48,9 @@ export const LibraryView: React.FC = () => {
     toggleSortDirection,
     viewMode,
     setViewMode,
-    setActiveTab,
+    activePlaylistId,
     setActivePlaylistId,
+    createPlaylist,
     toggleFavorite,
     folderFilter,
     setFolderFilter,
@@ -57,7 +63,9 @@ export const LibraryView: React.FC = () => {
     clearFilters,
     downloadedSongIds,
     offlineStorage,
-    clearAllDownloads
+    clearAllDownloads,
+    searchQuery,
+    setSearchQuery
   } = useLibraryStore();
 
   const currentSong = usePlayerStore((s) => s.currentSong);
@@ -65,12 +73,31 @@ export const LibraryView: React.FC = () => {
   const playSong = usePlayerStore((s) => s.playSong);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
 
-  const [localSearch, setLocalSearch] = useState('');
+  const [localSearch, setLocalSearch] = useState(searchQuery || '');
+  const debouncedLocalSearch = useDebounce(localSearch, 150);
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedSongIds, setSelectedSongIds] = useState<string[]>([]);
   const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
   const [downloadSearch, setDownloadSearch] = useState('');
+
+  // Bidirectional sync between top Header search bar and Library in-page search
+  useEffect(() => {
+    if (searchQuery !== localSearch) {
+      setLocalSearch(searchQuery);
+    }
+  }, [searchQuery]);
+
+  const handleSearchChange = (val: string) => {
+    setLocalSearch(val);
+    setSearchQuery(val);
+  };
+
+  const handleClearSearch = () => {
+    setLocalSearch('');
+    setSearchQuery('');
+  };
 
   const getPlaylistSongs = (pl: any) => {
     if (pl.id === 'smart-favorites') return songs.filter((s) => s.isFavorite);
@@ -97,12 +124,12 @@ export const LibraryView: React.FC = () => {
     return Array.from(set).sort();
   }, [songs]);
 
-  // Filter songs by all active criteria
+  // Filter songs by all active criteria (BUG-09 fix: use debounced search to avoid UI freeze)
   const filteredSongs = useMemo(() => {
     return songs.filter((s) => {
       // 1. Local Search text
-      if (localSearch) {
-        const q = localSearch.toLowerCase();
+      if (debouncedLocalSearch) {
+        const q = debouncedLocalSearch.toLowerCase();
         const matchesTitle = s.title.toLowerCase().includes(q);
         const matchesArtist = s.artist.toLowerCase().includes(q);
         const matchesAlbum = s.album.toLowerCase().includes(q);
@@ -134,7 +161,7 @@ export const LibraryView: React.FC = () => {
 
       return true;
     });
-  }, [songs, localSearch, favoritesOnly, highBitrateOnly, folderFilter, formatFilter]);
+  }, [songs, debouncedLocalSearch, favoritesOnly, highBitrateOnly, folderFilter, formatFilter]);
 
   // Sort filtered songs
   const sortedSongs = useMemo(() => {
@@ -188,17 +215,43 @@ export const LibraryView: React.FC = () => {
     );
   }, [downloadedSongs, downloadSearch]);
 
-  if (songs.length === 0 && downloadedSongIds.size === 0) {
-    return <EmptyState />;
-  }
+  // Filter artists in real-time (Spotify-grade in-library search)
+  const filteredArtists = useMemo(() => {
+    if (!debouncedLocalSearch.trim()) return artists;
+    const q = debouncedLocalSearch.toLowerCase().trim();
+    return artists.filter((art) => art.name.toLowerCase().includes(q));
+  }, [artists, debouncedLocalSearch]);
+
+  // Filter albums in real-time
+  const filteredAlbums = useMemo(() => {
+    if (!debouncedLocalSearch.trim()) return albums;
+    const q = debouncedLocalSearch.toLowerCase().trim();
+    return albums.filter(
+      (alb) =>
+        alb.title.toLowerCase().includes(q) ||
+        (alb.artist && alb.artist.toLowerCase().includes(q))
+    );
+  }, [albums, debouncedLocalSearch]);
+
+  // Filter playlists in real-time
+  const filteredPlaylists = useMemo(() => {
+    if (!debouncedLocalSearch.trim()) return playlists;
+    const q = debouncedLocalSearch.toLowerCase().trim();
+    return playlists.filter(
+      (pl) =>
+        pl.name.toLowerCase().includes(q) ||
+        (pl.description && pl.description.toLowerCase().includes(q))
+    );
+  }, [playlists, debouncedLocalSearch]);
+
 
   const subTabs: Array<{ id: LibrarySubTab; label: string; count: number }> = [
-    { id: 'songs', label: 'Songs', count: songs.length },
-    { id: 'albums', label: 'Albums', count: albums.length },
-    { id: 'artists', label: 'Artists', count: artists.length },
-    { id: 'playlists', label: 'Playlists', count: playlists.length },
+    { id: 'playlists', label: 'Playlists', count: debouncedLocalSearch ? filteredPlaylists.length : playlists.length },
+    { id: 'songs', label: 'Songs', count: debouncedLocalSearch ? filteredSongs.length : songs.length },
+    { id: 'artists', label: 'Artists', count: debouncedLocalSearch ? filteredArtists.length : artists.length },
+    { id: 'albums', label: 'Albums', count: debouncedLocalSearch ? filteredAlbums.length : albums.length },
+    { id: 'downloads', label: 'Downloaded', count: downloadedSongIds.size },
     { id: 'folders', label: 'Folders', count: uniqueFolders.length },
-    { id: 'downloads', label: 'Downloads', count: downloadedSongIds.size },
   ];
 
   const hasActiveFilters = Boolean(
@@ -219,6 +272,11 @@ export const LibraryView: React.FC = () => {
       setSelectedSongIds(sortedSongs.map((s) => s.id));
     }
   };
+
+  // Render Spotify-grade playlist detail view directly inside My Library
+  if (librarySubTab === 'playlists' && activePlaylistId) {
+    return <PlaylistsView />;
+  }
 
   return (
     <div className="p-6 sm:p-8 space-y-6 max-w-7xl mx-auto select-none pb-32">
@@ -265,7 +323,7 @@ export const LibraryView: React.FC = () => {
         )}
       </div>
 
-      {/* Sub Tabs Navigation */}
+      {/* Sub Tabs Navigation (Spotify Rounded Pill Style) */}
       <div className="flex items-center gap-2 border-b border-white/5 pb-4 overflow-x-auto">
         {subTabs.map((tab) => {
           const isActive = librarySubTab === tab.id;
@@ -277,14 +335,14 @@ export const LibraryView: React.FC = () => {
                 setIsSelectMode(false);
                 setSelectedSongIds([]);
               }}
-              className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
                 isActive
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10'
+                  ? 'bg-white text-black font-bold shadow-md'
+                  : 'bg-white/10 text-neutral-300 hover:text-white hover:bg-white/15'
               }`}
             >
               <span>{tab.label}</span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isActive ? 'bg-white/20' : 'bg-white/5'}`}>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isActive ? 'bg-black/15 text-black' : 'bg-white/10 text-neutral-400'}`}>
                 {tab.count}
               </span>
             </button>
@@ -293,169 +351,209 @@ export const LibraryView: React.FC = () => {
       </div>
 
       {/* Search & Filter Toolbar */}
-      {librarySubTab === 'songs' && (
+      {['songs', 'artists', 'albums', 'playlists'].includes(librarySubTab) && (
         <div className="space-y-3">
           <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
             {/* Filter Input */}
-            <div className="relative w-full md:w-72">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+            <div className="relative w-full md:w-80">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none" />
               <input
-                type="text"
+                type="search"
+                name="aura_library_filter"
+                id="aura_library_filter"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                data-lpignore="true"
+                data-form-type="other"
                 value={localSearch}
-                onChange={(e) => setLocalSearch(e.target.value)}
-                placeholder="Search songs, artists, folders..."
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder={
+                  librarySubTab === 'artists'
+                    ? `Filter ${artists.length} artists (e.g. Sid Sriram, Anirudh)...`
+                    : librarySubTab === 'albums'
+                    ? `Filter ${albums.length} albums...`
+                    : librarySubTab === 'playlists'
+                    ? `Filter ${playlists.length} playlists...`
+                    : 'Search songs, artists, folders...'
+                }
                 className="w-full pl-9 pr-8 py-1.5 bg-white/5 border border-white/10 rounded-xl text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-indigo-500 transition-all"
               />
               {localSearch && (
                 <button
-                  onClick={() => setLocalSearch('')}
+                  type="button"
+                  onClick={handleClearSearch}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white p-0.5 cursor-pointer"
+                  title="Clear filter"
                 >
                   <X size={13} />
                 </button>
               )}
             </div>
 
-            {/* Sort & Grid/List Controls */}
-            <div className="flex items-center gap-2 flex-wrap justify-between md:justify-end">
-              {/* Sort Selector */}
-              <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-xl px-2 py-1 text-xs">
-                <button
-                  onClick={toggleSortDirection}
-                  className="p-1 text-neutral-400 hover:text-white rounded transition-colors cursor-pointer"
-                  title={sortAscending ? 'Sort Ascending (Click to invert)' : 'Sort Descending (Click to invert)'}
-                >
-                  <ArrowUpDown size={13} className={sortAscending ? 'text-indigo-400 rotate-180 transition-transform' : 'transition-transform'} />
-                </button>
-                <select
-                  value={sortOption}
-                  onChange={(e) => setSortOption(e.target.value as SortOption)}
-                  className="bg-transparent text-neutral-300 focus:outline-none cursor-pointer pr-1 text-xs"
-                >
-                  <option value="recent" className="bg-[#12141a]">Date Added</option>
-                  <option value="title" className="bg-[#12141a]">Title</option>
-                  <option value="artist" className="bg-[#12141a]">Artist</option>
-                  <option value="album" className="bg-[#12141a]">Album</option>
-                  <option value="duration" className="bg-[#12141a]">Duration</option>
-                  <option value="bitrate" className="bg-[#12141a]">Bitrate</option>
-                  <option value="fileSize" className="bg-[#12141a]">File Size</option>
-                  <option value="mostPlayed" className="bg-[#12141a]">Most Played</option>
-                </select>
-              </div>
+            {/* Sort & Grid/List Controls (Only for songs subtab) */}
+            {librarySubTab === 'songs' && (
+              <div className="flex items-center gap-2 flex-wrap justify-between md:justify-end">
+                {/* Sort Selector */}
+                <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-xl px-2 py-1 text-xs">
+                  <button
+                    onClick={toggleSortDirection}
+                    className="p-1 text-neutral-400 hover:text-white rounded transition-colors cursor-pointer"
+                    aria-label={sortAscending ? 'Sort Ascending (Click to invert)' : 'Sort Descending (Click to invert)'}
+                    title={sortAscending ? 'Sort Ascending (Click to invert)' : 'Sort Descending (Click to invert)'}
+                  >
+                    <ArrowUpDown size={13} className={sortAscending ? 'text-indigo-400 rotate-180 transition-transform' : 'transition-transform'} />
+                  </button>
+                  <select
+                    value={sortOption}
+                    onChange={(e) => setSortOption(e.target.value as SortOption)}
+                    className="bg-transparent text-neutral-300 focus:outline-none cursor-pointer pr-1 text-xs"
+                  >
+                    <option value="recent" className="bg-[#12141a]">Date Added</option>
+                    <option value="title" className="bg-[#12141a]">Title</option>
+                    <option value="artist" className="bg-[#12141a]">Artist</option>
+                    <option value="album" className="bg-[#12141a]">Album</option>
+                    <option value="duration" className="bg-[#12141a]">Duration</option>
+                    <option value="bitrate" className="bg-[#12141a]">Bitrate</option>
+                    <option value="fileSize" className="bg-[#12141a]">File Size</option>
+                    <option value="mostPlayed" className="bg-[#12141a]">Most Played</option>
+                  </select>
+                </div>
 
-              {/* View Mode Toggle */}
-              <div className="flex items-center bg-white/5 border border-white/10 rounded-xl p-0.5">
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                    viewMode === 'list' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'
-                  }`}
-                  title="List View"
-                >
-                  <LayoutList size={14} />
-                </button>
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                    viewMode === 'grid' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'
-                  }`}
-                  title="Grid View"
-                >
-                  <LayoutGrid size={14} />
-                </button>
+                {/* View Mode Toggle */}
+                <div className="flex items-center bg-white/5 border border-white/10 rounded-xl p-0.5">
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                      viewMode === 'list' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'
+                    }`}
+                    title="List View"
+                  >
+                    <LayoutList size={14} />
+                  </button>
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                      viewMode === 'grid' ? 'bg-indigo-600 text-white' : 'text-neutral-400 hover:text-white'
+                    }`}
+                    title="Grid View"
+                  >
+                    <LayoutGrid size={14} />
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Quick Filter Info when on artists/albums/playlists */}
+            {librarySubTab === 'artists' && (
+              <span className="text-[11px] text-neutral-500 whitespace-nowrap md:ml-auto">
+                Showing {filteredArtists.length} of {artists.length} artists
+              </span>
+            )}
+            {librarySubTab === 'albums' && (
+              <span className="text-[11px] text-neutral-500 whitespace-nowrap md:ml-auto">
+                Showing {filteredAlbums.length} of {albums.length} albums
+              </span>
+            )}
+            {librarySubTab === 'playlists' && (
+              <span className="text-[11px] text-neutral-500 whitespace-nowrap md:ml-auto">
+                Showing {filteredPlaylists.length} of {playlists.length} playlists
+              </span>
+            )}
           </div>
 
-          {/* Quick Filter Pills Bar */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
-            {/* Favorites Toggle Pill */}
-            <button
-              onClick={() => setFavoritesOnly(!favoritesOnly)}
-              className={`px-3 py-1 rounded-xl font-medium transition-all cursor-pointer flex items-center gap-1.5 border whitespace-nowrap ${
-                favoritesOnly
-                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 shadow-sm shadow-rose-500/20'
-                  : 'bg-white/5 text-neutral-400 border-white/5 hover:text-white hover:bg-white/10'
-              }`}
-            >
-              <Heart size={12} className={favoritesOnly ? 'fill-rose-400 text-rose-400' : ''} />
-              <span>Favorites Only</span>
-            </button>
-
-            {/* High Bitrate Toggle Pill */}
-            <button
-              onClick={() => setHighBitrateOnly(!highBitrateOnly)}
-              className={`px-3 py-1 rounded-xl font-medium transition-all cursor-pointer flex items-center gap-1.5 border whitespace-nowrap ${
-                highBitrateOnly
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-500/20'
-                  : 'bg-white/5 text-neutral-400 border-white/5 hover:text-white hover:bg-white/10'
-              }`}
-            >
-              <Sparkles size={12} />
-              <span>HQ (320kbps+)</span>
-            </button>
-
-            {/* Folder Filter Dropdown */}
-            <div className="relative">
-              <select
-                value={folderFilter || ''}
-                onChange={(e) => setFolderFilter(e.target.value ? e.target.value : null)}
-                className={`px-3 py-1 rounded-xl text-xs font-medium border appearance-none pr-7 cursor-pointer transition-all ${
-                  folderFilter
-                    ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500/40'
+          {/* Quick Filter Pills Bar (Only on songs tab) */}
+          {librarySubTab === 'songs' && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+              {/* Favorites Toggle Pill */}
+              <button
+                onClick={() => setFavoritesOnly(!favoritesOnly)}
+                className={`px-3 py-1 rounded-xl font-medium transition-all cursor-pointer flex items-center gap-1.5 border whitespace-nowrap ${
+                  favoritesOnly
+                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 shadow-sm shadow-rose-500/20'
                     : 'bg-white/5 text-neutral-400 border-white/5 hover:text-white hover:bg-white/10'
                 }`}
               >
-                <option value="" className="bg-[#12141a]">All Folders</option>
-                {uniqueFolders.map((folder) => (
-                  <option key={folder} value={folder} className="bg-[#12141a]">
-                    📁 {folder}
-                  </option>
-                ))}
-              </select>
-              <Filter size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-neutral-500" />
-            </div>
+                <Heart size={12} className={favoritesOnly ? 'fill-rose-400 text-rose-400' : ''} />
+                <span>Favorites Only</span>
+              </button>
 
-            {/* Format Filter Dropdown */}
-            {uniqueFormats.length > 1 && (
+              {/* High Bitrate Toggle Pill */}
+              <button
+                onClick={() => setHighBitrateOnly(!highBitrateOnly)}
+                className={`px-3 py-1 rounded-xl font-medium transition-all cursor-pointer flex items-center gap-1.5 border whitespace-nowrap ${
+                  highBitrateOnly
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-500/20'
+                    : 'bg-white/5 text-neutral-400 border-white/5 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <Sparkles size={12} />
+                <span>HQ (320kbps+)</span>
+              </button>
+
+              {/* Folder Filter Dropdown */}
               <div className="relative">
                 <select
-                  value={formatFilter || ''}
-                  onChange={(e) => setFormatFilter(e.target.value ? e.target.value : null)}
-                  className={`px-3 py-1 rounded-xl text-xs font-medium border appearance-none pr-7 cursor-pointer uppercase transition-all ${
-                    formatFilter
+                  value={folderFilter || ''}
+                  onChange={(e) => setFolderFilter(e.target.value ? e.target.value : null)}
+                  className={`px-3 py-1 rounded-xl text-xs font-medium border appearance-none pr-7 cursor-pointer transition-all ${
+                    folderFilter
                       ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500/40'
                       : 'bg-white/5 text-neutral-400 border-white/5 hover:text-white hover:bg-white/10'
                   }`}
                 >
-                  <option value="" className="bg-[#12141a]">All Formats</option>
-                  {uniqueFormats.map((fmt) => (
-                    <option key={fmt} value={fmt} className="bg-[#12141a]">
-                      .{fmt}
+                  <option value="" className="bg-[#12141a]">All Folders</option>
+                  {uniqueFolders.map((folder) => (
+                    <option key={folder} value={folder} className="bg-[#12141a]">
+                      📁 {folder}
                     </option>
                   ))}
                 </select>
                 <Filter size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-neutral-500" />
               </div>
-            )}
 
-            {/* Clear All Filters */}
-            {hasActiveFilters && (
-              <button
-                onClick={clearFilters}
-                className="px-2.5 py-1 rounded-xl text-neutral-400 hover:text-rose-400 bg-white/5 hover:bg-white/10 transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
-                title="Reset all active filters"
-              >
-                <X size={12} />
-                <span>Reset</span>
-              </button>
-            )}
+              {/* Format Filter Dropdown */}
+              {uniqueFormats.length > 1 && (
+                <div className="relative">
+                  <select
+                    value={formatFilter || ''}
+                    onChange={(e) => setFormatFilter(e.target.value ? e.target.value : null)}
+                    className={`px-3 py-1 rounded-xl text-xs font-medium border appearance-none pr-7 cursor-pointer uppercase transition-all ${
+                      formatFilter
+                        ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500/40'
+                        : 'bg-white/5 text-neutral-400 border-white/5 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <option value="" className="bg-[#12141a]">All Formats</option>
+                    {uniqueFormats.map((fmt) => (
+                      <option key={fmt} value={fmt} className="bg-[#12141a]">
+                        .{fmt}
+                      </option>
+                    ))}
+                  </select>
+                  <Filter size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-neutral-500" />
+                </div>
+              )}
 
-            {/* Active Count */}
-            <span className="text-[11px] text-neutral-500 ml-auto whitespace-nowrap pl-2">
-              Showing {sortedSongs.length} of {songs.length}
-            </span>
-          </div>
+              {/* Clear All Filters */}
+              {hasActiveFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="px-2.5 py-1 rounded-xl text-neutral-400 hover:text-rose-400 bg-white/5 hover:bg-white/10 transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                  title="Reset all active filters"
+                >
+                  <X size={12} />
+                  <span>Reset</span>
+                </button>
+              )}
+
+              {/* Active Count */}
+              <span className="text-[11px] text-neutral-500 ml-auto whitespace-nowrap pl-2">
+                Showing {sortedSongs.length} of {songs.length}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -473,18 +571,29 @@ export const LibraryView: React.FC = () => {
               </button>
             </div>
           ) : viewMode === 'list' ? (
-            <div className="space-y-1">
-              {sortedSongs.map((song, idx) => (
-                <SongRow
-                  key={song.id}
-                  song={song}
-                  index={idx}
-                  playlistContext={sortedSongs}
-                  isSelectMode={isSelectMode}
-                  isSelected={selectedSongIds.includes(song.id)}
-                  onToggleSelect={toggleSelectSong}
-                />
-              ))}
+            <div>
+              <div className="grid grid-cols-[auto_1fr_auto] md:grid-cols-[auto_1fr_minmax(120px,1.5fr)_auto] lg:grid-cols-[auto_1fr_minmax(140px,1.5fr)_minmax(100px,1fr)_auto] items-center gap-3 md:gap-4 px-3 sm:px-4 py-2 border-b border-white/10 text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2">
+                <div className="w-6 text-center">#</div>
+                <div>Title</div>
+                <div className="hidden md:block">Album</div>
+                <div className="hidden lg:block">Date added</div>
+                <div className="w-9 text-right flex justify-end">
+                  <Clock size={14} />
+                </div>
+              </div>
+              <div className="space-y-0.5">
+                {sortedSongs.map((song, idx) => (
+                  <SongRow
+                    key={song.id}
+                    song={song}
+                    index={idx}
+                    playlistContext={sortedSongs}
+                    isSelectMode={isSelectMode}
+                    isSelected={selectedSongIds.includes(song.id)}
+                    onToggleSelect={toggleSelectSong}
+                  />
+                ))}
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -573,13 +682,6 @@ export const LibraryView: React.FC = () => {
                           )}
                         </div>
                       </div>
-
-                      {/* Bitrate badge */}
-                      {song.bitrate && (
-                        <span className="absolute bottom-2 left-2 z-10 text-[9px] font-mono px-1.5 py-0.5 rounded backdrop-blur-md bg-black/60 text-neutral-300">
-                          {song.bitrate}k
-                        </span>
-                      )}
                     </div>
 
                     {/* Song info */}
@@ -592,7 +694,7 @@ export const LibraryView: React.FC = () => {
                       </p>
                       <div className="flex items-center justify-between text-[10px] text-neutral-500 font-mono mt-1.5 pt-1 border-t border-white/5">
                         <span>{formatTime(song.duration)}</span>
-                        <span className="uppercase">{song.format || 'MP3'}</span>
+                        <span>{song.album && song.album !== 'Not set' ? song.album : 'Single'}</span>
                       </div>
                     </div>
                   </div>
@@ -605,125 +707,268 @@ export const LibraryView: React.FC = () => {
 
       {/* SUB TAB 2: ALBUMS */}
       {librarySubTab === 'albums' && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {albums.map((alb) => {
-            const albumSongs = songs.filter((s) => s.album === alb.title);
-            return (
-              <div
-                key={alb.id}
-                onClick={() => {
-                  setLocalSearch(alb.title);
-                  setLibrarySubTab('songs');
-                }}
-                className="group glass-card p-4 rounded-2xl space-y-3 hover:scale-[1.02] transition-all cursor-pointer relative"
-              >
-                <div className="relative aspect-square w-full rounded-xl overflow-hidden">
-                  <Artwork src={alb.coverArt} title={alb.title} artist={alb.artist} size="lg" className="w-full h-full object-cover" />
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (albumSongs.length > 0) playSong(albumSongs[0], albumSongs);
-                    }}
-                    className="absolute bottom-3 right-3 w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-xl hover:scale-110 active:scale-95 z-10 cursor-pointer"
-                    title={`Play ${alb.title}`}
-                  >
-                    <Play size={16} className="fill-white ml-0.5" />
-                  </button>
+        filteredAlbums.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-sm font-semibold text-neutral-300">No albums found matching "{localSearch}"</p>
+            <p className="text-xs text-neutral-500 mt-1">Try searching another album name or artist</p>
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              className="mt-3 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-white/10 hover:bg-white/15 text-white transition-colors cursor-pointer"
+            >
+              Clear Search
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {filteredAlbums.map((alb) => {
+              const albumSongs = songs.filter((s) => s.album === alb.title);
+              return (
+                <div
+                  key={alb.id}
+                  onClick={() => {
+                    setLocalSearch(alb.title);
+                    setLibrarySubTab('songs');
+                  }}
+                  className="group glass-card p-4 rounded-2xl space-y-3 hover:scale-[1.02] transition-all cursor-pointer relative"
+                >
+                  <div className="relative aspect-square w-full rounded-xl overflow-hidden">
+                    <Artwork src={alb.coverArt} title={alb.title} artist={alb.artist} size="lg" className="w-full h-full object-cover" />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (albumSongs.length > 0) playSong(albumSongs[0], albumSongs);
+                      }}
+                      className="absolute bottom-3 right-3 w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-xl hover:scale-110 active:scale-95 z-10 cursor-pointer"
+                      title={`Play ${alb.title}`}
+                    >
+                      <Play size={16} className="fill-white ml-0.5" />
+                    </button>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white group-hover:text-indigo-400 transition-colors truncate">
+                      {alb.title}
+                    </h4>
+                    <p className="text-xs text-neutral-400 truncate mt-0.5">{alb.artist}</p>
+                    <p className="text-[11px] text-neutral-500 mt-1">{alb.songCount} songs</p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold text-white group-hover:text-indigo-400 transition-colors truncate">
-                    {alb.title}
-                  </h4>
-                  <p className="text-xs text-neutral-400 truncate mt-0.5">{alb.artist}</p>
-                  <p className="text-[11px] text-neutral-500 mt-1">{alb.songCount} songs</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )
       )}
 
       {/* SUB TAB 3: ARTISTS */}
       {librarySubTab === 'artists' && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {artists.map((art) => {
-            const artistSongs = songs.filter((s) => s.artist === art.name);
-            return (
-              <div
-                key={art.id}
-                onClick={() => {
-                  setLocalSearch(art.name);
-                  setLibrarySubTab('songs');
-                }}
-                className="group glass-card p-4 rounded-2xl flex flex-col items-center text-center space-y-3 hover:scale-[1.02] transition-all cursor-pointer relative"
-              >
-                <div className="relative">
-                  <div className="w-24 h-24 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 group-hover:scale-105 transition-transform">
-                    <Mic2 size={36} />
+        filteredArtists.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-sm font-semibold text-neutral-300">No artists found matching "{localSearch}"</p>
+            <p className="text-xs text-neutral-500 mt-1">Try searching for another artist name (e.g., Sid Sriram, Ilaiyaraaja, Anirudh)</p>
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              className="mt-3 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-white/10 hover:bg-white/15 text-white transition-colors cursor-pointer"
+            >
+              Clear Search
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {filteredArtists.map((art) => {
+              const normArt = art.name.toLowerCase().replace(/[.\s_\-,]+/g, '');
+              const artistSongs = songs.filter((s) => {
+                const normSong = s.artist.toLowerCase().replace(/[.\s_\-,]+/g, '');
+                return normSong.includes(normArt);
+              });
+              const artistImg = resolveArtistImage(
+                art.name,
+                art.coverArt || artistSongs[0]?.artwork || artistSongs[0]?.coverArt
+              );
+
+              return (
+                <div
+                  key={art.id}
+                  onClick={() => {
+                    setLocalSearch(art.name);
+                    setLibrarySubTab('songs');
+                  }}
+                  className="group glass-card p-4 rounded-2xl flex flex-col items-center text-center space-y-3 hover:bg-white/10 transition-all cursor-pointer relative overflow-hidden w-full min-w-0"
+                >
+                  <div className="relative shrink-0">
+                    {artistImg ? (
+                      <img
+                        src={artistImg}
+                        alt={art.name}
+                        className="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover shadow-xl group-hover:scale-105 transition-transform duration-300 border border-white/10 bg-neutral-800"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                          const parent = (e.target as HTMLElement).parentElement;
+                          if (parent) {
+                            const fallback = parent.querySelector('.artist-fallback');
+                            if (fallback) (fallback as HTMLElement).style.display = 'flex';
+                          }
+                        }}
+                      />
+                    ) : null}
+
+                    <div
+                      className={`w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-300 group-hover:scale-105 transition-transform font-bold text-lg artist-fallback ${
+                        artistImg ? 'hidden' : 'flex'
+                      }`}
+                    >
+                      {art.name.slice(0, 2).toUpperCase()}
+                    </div>
+
+                    {/* Floating Spotify Play Button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (artistSongs.length > 0) playSong(artistSongs[0], artistSongs);
+                      }}
+                      className="absolute bottom-0 right-0 w-9 h-9 rounded-full bg-[#1ed760] text-black flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-xl hover:scale-110 active:scale-95 z-10 cursor-pointer"
+                      title={`Play tracks by ${art.name}`}
+                    >
+                      <Play size={15} className="fill-black ml-0.5" />
+                    </button>
                   </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (artistSongs.length > 0) playSong(artistSongs[0], artistSongs);
-                    }}
-                    className="absolute bottom-0 right-0 w-9 h-9 rounded-full bg-indigo-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-xl hover:scale-110 active:scale-95 z-10 cursor-pointer"
-                    title={`Play tracks by ${art.name}`}
-                  >
-                    <Play size={14} className="fill-white ml-0.5" />
-                  </button>
+
+                  {/* Name & Stats Container - Guaranteed NO OVERLAP */}
+                  <div className="w-full min-w-0 px-1 text-center">
+                    <h4
+                      className="text-sm font-bold text-white group-hover:text-[#1ed760] transition-colors truncate block w-full"
+                      title={art.name}
+                    >
+                      {art.name}
+                    </h4>
+                    <p className="text-xs text-neutral-400 mt-1 truncate block w-full font-medium">
+                      {art.songCount} {art.songCount === 1 ? 'track' : 'tracks'}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold text-white group-hover:text-indigo-400 transition-colors truncate">
-                    {art.name}
-                  </h4>
-                  <p className="text-xs text-neutral-400 mt-0.5">
-                    {art.songCount} track{art.songCount > 1 ? 's' : ''} • {art.albumCount} album{art.albumCount > 1 ? 's' : ''}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )
       )}
 
       {/* SUB TAB 4: PLAYLISTS */}
       {librarySubTab === 'playlists' && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-          {playlists.map((pl) => {
-            const plSongs = getPlaylistSongs(pl);
-            return (
-              <div
-                key={pl.id}
-                onClick={() => {
-                  setActivePlaylistId(pl.id);
-                  setActiveTab('playlists');
-                }}
-                className="group glass-card p-4 rounded-2xl space-y-3 hover:scale-[1.02] transition-all cursor-pointer relative"
-              >
-                <div className="relative w-full aspect-square rounded-xl bg-gradient-to-br from-indigo-600/30 to-rose-600/20 flex items-center justify-center text-indigo-400 overflow-hidden">
-                  <Disc size={40} className="group-hover:rotate-12 transition-transform" />
+        filteredPlaylists.length === 0 && localSearch && !('liked songs'.includes(localSearch.toLowerCase())) ? (
+          <div className="py-16 text-center">
+            <p className="text-sm font-semibold text-neutral-300">No playlists found matching "{localSearch}"</p>
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              className="mt-3 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-white/10 hover:bg-white/15 text-white transition-colors cursor-pointer"
+            >
+              Clear Search
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Playlists Actions: Import & Create Buttons */}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-xs text-neutral-400 font-medium">
+                {filteredPlaylists.length + 1} playlists in library
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsImportModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border border-white/10 text-xs font-semibold transition-all cursor-pointer"
+                  title="Import from Spotify / YouTube"
+                >
+                  <UploadCloud size={14} className="text-[#1ed760]" />
+                  <span>Import Playlist</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const name = prompt('Enter name for your new playlist:');
+                    if (name && name.trim()) {
+                      createPlaylist(name.trim()).then((newPl) => setActivePlaylistId(newPl.id));
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#1ed760] hover:bg-[#1fdf64] text-black text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                  title="Create New Playlist"
+                >
+                  <Plus size={14} />
+                  <span>New Playlist</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {/* Spotify-style Liked Songs Special Card */}
+              {(!localSearch || 'liked songs'.includes(localSearch.toLowerCase())) && (
+                <div
+                  onClick={() => {
+                    setActivePlaylistId('smart-favorites');
+                  }}
+                  className="group p-4 rounded-2xl bg-gradient-to-br from-[#450af5] to-[#8e8ee5] text-white flex flex-col justify-between aspect-square cursor-pointer shadow-xl hover:scale-[1.02] transition-all relative overflow-hidden"
+                >
+                  <div className="pt-2">
+                    <Heart size={32} className="fill-white text-white" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-black text-white">Liked Songs</h4>
+                    <p className="text-xs text-white/80 font-medium mt-1">
+                      {songs.filter((s) => s.isFavorite).length} liked songs
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Regular & Imported Playlists */}
+              {filteredPlaylists.map((pl) => {
+              const plSongs = getPlaylistSongs(pl);
+              return (
+                <div
+                  key={pl.id}
+                  onClick={() => {
+                    setActivePlaylistId(pl.id);
+                  }}
+                  className="group glass-card p-3.5 rounded-2xl space-y-3 hover:bg-white/10 transition-all cursor-pointer relative"
+                >
+                <div className="relative w-full aspect-square rounded-xl bg-neutral-900 overflow-hidden shadow-md">
+                  {pl.coverArt ? (
+                    <img
+                      src={pl.coverArt}
+                      alt={pl.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-indigo-700 via-purple-800 to-pink-700 flex items-center justify-center text-white">
+                      <ListMusic size={32} />
+                    </div>
+                  )}
+
+                  {/* Floating Play Button */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       if (plSongs.length > 0) playSong(plSongs[0], plSongs);
                     }}
-                    className="absolute bottom-3 right-3 w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-xl hover:scale-110 active:scale-95 z-10 cursor-pointer"
+                    className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-[#1ed760] hover:bg-[#1fdf64] hover:scale-105 text-black flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-xl active:scale-95 z-10 cursor-pointer"
                     title={`Play ${pl.name}`}
                   >
-                    <Play size={16} className="fill-white ml-0.5" />
+                    <Play size={16} className="fill-black text-black ml-0.5" />
                   </button>
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-white group-hover:text-indigo-400 transition-colors truncate">
+                  <h4 className="text-sm font-bold text-white group-hover:text-[#1ed760] transition-colors truncate">
                     {pl.name}
                   </h4>
-                  <p className="text-xs text-neutral-400 truncate mt-0.5">{pl.description || 'Custom playlist'}</p>
-                  <p className="text-[11px] text-neutral-500 mt-1">{plSongs.length} songs</p>
+                  <p className="text-xs text-neutral-400 truncate mt-0.5">{pl.description || (pl.isSmart ? 'Smart Mix' : 'Playlist')}</p>
+                  <p className="text-[11px] text-neutral-500 mt-1 font-mono">{plSongs.length} songs</p>
                 </div>
               </div>
             );
           })}
+          </div>
         </div>
+        )
       )}
 
       {/* SUB TAB 5: FOLDERS */}
@@ -972,6 +1217,15 @@ export const LibraryView: React.FC = () => {
         onSuccess={() => {
           setSelectedSongIds([]);
           setIsSelectMode(false);
+        }}
+      />
+
+      {/* Universal Import Playlist Modal (Spotify/YouTube/JioSaavn) */}
+      <ImportPlaylistModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImportSuccess={(newId) => {
+          setActivePlaylistId(newId);
         }}
       />
     </div>

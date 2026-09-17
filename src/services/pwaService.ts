@@ -44,9 +44,14 @@ class PwaService {
   private registerServiceWorker() {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
 
-    // In development mode (localhost/Vite dev server), do NOT run service workers
-    // to avoid intercepting live ESM modules and causing blank screen issues.
-    if (import.meta.env.DEV) {
+    const isNativeCapacitor =
+      window.location.protocol === 'capacitor:' ||
+      Boolean((window as any).Capacitor?.isNativePlatform?.()) ||
+      (window.location.hostname === 'localhost' && Boolean((window as any).Capacitor));
+
+    // In development mode or native mobile APK, NEVER run service workers
+    // to avoid intercepting local asset requests and causing infinite blank/loading screens.
+    if (import.meta.env.DEV || isNativeCapacitor || window.location.hostname === 'localhost') {
       navigator.serviceWorker.getRegistrations().then((regs) => {
         for (const reg of regs) {
           reg.unregister();
@@ -55,7 +60,7 @@ class PwaService {
       if ('caches' in window) {
         caches.keys().then((keys) => {
           for (const key of keys) {
-            if (!key.startsWith('aura-offline-audio')) {
+            if (key.startsWith('aura-music-pwa')) {
               caches.delete(key);
             }
           }

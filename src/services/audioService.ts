@@ -5,6 +5,7 @@ import { cloudPlayerService } from './cloudPlayerService';
 import { searchJioSaavn, PRESET_SAAVN_320K_HITS } from './jiosaavnService';
 import { downloadService } from './downloadService';
 import { buildApiUrl } from '../utils/apiConfig';
+import { radioService } from './radioService';
 
 type AudioEventListener = (state: AudioServiceState) => void;
 
@@ -21,6 +22,7 @@ export interface AudioServiceState {
 
 class AudioService {
   private audio: HTMLAudioElement;
+  private radioAudio: HTMLAudioElement;
   private listeners: Set<AudioEventListener> = new Set();
   private currentSong: Song | null = null;
   private currentObjectUrl: string | null = null;
@@ -32,6 +34,7 @@ class AudioService {
   // Track active engine: HTML5 Audio (local) vs Cloud Headless Player (Vercel online)
   private isUsingCloudPlayer: boolean = false;
   private isCloudPlaying: boolean = false;
+  private isUserPaused: boolean = false;
   private isFallingBack: boolean = false;
   private cloudWatchdogTimeout: any = null;
 
@@ -53,10 +56,18 @@ class AudioService {
       this.audio.preload = 'auto';
       this.audio.crossOrigin = 'anonymous';
       this.audio.volume = 0.8;
+
+      this.radioAudio = new Audio();
+      this.radioAudio.preload = 'auto';
+      // Deliberately NO crossOrigin on radioAudio to allow direct hardware playback of any internet radio stream
+      this.radioAudio.volume = 0.8;
+
       if (typeof window !== 'undefined') {
         (window as any).__auraAudio = this.audio;
+        (window as any).__auraRadioAudio = this.radioAudio;
       }
       this.setupListeners();
+      this.setupRadioListeners();
       this.setupCloudListeners();
     } else {
       this.audio = {
@@ -73,7 +84,43 @@ class AudioService {
         play: () => Promise.resolve(),
         load: () => {}
       } as any;
+      this.radioAudio = { ...this.audio } as any;
     }
+  }
+
+  private setupRadioListeners() {
+    this.radioAudio.addEventListener('play', () => {
+      if (this.currentSong?.isLiveRadio) this.notify();
+    });
+
+    this.radioAudio.addEventListener('playing', () => {
+      if (this.currentSong?.isLiveRadio) this.notify();
+    });
+
+    this.radioAudio.addEventListener('pause', () => {
+      if (this.currentSong?.isLiveRadio) this.notify();
+    });
+
+    this.radioAudio.addEventListener('waiting', () => {
+      if (this.currentSong?.isLiveRadio) this.notify();
+    });
+
+    this.radioAudio.addEventListener('volumechange', () => {
+      if (this.currentSong?.isLiveRadio) this.notify();
+    });
+
+    this.radioAudio.addEventListener('error', (e) => {
+      if (!this.currentSong?.isLiveRadio) return;
+      if (this.radioAudio.error && this.radioAudio.error.code === MediaError.MEDIA_ERR_ABORTED) {
+        return;
+      }
+      const errorTimeSong = this.currentSong;
+      const errorTimeRequestId = this.playRequestId;
+      console.warn('Radio stream playback notice:', e);
+      if (errorTimeSong && !this.isFallingBack && errorTimeRequestId === this.playRequestId) {
+        this.handlePlaybackFailure(errorTimeSong);
+      }
+    });
   }
 
   private setupListeners() {
@@ -154,9 +201,13 @@ class AudioService {
       if (this.audio.error && this.audio.error.code === MediaError.MEDIA_ERR_ABORTED) {
         return;
       }
+      // BUG-02 fix: Guard against race condition — only fallback if this error
+      // belongs to the currently-intended song (not a stale source switch)
+      const errorTimeSong = this.currentSong;
+      const errorTimeRequestId = this.playRequestId;
       console.warn('Audio playback notice:', e);
-      if (this.currentSong && !this.isFallingBack) {
-        this.handlePlaybackFailure(this.currentSong);
+      if (errorTimeSong && !this.isFallingBack && errorTimeRequestId === this.playRequestId) {
+        this.handlePlaybackFailure(errorTimeSong);
       }
     });
   }
@@ -175,6 +226,17 @@ class AudioService {
 
     cloudPlayerService.onPause(() => {
       if (this.isUsingCloudPlayer) {
+        // If pause occurred without explicit user action (e.g. mobile OS screen-off or app minimization),
+        // instantly recover and resume playback
+        if (!this.isUserPaused && this.currentSong) {
+          console.log('[AudioService] Background cloud pause intercepted. Restoring playback...');
+          setTimeout(() => {
+            if (!this.isUserPaused && this.isUsingCloudPlayer) {
+              cloudPlayerService.play();
+            }
+          }, 150);
+          return;
+        }
         this.isCloudPlaying = false;
         this.notify();
       }
@@ -214,6 +276,10 @@ class AudioService {
       const cloudDur = cloudPlayerService.getDuration();
       if (cloudDur > 0) duration = cloudDur;
       isActuallyPlaying = this.isCloudPlaying;
+    } else if (this.currentSong?.isLiveRadio) {
+      isActuallyPlaying = !this.radioAudio.paused && !this.radioAudio.ended;
+      currentTime = this.radioAudio.currentTime || 0;
+      duration = 0;
     } else {
       isActuallyPlaying =
         !this.audio.paused && !this.audio.ended && this.audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
@@ -312,6 +378,7 @@ class AudioService {
   public async playSong(song: Song, audioSourceUrl?: string): Promise<void> {
     const thisRequestId = ++this.playRequestId;
 
+    this.isUserPaused = false;
     this.accumulatedListenSeconds = 0;
     this.hasCountedMeaningfulPlay = false;
     this.lastTimeUpdateSecond = 0;
@@ -322,6 +389,29 @@ class AudioService {
       this.currentObjectUrl = null;
     }
     downloadService.revokeCachedAudioUrl();
+
+    // 0. Live Radio Direct Playback Path
+    if (song.isLiveRadio) {
+      this.isUsingCloudPlayer = false;
+      cloudPlayerService.pause();
+      this.audio.pause();
+
+      let targetUrl = audioSourceUrl || song.filePath || song.path || '';
+
+      // If stream is HTTP and page is on HTTPS, route through radio proxy to avoid mixed-content block
+      if (targetUrl.startsWith('http://') && typeof window !== 'undefined' && window.location.protocol === 'https:') {
+        targetUrl = buildApiUrl(`/api/radio/stream?url=${encodeURIComponent(targetUrl)}`);
+      }
+
+      await this.playRadioStream(song, targetUrl, thisRequestId);
+      return;
+    }
+
+    // Stop live radio when standard track is played
+    if (this.radioAudio && !this.radioAudio.paused) {
+      this.radioAudio.pause();
+      this.radioAudio.src = '';
+    }
 
     // 1. Local Track Playback Path (preserved untouched)
     const registeredFile = getRegisteredFile(song.id);
@@ -383,8 +473,15 @@ class AudioService {
     }
 
     // 4. Standard Online Track Playback (JioSaavn / Direct Stream / YouTube Cloud)
-    // Check if track is a direct audio stream (JioSaavn 320k master or Live FM Radio)
-    const isDirectAudioStream = Boolean(
+    // Check if track is a preview clip (e.g. 30s iTunes sample) that should NOT be played as a full direct audio stream
+    const isPreviewClip = Boolean(
+      song.isPreview ||
+      song.id?.startsWith('itunes_') ||
+      (song.filePath && (song.filePath.includes('mzstatic.com') || song.filePath.includes('itunes.apple.com')))
+    );
+
+    // Check if track is a true direct audio stream (JioSaavn 320k master or Live FM Radio)
+    const isDirectAudioStream = !isPreviewClip && Boolean(
       song.isSaavn ||
       song.isLiveRadio ||
       (song.filePath && (
@@ -398,24 +495,32 @@ class AudioService {
       ))
     );
 
+    // If it was a preview clip, immediately resolve full track via YouTube or JioSaavn full search
+    if (isPreviewClip) {
+      console.log(`[AudioService] Track "${song.title}" is a 30s preview clip. Resolving full song stream...`);
+      await this.handlePlaybackFailure(song);
+      return;
+    }
+
     // YouTube track check
     const ytVideoId = !isDirectAudioStream ? this.extractYouTubeVideoId(song) : null;
 
     if (ytVideoId) {
       this.isUsingCloudPlayer = true;
       this.audio.pause();
+      // BUG-12 fix: isCloudPlaying should remain false until onPlay fires!
+      this.isCloudPlaying = false;
       cloudPlayerService.loadVideo(ytVideoId, 0);
-      this.isCloudPlaying = true;
       this.notify();
 
-      // Arm watchdog: If YouTube doesn't start playing within 4s (e.g. error 150/101 embed block), fallback!
+      // Arm watchdog: Increase timeout to 8000ms to avoid false-positive aborts on slow mobile networks
       if (this.cloudWatchdogTimeout) clearTimeout(this.cloudWatchdogTimeout);
       this.cloudWatchdogTimeout = setTimeout(() => {
         if (this.isUsingCloudPlayer && !this.isCloudPlaying && this.currentSong?.id === song.id) {
-          console.warn('YouTube stream watchdog triggered: embedding blocked. Switching to Studio Master audio.');
+          console.warn('YouTube stream watchdog triggered: buffering timeout or embed restriction. Switching to Studio Master audio.');
           this.fallbackToDirectAudio(song);
         }
-      }, 4000);
+      }, 8000);
       return;
     }
 
@@ -452,6 +557,58 @@ class AudioService {
       if (err.name === 'AbortError' || thisRequestId !== this.playRequestId) return;
       console.warn('Audio playback note:', err);
       this.notify('Cannot play audio stream. Please check connection.');
+    }
+  }
+
+  private async playRadioStream(song: Song, sourceUrl: string, requestId?: number) {
+    if (!sourceUrl) {
+      this.notify('Cannot play radio stream. Stream URL not found.');
+      return;
+    }
+    if (requestId !== undefined && requestId !== this.playRequestId) return;
+
+    this.isUsingCloudPlayer = false;
+    cloudPlayerService.pause();
+    this.audio.pause();
+
+    try {
+      this.radioAudio.pause();
+      this.radioAudio.src = sourceUrl;
+      this.radioAudio.volume = this.audio.volume;
+      this.radioAudio.load();
+
+      await this.radioAudio.play();
+      if (requestId !== undefined && requestId !== this.playRequestId) return;
+
+      this.notify();
+    } catch (err: any) {
+      if (err.name === 'AbortError' || (requestId !== undefined && requestId !== this.playRequestId)) {
+        return;
+      }
+      console.warn('Direct live radio playback notice:', err);
+
+      // If direct playback had an issue (e.g. Mixed Content or network restriction) and we haven't tried proxy yet:
+      const rawUrl = song.filePath || song.path;
+      if (rawUrl && !sourceUrl.includes('/api/radio/stream') && typeof window !== 'undefined') {
+        const proxyUrl = buildApiUrl(`/api/radio/stream?url=${encodeURIComponent(rawUrl)}`);
+        try {
+          console.log('⚡ Attempting radio stream via low-latency proxy:', proxyUrl);
+          this.radioAudio.pause();
+          this.radioAudio.src = proxyUrl;
+          this.radioAudio.volume = this.audio.volume;
+          this.radioAudio.load();
+          await this.radioAudio.play();
+          if (requestId !== undefined && requestId !== this.playRequestId) return;
+          this.notify();
+          return;
+        } catch (proxyErr) {
+          console.warn('Proxy radio stream playback failed too:', proxyErr);
+        }
+      }
+
+      if (song && !this.isFallingBack) {
+        await this.handlePlaybackFailure(song);
+      }
     }
   }
 
@@ -514,6 +671,23 @@ class AudioService {
     }
 
     try {
+      // Live Radio Auto-Failover
+      if (song.isLiveRadio) {
+        const station = radioService.getStationByUrl(song.filePath || song.path);
+        if (station && station.backupUrls && station.backupUrls.length > 0) {
+          const nextUrl = station.backupUrls.find((u) => u !== song.filePath);
+          if (nextUrl) {
+            console.log(`⚡ Live Radio Auto-Failover: "${station.name}" switching to mirror stream:`, nextUrl);
+            song.filePath = nextUrl;
+            song.path = nextUrl;
+            await this.playRadioStream(song, nextUrl, this.playRequestId);
+            return;
+          }
+        }
+        this.notify(`Live radio stream for "${song.title}" is currently offline. Retrying shortly.`);
+        return;
+      }
+
       const cleanTitle = song.title
         .replace(/\([^)]*\)/g, '')
         .replace(/\[[^\]]*\]/g, '')
@@ -532,11 +706,14 @@ class AudioService {
 
       if (!fallbackUrl) {
         const results = await searchJioSaavn(cleanTitle);
-        if (results && results.length > 0 && results[0].filePath && results[0].filePath !== song.filePath) {
-          fallbackUrl = results[0].filePath;
-          if (results[0].artwork && !song.coverArt) {
-            song.coverArt = results[0].artwork;
-            song.artwork = results[0].artwork;
+        const validFullSaavn = results?.find(
+          (r) => r.filePath && r.filePath !== song.filePath && !r.isPreview && !r.id.startsWith('itunes_')
+        );
+        if (validFullSaavn && validFullSaavn.filePath) {
+          fallbackUrl = validFullSaavn.filePath;
+          if (validFullSaavn.artwork && !song.coverArt) {
+            song.coverArt = validFullSaavn.artwork;
+            song.artwork = validFullSaavn.artwork;
           }
         }
       }
@@ -544,6 +721,7 @@ class AudioService {
       if (fallbackUrl) {
         console.log('⚡ Switched to Ultra-HD 320k Studio Master audio:', song.title, '->', fallbackUrl);
         song.isSaavn = true;
+        song.isPreview = false;
         song.format = '320k AAC';
         song.bitrate = 320;
         song.filePath = fallbackUrl;
@@ -585,9 +763,12 @@ class AudioService {
   }
 
   public pause(): void {
+    this.isUserPaused = true;
     if (this.isUsingCloudPlayer) {
       cloudPlayerService.pause();
       this.isCloudPlaying = false;
+    } else if (this.currentSong?.isLiveRadio) {
+      this.radioAudio.pause();
     } else {
       this.audio.pause();
     }
@@ -595,10 +776,23 @@ class AudioService {
   }
 
   public async resume(): Promise<void> {
+    this.isUserPaused = false;
     if (this.isUsingCloudPlayer) {
       cloudPlayerService.play();
       this.isCloudPlaying = true;
       this.notify();
+      return;
+    }
+
+    if (this.currentSong?.isLiveRadio) {
+      try {
+        await this.radioAudio.play();
+        this.notify();
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          await this.playSong(this.currentSong);
+        }
+      }
       return;
     }
 
@@ -635,6 +829,15 @@ class AudioService {
         this.pause();
       } else {
         await this.resume();
+      }
+      return;
+    }
+
+    if (this.currentSong?.isLiveRadio) {
+      if (this.radioAudio.paused) {
+        await this.resume();
+      } else {
+        this.pause();
       }
       return;
     }
@@ -677,6 +880,7 @@ class AudioService {
   public setVolume(vol: number): void {
     const clamped = Math.max(0, Math.min(1, vol));
     this.audio.volume = clamped;
+    if (this.radioAudio) this.radioAudio.volume = clamped;
     cloudPlayerService.setVolume(clamped);
     if (clamped > 0 && this.isMuted) {
       this.isMuted = false;
@@ -691,11 +895,13 @@ class AudioService {
   public toggleMute(): void {
     if (this.isMuted) {
       this.audio.volume = this.previousVolume || 0.8;
+      if (this.radioAudio) this.radioAudio.volume = this.previousVolume || 0.8;
       this.isMuted = false;
       cloudPlayerService.setMuted(false);
     } else {
       this.previousVolume = this.audio.volume;
       this.audio.volume = 0;
+      if (this.radioAudio) this.radioAudio.volume = 0;
       this.isMuted = true;
       cloudPlayerService.setMuted(true);
     }
@@ -721,6 +927,36 @@ class AudioService {
 
   public isUsingCloud(): boolean {
     return this.isUsingCloudPlayer;
+  }
+
+  public isCurrentlyPlaying(): boolean {
+    if (this.isUsingCloudPlayer) {
+      return this.isCloudPlaying;
+    }
+    if (this.currentSong?.isLiveRadio) {
+      return Boolean(this.radioAudio && !this.radioAudio.paused);
+    }
+    return Boolean(this.audio && !this.audio.paused);
+  }
+
+  public getCurrentPlaybackTime(): number {
+    if (this.isUsingCloudPlayer) {
+      return cloudPlayerService.getCurrentTime();
+    }
+    if (this.currentSong?.isLiveRadio) {
+      return this.radioAudio?.currentTime || 0;
+    }
+    return this.audio?.currentTime || 0;
+  }
+
+  public getPlaybackDuration(): number {
+    if (this.isUsingCloudPlayer) {
+      return cloudPlayerService.getDuration() || this.currentSong?.duration || 0;
+    }
+    if (this.currentSong?.isLiveRadio) {
+      return 0;
+    }
+    return this.audio?.duration || this.currentSong?.duration || 0;
   }
 }
 

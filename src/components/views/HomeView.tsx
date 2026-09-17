@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Play,
   Pause,
@@ -10,7 +10,9 @@ import {
   Sunrise,
   Sunset,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  ArrowRight,
+  UploadCloud
 } from 'lucide-react';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
@@ -28,11 +30,12 @@ import {
   ARTIST_CATEGORY_LABELS
 } from '../../services/tamilArtistsData';
 import { InbuiltPlaylistModal } from '../common/InbuiltPlaylistModal';
+import { ImportPlaylistModal } from '../common/ImportPlaylistModal';
 import { ArtistPlaylistView } from './ArtistPlaylistView';
 import { artistPlaylistService } from '../../services/artistPlaylistService';
 
 export const HomeView: React.FC = () => {
-  const { songs: localSongs } = useLibraryStore();
+  const { songs: localSongs, setActiveTab } = useLibraryStore();
   const currentSong = usePlayerStore((s) => s.currentSong);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const playSong = usePlayerStore((s) => s.playSong);
@@ -44,6 +47,7 @@ export const HomeView: React.FC = () => {
   const [selectedArtist, setSelectedArtist] = useState<TamilArtist | null>(null);
   const [artistCategoryFilter, setArtistCategoryFilter] = useState<ArtistCategory>('all');
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const artistScrollRef = useRef<HTMLDivElement>(null);
 
   const scrollArtists = (direction: 'left' | 'right') => {
@@ -53,9 +57,17 @@ export const HomeView: React.FC = () => {
     }
   };
 
-  // Dynamic Contextual Time Greeting
+  // Dynamic Contextual Time Greeting (BUG-19 fix: updates as time passes)
+  const [currentHour, setCurrentHour] = useState(() => new Date().getHours());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentHour(new Date().getHours());
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
   const greeting = useMemo(() => {
-    const hour = new Date().getHours();
+    const hour = currentHour;
     if (hour >= 4 && hour < 12) {
       return { text: 'Good morning', icon: <Sunrise size={20} className="text-amber-400" /> };
     } else if (hour >= 12 && hour < 17) {
@@ -65,7 +77,7 @@ export const HomeView: React.FC = () => {
     } else {
       return { text: 'Late night vibes', icon: <Moon size={20} className="text-indigo-400" /> };
     }
-  }, []);
+  }, [currentHour]);
 
   // Fast lookup map for all inbuilt playlists
   const playlistMap = useMemo(() => {
@@ -78,18 +90,30 @@ export const HomeView: React.FC = () => {
 
   // Quick 6-Pack Grid Data (100% Inbuilt Playlists, Zero Search Redirects!)
   const quickAccessItems = useMemo(() => {
+    const favoriteTracks = localSongs.filter((s) => s.isFavorite);
+
     return [
       {
         id: 'liked_songs',
         title: 'Liked Songs',
-        subtitle: `${localSongs.filter((s) => s.isFavorite).length || 0} tracks`,
+        subtitle: `${favoriteTracks.length || 0} tracks`,
         coverArt: getPlaylistArtwork('liked_songs'),
         gradient: 'from-violet-700 to-indigo-900',
         icon: <Heart size={20} className="fill-white text-white" />,
+        playlist: {
+          id: 'liked_songs',
+          title: 'Liked Songs',
+          subtitle: `${favoriteTracks.length || 0} tracks`,
+          description: 'Your loved & favorite tracks',
+          coverArt: getPlaylistArtwork('liked_songs'),
+          gradient: 'from-violet-700 to-indigo-900',
+          accentColor: '#6366f1',
+          songCount: favoriteTracks.length,
+          tracks: favoriteTracks
+        } as InbuiltPlaylist,
         onClick: () => {
-          const favorites = localSongs.filter((s) => s.isFavorite);
-          if (favorites.length > 0) {
-            playBatch(favorites);
+          if (favoriteTracks.length > 0) {
+            playBatch(favoriteTracks);
           } else {
             // Open Mudhal Kaadhal or Top 50 if no local favorites yet
             if (playlistMap['mudhal_kaadhal']) {
@@ -238,15 +262,19 @@ export const HomeView: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setActiveFilter('radio')}
-            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer border shrink-0 flex items-center gap-1.5 ${
-              activeFilter === 'radio'
-                ? 'bg-red-600 text-white border-red-500 shadow-md shadow-red-600/30'
-                : 'bg-white/5 text-neutral-300 border-white/10 hover:bg-white/10 hover:text-white'
-            }`}
+            onClick={() => setActiveTab('radio')}
+            className="px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer border shrink-0 flex items-center gap-1.5 bg-white/5 text-neutral-300 border-white/10 hover:bg-red-600/20 hover:text-red-300 hover:border-red-500/30"
           >
-            <Radio size={13} />
+            <Radio size={13} className="text-red-400" />
             <span>24/7 Live Radio FM</span>
+          </button>
+
+          <button
+            onClick={() => setIsImportModalOpen(true)}
+            className="px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer border shrink-0 flex items-center gap-1.5 bg-gradient-to-r from-cyan-500/15 to-indigo-500/15 text-cyan-300 border-cyan-500/30 hover:from-cyan-500/25 hover:to-indigo-500/25 hover:text-cyan-200"
+          >
+            <UploadCloud size={13} className="text-cyan-400" />
+            <span>Import Playlist</span>
           </button>
         </div>
       </div>
@@ -328,6 +356,7 @@ export const HomeView: React.FC = () => {
                       ? 'opacity-100 scale-100'
                       : 'opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95'
                   }`}
+                  aria-label={isItemPlaying ? `Pause ${item.title}` : `Play ${item.title}`}
                   title={isItemPlaying ? `Pause ${item.title}` : `Play ${item.title}`}
                 >
                   {isItemPlaying ? (
@@ -348,7 +377,7 @@ export const HomeView: React.FC = () => {
       {/* ========================================================================= */}
       {(activeFilter === 'all' || activeFilter === 'playlists') && (
         <section className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
                 <span>Top Tamil Playlists • Curated Blockbusters</span>
@@ -360,6 +389,14 @@ export const HomeView: React.FC = () => {
                 Official Tamil blockbusters, Anirudh mass anthems, and evergreen Rahman melodies in verified 320kbps audio.
               </p>
             </div>
+
+            <button
+              onClick={() => setIsImportModalOpen(true)}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 text-cyan-300 hover:text-cyan-200 border border-cyan-500/30 font-semibold text-xs shadow-md shadow-cyan-500/10 transition-all cursor-pointer self-start sm:self-auto"
+            >
+              <UploadCloud size={14} />
+              <span>Import Playlist</span>
+            </button>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 sm:gap-4">
@@ -442,7 +479,7 @@ export const HomeView: React.FC = () => {
 
       {/* ========================================================================= */}
       {/* ZONE 3 - SHELF 2: 24/7 Live Radio FM Stations                            */}
-      {/* 100% Verified, Rock-Solid, Zero Buffering Live Streams                    */}
+      {/* Top 5 Stations Horizontal Carousel + See All Navigation                  */}
       {/* ========================================================================= */}
       {(activeFilter === 'all' || activeFilter === 'radio') && (
         <section className="space-y-4">
@@ -456,13 +493,21 @@ export const HomeView: React.FC = () => {
                 </span>
               </h3>
               <p className="text-xs text-neutral-400 mt-0.5">
-                Continuous live web broadcasts streaming in high-bitrate digital stereo without interruptions.
+                Top live broadcasts • High-bitrate stereo with zero buffering.
               </p>
             </div>
+
+            <button
+              onClick={() => setActiveTab('radio')}
+              className="flex items-center gap-1.5 text-xs font-bold text-red-400 hover:text-red-300 transition-colors group cursor-pointer"
+            >
+              <span>See All ({LIVE_RADIO_STATIONS.length})</span>
+              <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+            </button>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
-            {LIVE_RADIO_STATIONS.map((station) => {
+          <div className="flex gap-3.5 overflow-x-auto no-scrollbar scroll-smooth snap-x pb-2 pt-1">
+            {LIVE_RADIO_STATIONS.slice(0, 5).map((station) => {
               const stationSong = getStationAsSong(station);
               const isCurrent = currentSong?.filePath === station.streamUrl;
 
@@ -470,7 +515,7 @@ export const HomeView: React.FC = () => {
                 <div
                   key={station.id}
                   onClick={() => playSong(stationSong)}
-                  className={`group p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                  className={`w-40 sm:w-44 shrink-0 snap-start group p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
                     isCurrent
                       ? 'bg-red-500/15 border-red-500/40 shadow-lg shadow-red-500/10'
                       : 'bg-white/[0.03] hover:bg-white/[0.07] border-white/5 hover:border-white/10'
@@ -513,6 +558,23 @@ export const HomeView: React.FC = () => {
                 </div>
               );
             })}
+
+            {/* Trailing "See All" Card */}
+            <div
+              onClick={() => setActiveTab('radio')}
+              className="w-40 sm:w-44 shrink-0 snap-start p-4 rounded-2xl bg-gradient-to-br from-red-950/40 via-red-900/20 to-neutral-900/60 hover:from-red-900/50 hover:to-neutral-800/80 border border-red-500/20 hover:border-red-500/40 transition-all cursor-pointer flex flex-col items-center justify-center text-center gap-3 group shadow-lg"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-red-600/20 border border-red-500/30 flex items-center justify-center text-red-400 group-hover:scale-110 group-hover:bg-red-600 group-hover:text-white transition-all shadow-md">
+                <Radio size={22} />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-white flex items-center justify-center gap-1">
+                  <span>See All</span>
+                  <ArrowRight size={13} className="group-hover:translate-x-1 transition-transform" />
+                </h4>
+                <p className="text-[10px] text-neutral-400 mt-0.5">Explore all 16 stations</p>
+              </div>
+            </div>
           </div>
         </section>
       )}
@@ -757,6 +819,12 @@ export const HomeView: React.FC = () => {
       <InbuiltPlaylistModal
         playlist={selectedInbuiltPlaylist}
         onClose={() => setSelectedInbuiltPlaylist(null)}
+      />
+
+      {/* Universal Playlist Importer Modal */}
+      <ImportPlaylistModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
       />
     </div>
   );

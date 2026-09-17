@@ -183,7 +183,12 @@ export const NowPlayingModal: React.FC = () => {
   return (
     <div className="fixed inset-0 z-[60] bg-[#07090e]/95 backdrop-blur-3xl flex flex-col select-none overflow-hidden animate-in fade-in duration-200">
       {/* Top Header (shrink-0) */}
-      <div className="shrink-0 z-50 bg-[#07090e]/90 backdrop-blur-xl border-b border-white/10 px-4 sm:px-6 pt-3 pb-3">
+      <div
+        style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)' }}
+        className="shrink-0 z-50 bg-[#07090e]/90 backdrop-blur-xl border-b border-white/10 px-4 sm:px-6 pb-3"
+      >
+        {/* Mobile drag handle indicator */}
+        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-2 sm:hidden cursor-pointer" onClick={() => setNowPlayingOpen(false)} />
         <div className="flex flex-wrap md:flex-nowrap items-center justify-between gap-3 sm:gap-4 w-full max-w-5xl mx-auto">
           <div className="min-w-0 shrink-0">
             <span className="text-[11px] font-bold uppercase tracking-widest text-indigo-400">
@@ -382,11 +387,7 @@ export const NowPlayingModal: React.FC = () => {
                       <span className="px-2 py-0.5 text-[10px] font-mono uppercase rounded bg-white/5 text-neutral-400 border border-white/5">
                         {currentSong.format || 'MP3'}
                       </span>
-                      {currentSong.isSaavn && (
-                        <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          JioSaavn 320k
-                        </span>
-                      )}
+
                       {currentSong.isAuraFlow && (
                         <div className="relative inline-block">
                           <button
@@ -515,7 +516,10 @@ export const NowPlayingModal: React.FC = () => {
       </div>
 
       {/* Bottom Controls Area (shrink-0 mt-auto, pinned cleanly without overlapping) */}
-      <div className="shrink-0 mt-auto z-40 bg-[#07090e]/95 backdrop-blur-xl w-full border-t border-white/10 px-4 sm:px-6 pt-3 pb-3">
+      <div
+        style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 14px)' }}
+        className="shrink-0 mt-auto z-40 bg-[#07090e]/95 backdrop-blur-xl w-full border-t border-white/10 px-4 sm:px-6 pt-3"
+      >
         <div className="w-full max-w-2xl mx-auto">
           {/* Progress Slider or Live Radio Status */}
           {currentSong.isLiveRadio ? (
@@ -541,6 +545,7 @@ export const NowPlayingModal: React.FC = () => {
                 max={duration || 100}
                 value={currentTime}
                 onChange={(e) => seek(Number(e.target.value))}
+                aria-label="Seek track position"
                 className="w-full h-1.5 bg-white/15 rounded-lg appearance-none cursor-pointer accent-indigo-500"
               />
               <div className="flex justify-between text-xs font-mono text-neutral-400">
@@ -580,6 +585,7 @@ export const NowPlayingModal: React.FC = () => {
               <button
                 onClick={previousSong}
                 className="p-2 sm:p-2.5 rounded-full text-neutral-300 hover:text-white transition-colors cursor-pointer"
+                aria-label="Previous Track"
                 title="Previous"
               >
                 <SkipBack size={22} />
@@ -588,6 +594,7 @@ export const NowPlayingModal: React.FC = () => {
               <button
                 onClick={togglePlay}
                 className="w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl shadow-white/20 cursor-pointer"
+                aria-label={isPlaying ? 'Pause' : 'Play'}
                 title="Play / Pause"
               >
                 {isPlaying ? <Pause size={24} className="fill-black" /> : <Play size={24} className="fill-black ml-0.5" />}
@@ -596,6 +603,7 @@ export const NowPlayingModal: React.FC = () => {
               <button
                 onClick={nextSong}
                 className="p-2 sm:p-2.5 rounded-full text-neutral-300 hover:text-white transition-colors cursor-pointer"
+                aria-label="Next Track"
                 title="Next"
               >
                 <SkipForward size={22} />
@@ -627,6 +635,7 @@ export const NowPlayingModal: React.FC = () => {
                   step={0.01}
                   value={isMuted ? 0 : volume}
                   onChange={(e) => setVolume(Number(e.target.value))}
+                  aria-label="Volume level"
                   className="w-16 h-1 bg-white/15 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                 />
               </div>

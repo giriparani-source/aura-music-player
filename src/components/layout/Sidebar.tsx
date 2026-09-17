@@ -1,20 +1,18 @@
 import React from 'react';
-import { Home, Library, Search, ListMusic, Settings, Sparkles, Plus, Users } from 'lucide-react';
+import { Home, Library, Search, Settings, Sparkles, Plus, Radio } from 'lucide-react';
 import { useLibraryStore } from '../../store/useLibraryStore';
-import { useJamStore } from '../../store/useJamStore';
 import { NavigationTab } from '../../types/music';
 import { SidebarPwaButton } from '../common/PwaInstallBanner';
 
 export const Sidebar: React.FC = () => {
-  const { activeTab, setActiveTab, playlists, stats, setActivePlaylistId, createPlaylist } = useLibraryStore();
-  const { isInRoom, roomCode, setJamModalOpen } = useJamStore();
+  const { activeTab, setActiveTab, setLibrarySubTab, playlists, stats, setActivePlaylistId, createPlaylist } = useLibraryStore();
 
   const navItems: Array<{ id: NavigationTab; label: string; icon: React.ReactNode }> = [
     { id: 'home', label: 'Home', icon: <Home size={19} /> },
     { id: 'library', label: 'My Library', icon: <Library size={19} /> },
+    { id: 'radio', label: 'Live Radio FM', icon: <Radio size={19} /> },
     { id: 'search', label: 'Search', icon: <Search size={19} /> },
     { id: 'ai-studio', label: 'AI DJ Studio', icon: <Sparkles size={19} className="text-amber-400" /> },
-    { id: 'playlists', label: 'Playlists', icon: <ListMusic size={19} /> },
     { id: 'settings', label: 'Settings', icon: <Settings size={19} /> },
   ];
 
@@ -25,9 +23,11 @@ export const Sidebar: React.FC = () => {
     <aside className="hidden md:flex flex-col w-64 h-full bg-[#0e1118]/80 backdrop-blur-xl border-r border-white/5 select-none shrink-0 p-4">
       {/* Brand logo */}
       <div className="flex items-center gap-3 px-3 py-2 mb-6">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
-          <Sparkles size={18} />
-        </div>
+        <img
+          src="/logo.png"
+          alt="Aura Logo"
+          className="w-9 h-9 rounded-xl object-cover shadow-lg shadow-indigo-600/30 border border-white/10"
+        />
         <div>
           <h1 className="font-bold text-base tracking-tight text-white flex items-center gap-1.5">
             Aura <span className="text-xs px-1.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400 font-semibold border border-indigo-500/30">Music</span>
@@ -54,6 +54,12 @@ export const Sidebar: React.FC = () => {
                 {item.icon}
               </span>
               <span>{item.label}</span>
+              {item.id === 'radio' && (
+                <span className="ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
+                  LIVE
+                </span>
+              )}
               {item.id === 'search' && (
                 <span className="ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                   Cloud
@@ -69,32 +75,6 @@ export const Sidebar: React.FC = () => {
         })}
       </nav>
 
-      {/* Social Jam Listen Together button */}
-      <div className="mb-4">
-        <button
-          onClick={() => setJamModalOpen(true)}
-          className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-            isInRoom
-              ? 'bg-gradient-to-r from-purple-600/25 to-pink-600/20 border-purple-500/40 text-purple-200 shadow-md shadow-purple-600/20'
-              : 'bg-white/[0.04] hover:bg-white/[0.08] border-white/5 text-neutral-300 hover:text-white'
-          }`}
-        >
-          <div className="flex items-center gap-2.5">
-            <Users size={16} className={isInRoom ? 'text-pink-400 animate-pulse' : 'text-indigo-400'} />
-            <span>Social Jam</span>
-          </div>
-          <span
-            className={`text-[9px] font-mono px-2 py-0.5 rounded-full uppercase tracking-wider border ${
-              isInRoom
-                ? 'bg-pink-500/20 text-pink-300 border-pink-500/40'
-                : 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
-            }`}
-          >
-            {isInRoom ? roomCode : 'Live'}
-          </span>
-        </button>
-      </div>
-
       <div className="h-px bg-white/5 my-2" />
 
       {/* Smart Playlists Section */}
@@ -108,10 +88,11 @@ export const Sidebar: React.FC = () => {
               <button
                 key={pl.id}
                 onClick={() => {
-                  setActiveTab('playlists');
+                  setActiveTab('library');
+                  setLibrarySubTab('playlists');
                   setActivePlaylistId(pl.id);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-neutral-400 hover:text-white hover:bg-white/5 flex items-center justify-between group transition-all"
+                className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-neutral-400 hover:text-white hover:bg-white/5 flex items-center justify-between group transition-all cursor-pointer"
               >
                 <span className="truncate">{pl.name}</span>
                 <span className="text-[10px] text-neutral-600 group-hover:text-neutral-400">
@@ -130,7 +111,8 @@ export const Sidebar: React.FC = () => {
             </p>
             <button
               onClick={() => {
-                setActiveTab('playlists');
+                setActiveTab('library');
+                setLibrarySubTab('playlists');
                 const name = prompt('Enter name for your new playlist:');
                 if (name && name.trim()) {
                   createPlaylist(name.trim()).then((newPl) => setActivePlaylistId(newPl.id));
@@ -148,7 +130,8 @@ export const Sidebar: React.FC = () => {
                 <button
                   key={pl.id}
                   onClick={() => {
-                    setActiveTab('playlists');
+                    setActiveTab('library');
+                    setLibrarySubTab('playlists');
                     setActivePlaylistId(pl.id);
                   }}
                   className="w-full text-left px-3 py-1.5 rounded-lg text-xs text-neutral-400 hover:text-white hover:bg-white/5 truncate transition-colors cursor-pointer"

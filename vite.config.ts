@@ -9,6 +9,8 @@ import {
   startJamRoomCleanup,
   localAudioHandler,
   cloudManifestHandler,
+  radioStreamHandler,
+  spotifyPlaylistHandler,
   initPythonCheck
 } from './server/middleware/index.ts';
 
@@ -37,6 +39,12 @@ function localMusicServerPlugin() {
 
       // 6. Cloud Library Manifest Endpoint
       server.middlewares.use('/api/library/cloud-songs', cloudManifestHandler);
+
+      // 7. Live Radio FM Stream Proxy (Shoutcast / Icecast / Mixed Content bypass)
+      server.middlewares.use('/api/radio/stream', radioStreamHandler);
+
+      // 8. Universal Spotify Playlist Extractor Endpoint
+      server.middlewares.use('/api/playlist/spotify', spotifyPlaylistHandler);
     }
   };
 }
@@ -56,7 +64,27 @@ export default defineConfig(({ mode }) => {
       open: false,
     },
     build: {
-      chunkSizeWarningLimit: 1500
+      chunkSizeWarningLimit: 1200,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('react') || id.includes('react-dom')) {
+                return 'vendor-react';
+              }
+              if (id.includes('lucide-react')) {
+                return 'vendor-icons';
+              }
+              if (id.includes('peerjs')) {
+                return 'vendor-peerjs';
+              }
+              if (id.includes('zustand')) {
+                return 'vendor-store';
+              }
+            }
+          }
+        }
+      }
     }
   };
 });

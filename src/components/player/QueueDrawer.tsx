@@ -43,6 +43,7 @@ export const QueueDrawer: React.FC = () => {
               <button
                 onClick={clearQueue}
                 className="p-2 text-neutral-400 hover:text-rose-400 hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+                aria-label="Clear Queue"
                 title="Clear Queue"
               >
                 <Trash2 size={16} />
@@ -52,6 +53,7 @@ export const QueueDrawer: React.FC = () => {
             <button
               onClick={() => setQueueOpen(false)}
               className="p-2 text-neutral-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+              aria-label="Close Queue"
               title="Close"
             >
               <X size={18} />
@@ -174,6 +176,7 @@ export const QueueDrawer: React.FC = () => {
                     removeFromQueue(idx);
                   }}
                   className="opacity-0 group-hover:opacity-100 p-1 text-neutral-500 hover:text-rose-400 rounded transition-all"
+                  aria-label="Remove from queue"
                   title="Remove from queue"
                 >
                   <X size={14} />

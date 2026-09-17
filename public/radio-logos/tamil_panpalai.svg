@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+    <defs>
+      <linearGradient id="tp_bg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#2e2005"/>
+        <stop offset="50%" stop-color="#5c4008"/>
+        <stop offset="100%" stop-color="#b8860b"/>
+      </linearGradient>
+    </defs>
+    <rect width="200" height="200" rx="36" fill="url(#tp_bg)"/>
+    <circle cx="100" cy="72" r="38" fill="none" stroke="#ffd700" stroke-width="3"/>
+    <text x="100" y="78" font-family="'Georgia', serif" font-size="20" font-weight="bold" fill="#ffd700" text-anchor="middle">பண்பலை</text>
+    <text x="100" y="126" font-family="'Arial Black', sans-serif" font-size="14" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="1.5">TAMIL PANPALAI</text>
+    <rect x="45" y="136" width="110" height="26" rx="8" fill="#ffd700"/>
+    <text x="100" y="154" font-family="'Arial Black', sans-serif" font-size="13" font-weight="900" fill="#2e2005" text-anchor="middle" letter-spacing="1.5">GOLD FM</text>
+    <text x="100" y="182" font-family="sans-serif" font-size="9" font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="2">EUROPE &amp; GLOBAL</text>
+  </svg>

@@ -4,7 +4,6 @@ import {
   RefreshCw,
   Trash2,
   HardDrive,
-  Info,
   CheckCircle2,
   AlertCircle,
   Copy,
@@ -14,8 +13,18 @@ import {
   Database,
   Sparkles,
   RotateCcw,
-  Compass
+  Compass,
+  Bot,
+  Key,
+  Check,
+  Users,
+  Radio,
+  Eye,
+  EyeOff
 } from 'lucide-react';
+import { useJamStore } from '../../store/useJamStore';
+import { MusicSourcePickerModal } from '../library/MusicSourcePickerModal';
+import { geminiAiService } from '../../services/geminiAiService';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { formatBytes } from '../../utils/formatters';
@@ -40,7 +49,6 @@ export const SettingsView: React.FC = () => {
     health,
     duplicates,
     scanProgress,
-    scanFromDirectoryHandle,
     scanFromFileList,
     clearLibrary,
     loadLibrary
@@ -52,6 +60,20 @@ export const SettingsView: React.FC = () => {
     type: 'success' | 'error';
     message: string;
   } | null>(null);
+
+  const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false);
+  const [geminiApiKey, setGeminiApiKey] = useState(() => geminiAiService.getApiKey());
+  const [isGeminiSaved, setIsGeminiSaved] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+
+  // Social Jam State
+  const { isInRoom, roomCode, setJamModalOpen, participants } = useJamStore();
+
+  const handleSaveGeminiKey = () => {
+    geminiAiService.setApiKey(geminiApiKey);
+    setIsGeminiSaved(true);
+    setTimeout(() => setIsGeminiSaved(false), 2500);
+  };
 
   // Aura Flow Controls & Taste Intelligence State
   const discoveryPreference = usePlayerStore((s) => s.discoveryPreference);
@@ -113,19 +135,6 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const handleNativePicker = async () => {
-    if ('showDirectoryPicker' in window) {
-      try {
-        // @ts-ignore
-        const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
-        await scanFromDirectoryHandle(dirHandle);
-        return;
-      } catch (err: any) {
-        if (err.name === 'AbortError') return;
-      }
-    }
-    fileInputRef.current?.click();
-  };
 
   const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -278,7 +287,7 @@ export const SettingsView: React.FC = () => {
         {/* Action Buttons */}
         <div className="flex flex-wrap gap-3">
           <button
-            onClick={handleNativePicker}
+            onClick={() => setIsSourcePickerOpen(true)}
             disabled={isScanning}
             className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs shadow-lg shadow-indigo-600/25 transition-all cursor-pointer"
           >
@@ -287,12 +296,12 @@ export const SettingsView: React.FC = () => {
           </button>
 
           <button
-            onClick={handleNativePicker}
+            onClick={() => setIsSourcePickerOpen(true)}
             disabled={isScanning}
             className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-50 text-neutral-300 font-medium text-xs border border-white/10 transition-colors cursor-pointer"
           >
             <RefreshCw size={14} className={isScanning ? 'animate-spin' : ''} />
-            <span>Rescan Library</span>
+            <span>Scan Storage & Drive</span>
           </button>
 
           <button
@@ -787,16 +796,163 @@ export const SettingsView: React.FC = () => {
       </div>
 
       {/* Section 5: About Application */}
-      <div className="glass-panel p-6 rounded-3xl space-y-3">
-        <div className="flex items-center gap-3">
-          <Info size={18} className="text-indigo-400" />
-          <h4 className="text-sm font-bold text-white">About Aura Music Player</h4>
+      <div className="glass-panel p-6 rounded-3xl space-y-4">
+        <div className="flex items-center gap-3.5">
+          <img
+            src="/logo.png"
+            alt="Aura Music"
+            className="w-11 h-11 rounded-2xl object-cover shadow-lg shadow-indigo-600/30 border border-white/10"
+          />
+          <div>
+            <h4 className="text-sm font-bold text-white flex items-center gap-2">
+              Aura Music Player
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 font-semibold border border-indigo-500/30">v1.2.1 Native</span>
+            </h4>
+            <p className="text-[11px] text-neutral-400">Ultra-Fidelity Studio Audio Suite</p>
+          </div>
         </div>
         <p className="text-xs text-neutral-400 leading-relaxed">
-          Version 1.2.0 • Phase 3 Library UX & Filtering. Built with React 19, TypeScript, Tailwind CSS v4, Native IndexedDB, and Web Audio API. 
-          Engine features differential file scanning, debounced fuzzy search, batch multi-actions, JSON backup/restore, and deterministic song indexing.
+          Version 1.2.1 • Android Native & Web Edition. Built with React 19, TypeScript, Tailwind CSS v4, Native Android MediaSession, Foreground Service, and Web Audio API.
         </p>
       </div>
+
+      {/* Section: Aura AI & Google Gemini Assistant */}
+      <div className="glass-panel p-6 rounded-3xl space-y-5">
+        <div className="flex items-center justify-between border-b border-white/5 pb-4">
+          <div className="flex items-center gap-3">
+            <Bot size={20} className="text-indigo-400" />
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                Aura AI Assistant & Gemini Intelligence
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    geminiApiKey.trim()
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                  }`}
+                >
+                  {geminiApiKey.trim() ? 'Gemini 2.5 Flash Connected' : 'Smart Offline Tanglish NLP'}
+                </span>
+              </h3>
+              <p className="text-xs text-neutral-500">
+                Configure Google Gemini API key for high-intelligence voice and text conversation in Tanglish
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 space-y-3">
+          <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
+            <Key size={14} className="text-amber-400" />
+            <span>Google Gemini API Key</span>
+          </label>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <input
+                type={showApiKey ? 'text' : 'password'}
+                name="gemini_api_key_secret"
+                id="gemini_api_key_secret"
+                autoComplete="new-password"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                data-lpignore="true"
+                data-form-type="other"
+                value={geminiApiKey}
+                onChange={(e) => setGeminiApiKey(e.target.value)}
+                placeholder="Enter Google AI Studio Gemini Key (e.g. AIzaSy...)"
+                className="w-full pl-4 pr-10 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-indigo-500 transition-colors"
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiKey((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white p-1 cursor-pointer transition-colors"
+                title={showApiKey ? 'Hide Key' : 'Show Key'}
+              >
+                {showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+            <button
+              onClick={handleSaveGeminiKey}
+              className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-md shadow-indigo-600/20 shrink-0"
+            >
+              {isGeminiSaved ? <Check size={14} /> : null}
+              <span>{isGeminiSaved ? 'Saved!' : 'Save Key'}</span>
+            </button>
+          </div>
+          <p className="text-[11px] text-neutral-500">
+            Free tier API keys are available from Google AI Studio. Even without an API key, Aura AI Assistant can
+            fully control playback, Karaoke mode, Equalizer presets, and AI DJ Studio using its built-in offline
+            engine.
+          </p>
+        </div>
+      </div>
+
+      {/* Section: Social Jam (Listen Together) */}
+      <div className="glass-panel p-6 rounded-3xl space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-4">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="p-2.5 rounded-2xl bg-pink-500/10 border border-pink-500/20 text-pink-400 shrink-0 mt-0.5 sm:mt-0">
+              <Users size={22} className={isInRoom ? 'animate-pulse' : ''} />
+            </div>
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-base font-bold text-white">
+                  Social Jam (Listen Together)
+                </h3>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap inline-flex items-center gap-1.5 ${
+                    isInRoom
+                      ? 'bg-pink-500/20 text-pink-300 border-pink-500/40 shadow-sm shadow-pink-500/20'
+                      : 'bg-white/5 text-neutral-400 border-white/10'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${isInRoom ? 'bg-pink-400 animate-ping' : 'bg-neutral-500'}`} />
+                  {isInRoom ? `In Room ${roomCode} • ${participants.length + 1} listening` : 'Offline • Ready to Host'}
+                </span>
+              </div>
+              <p className="text-xs text-neutral-500 leading-relaxed">
+                Listen to music in synchronized real-time audio rooms with your friends via WebRTC P2P
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setJamModalOpen(true)}
+            className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-semibold text-xs transition-all cursor-pointer shadow-lg shadow-pink-600/25 flex items-center justify-center gap-2 active:scale-95 shrink-0"
+          >
+            <Users size={15} />
+            <span>{isInRoom ? 'Open Active Room' : 'Host / Join Room'}</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          <div className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/5">
+            <p className="text-xs font-semibold text-white flex items-center gap-1.5 mb-1">
+              <Radio size={14} className="text-pink-400" />
+              <span>Real-Time Synchronized Playback</span>
+            </p>
+            <p className="text-[11px] text-neutral-400 leading-relaxed">
+              When the host plays, pauses, or seeks, everyone in the room hears the exact same timestamp with sub-50ms latency drift compensation.
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/5">
+            <p className="text-xs font-semibold text-white flex items-center gap-1.5 mb-1">
+              <Users size={14} className="text-purple-400" />
+              <span>Zero Account Needed</span>
+            </p>
+            <p className="text-[11px] text-neutral-400 leading-relaxed">
+              Share a simple 6-digit room code with your friends on Android or web browsers to jam together instantly with live reaction emojis.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <MusicSourcePickerModal
+        isOpen={isSourcePickerOpen}
+        onClose={() => setIsSourcePickerOpen(false)}
+      />
     </div>
   );
 };

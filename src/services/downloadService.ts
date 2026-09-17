@@ -283,6 +283,20 @@ class DownloadService {
 
       const objectUrl = URL.createObjectURL(blob);
       this.activeObjectUrls.set(songId, objectUrl);
+
+      // BUG-06 fix: Cap active Object URLs to prevent unbounded memory growth
+      const MAX_ACTIVE_URLS = 3;
+      if (this.activeObjectUrls.size > MAX_ACTIVE_URLS) {
+        const oldest = this.activeObjectUrls.keys().next().value;
+        if (oldest && oldest !== songId) {
+          const oldUrl = this.activeObjectUrls.get(oldest);
+          if (oldUrl) {
+            try { URL.revokeObjectURL(oldUrl); } catch {}
+          }
+          this.activeObjectUrls.delete(oldest);
+        }
+      }
+
       return objectUrl;
     } catch (err) {
       console.warn('Error reading cached audio response:', err);

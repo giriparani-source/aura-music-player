@@ -6,14 +6,19 @@ import { BottomPlayer } from '../player/BottomPlayer';
 import { PwaInstallBanner } from '../common/PwaInstallBanner';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
+import {
+  androidMediaBridge,
+  registerMediaActionHandler,
+  registerBackButtonHandler
+} from '../../services/androidMediaBridge';
 
 // Code-split heavy views and modals with React.lazy() for fast initial load
 const HomeView = lazy(() => import('../views/HomeView').then((m) => ({ default: m.HomeView })));
 const LibraryView = lazy(() => import('../views/LibraryView').then((m) => ({ default: m.LibraryView })));
 const SearchView = lazy(() => import('../views/SearchView').then((m) => ({ default: m.SearchView })));
-const PlaylistsView = lazy(() => import('../views/PlaylistsView').then((m) => ({ default: m.PlaylistsView })));
 const SettingsView = lazy(() => import('../views/SettingsView').then((m) => ({ default: m.SettingsView })));
 const AiStudioView = lazy(() => import('../views/AiStudioView').then((m) => ({ default: m.AiStudioView })));
+const RadioView = lazy(() => import('../views/RadioView').then((m) => ({ default: m.RadioView })));
 
 const NowPlayingModal = lazy(() => import('../player/NowPlayingModal').then((m) => ({ default: m.NowPlayingModal })));
 const QueueDrawer = lazy(() => import('../player/QueueDrawer').then((m) => ({ default: m.QueueDrawer })));
@@ -47,9 +52,83 @@ export const MainLayout: React.FC = () => {
   const isQueueOpen = usePlayerStore((s) => s.isQueueOpen);
   const setQueueOpen = usePlayerStore((s) => s.setQueueOpen);
 
-  // Load library on startup
+  // Load library and initialize native media bridge on startup
   useEffect(() => {
+    registerMediaActionHandler((action, position) => {
+      const store = usePlayerStore.getState();
+      switch (action) {
+        case 'play':
+        case 'resume':
+          if (!store.isPlaying) store.togglePlay();
+          break;
+        case 'pause':
+          if (store.isPlaying) store.togglePlay();
+          break;
+        case 'toggle':
+          store.togglePlay();
+          break;
+        case 'next':
+          store.nextSong();
+          break;
+        case 'previous':
+          store.previousSong();
+          break;
+        case 'seek':
+          if (typeof position === 'number') store.seek(position);
+          break;
+        case 'seekbackward':
+          store.seek(Math.max(0, (store.currentTime || 0) - (position || 10)));
+          break;
+        case 'seekforward':
+          store.seek((store.currentTime || 0) + (position || 10));
+          break;
+      }
+    });
+
+    registerBackButtonHandler(() => {
+      const player = usePlayerStore.getState();
+      const library = useLibraryStore.getState();
+      if (player.isNowPlayingOpen) {
+        player.setNowPlayingOpen(false);
+        return true;
+      }
+      if (player.isQueueOpen) {
+        player.setQueueOpen(false);
+        return true;
+      }
+      if (player.isAiAssistantOpen) {
+        player.setAiAssistantOpen(false);
+        return true;
+      }
+      if (library.activeTab !== 'home') {
+        library.setActiveTab('home');
+        return true;
+      }
+      return false; // let bridge minimize app
+    });
+
     loadLibrary();
+    androidMediaBridge.init();
+
+    // This app-boundary subscription avoids circular dependencies while syncing native media.
+    // Only sync track metadata on actual track change or play/pause state change.
+    // High-frequency currentTime updates (4x/sec) are excluded to prevent flooding
+    // Android IPC and foreground service intents during screen-off deep sleep.
+    const unsubscribe = usePlayerStore.subscribe((state, previousState) => {
+      if (
+        state.currentSong !== previousState.currentSong ||
+        state.isPlaying !== previousState.isPlaying
+      ) {
+        androidMediaBridge.syncTrackMetadata(
+          state.currentSong,
+          state.isPlaying,
+          state.currentTime,
+          state.duration
+        );
+      }
+    });
+
+    return unsubscribe;
   }, [loadLibrary]);
 
   // Global Keyboard Navigation
@@ -114,7 +193,9 @@ export const MainLayout: React.FC = () => {
       case 'search':
         return <SearchView />;
       case 'playlists':
-        return <PlaylistsView />;
+        return <LibraryView />;
+      case 'radio':
+        return <RadioView />;
       case 'ai-studio':
         return <AiStudioView />;
       case 'settings':
@@ -134,7 +215,7 @@ export const MainLayout: React.FC = () => {
         <Header />
 
         {/* Scrollable View Content with Suspense Skeleton */}
-        <main className="flex-1 overflow-y-auto pb-36 md:pb-24">
+        <main className="flex-1 overflow-y-auto pb-[calc(9.5rem+env(safe-area-inset-bottom,0px))] md:pb-24">
           {isLoading ? (
             <div className="flex flex-col items-center justify-center h-64 text-neutral-500">
               <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin mb-3" />

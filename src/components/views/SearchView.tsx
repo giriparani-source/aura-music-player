@@ -12,8 +12,7 @@ import {
   Loader2,
   WifiOff,
   Radio,
-  Music2,
-  PlaySquare
+  Music2
 } from 'lucide-react';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
@@ -155,7 +154,7 @@ function setCachedOnlineSearch(key: string, results: Song[]): void {
 }
 
 export const SearchView: React.FC = () => {
-  const { songs, artists, albums } = useLibraryStore();
+  const { songs, artists, albums, searchQuery } = useLibraryStore();
   const playBatch = usePlayerStore((s) => s.playBatch);
   const playSong = usePlayerStore((s) => s.playSong);
   const currentSong = usePlayerStore((s) => s.currentSong);
@@ -163,6 +162,7 @@ export const SearchView: React.FC = () => {
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const latestQueryRef = useRef<string>('');
+  const lastExecutedQueryRef = useRef<string>('');
 
   // Primary streaming source defaults to YouTube Music ('online')
   const [searchMode, setSearchMode] = useState<'online' | 'radio' | 'local'>('online');
@@ -172,10 +172,21 @@ export const SearchView: React.FC = () => {
   const [selectedRadioGenre, setSelectedRadioGenre] = useState<string>('all');
 
   // Online Search State
-  const [onlineQuery, setOnlineQuery] = useState('');
+  const [onlineQuery, setOnlineQuery] = useState(searchQuery || '');
   const debouncedOnlineQuery = useDebounce(onlineQuery, 400);
+
+  // Sync onlineQuery if navigated from Header with a new searchQuery
+  useEffect(() => {
+    if (searchQuery && searchQuery.trim() && searchQuery !== onlineQuery) {
+      setOnlineQuery(searchQuery);
+    }
+  }, [searchQuery]);
   const [onlineResults, setOnlineResults] = useState<Song[]>([]);
   const [isOnlineLoading, setIsOnlineLoading] = useState(false);
+  const [onlinePage, setOnlinePage] = useState(1);
+  const [hasMoreOnline, setHasMoreOnline] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [onlineError, setOnlineError] = useState<string | null>(null);
   const [onlineHistory, setOnlineHistory] = useState<string[]>(() => {
@@ -200,10 +211,10 @@ export const SearchView: React.FC = () => {
     }
   });
 
-
-  // Save local history
-  useEffect(() => {
-    const trimmed = debouncedLocalQuery.trim();
+  // BUG-08 fix: Commit search history only upon explicit user submission (Enter, Click, or Chip Selection)
+  // to avoid polluting history with intermediate keystroke typing fragments.
+  const commitLocalSearch = useCallback((term: string) => {
+    const trimmed = term.trim();
     if (trimmed.length >= 2) {
       setLocalHistory((prev) => {
         const filtered = prev.filter((item) => item.toLowerCase() !== trimmed.toLowerCase());
@@ -214,12 +225,27 @@ export const SearchView: React.FC = () => {
         return updated;
       });
     }
-  }, [debouncedLocalQuery]);
+  }, []);
+
+  const commitOnlineSearch = useCallback((term: string) => {
+    const trimmed = term.trim();
+    if (trimmed.length >= 2) {
+      setOnlineHistory((prev) => {
+        const filtered = prev.filter((item) => item.toLowerCase() !== trimmed.toLowerCase());
+        const updated = [trimmed, ...filtered].slice(0, 8);
+        try {
+          localStorage.setItem(ONLINE_HISTORY_KEY, JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+    }
+  }, []);
 
   // Execute online search API with AbortController, stale-result guard, and bounded cache
-  const performOnlineSearch = useCallback(async (query: string) => {
+  const performOnlineSearch = useCallback(async (query: string, saveToHistory: boolean = false) => {
     const q = query.trim();
     latestQueryRef.current = q;
+    lastExecutedQueryRef.current = q;
 
     // Abort pending request
     if (abortControllerRef.current) {
@@ -232,8 +258,13 @@ export const SearchView: React.FC = () => {
       setIsOnlineLoading(false);
       setOnlineError(null);
       setHasSearched(false);
+      setOnlinePage(1);
+      setHasMoreOnline(false);
       return;
     }
+
+    setOnlinePage(1);
+    setHasMoreOnline(true);
 
     // Check bounded memory cache first
     const cached = getCachedOnlineSearch(q);
@@ -242,6 +273,7 @@ export const SearchView: React.FC = () => {
       setIsOnlineLoading(false);
       setOnlineError(null);
       setHasSearched(true);
+      setHasMoreOnline(cached.length >= 20);
       return;
     }
 
@@ -255,41 +287,47 @@ export const SearchView: React.FC = () => {
     try {
       let results: Song[] = [];
 
-      // 1. Query YouTube Music search endpoint (Vercel Serverless Function & Local Dev)
+      // 1. Direct JioSaavn Studio Master 320kbps HD Audio Search (Zero Localhost Server)
       try {
-        const res = await fetch(buildApiUrl(`/api/online/search?q=${encodeURIComponent(q)}`), {
-          signal: controller.signal
-        });
-        const contentType = res.headers.get('content-type') || '';
-        if (res.ok && contentType.includes('application/json')) {
-          const data = await res.json();
-          if (data.results && data.results.length > 0) {
-            const queryWords = q.toLowerCase().split(/\s+/).filter((w) => w.length >= 3);
-            if (queryWords.length > 0) {
-              const relevant = data.results.filter((song: Song) => {
-                const combined = `${song.title} ${song.artist} ${song.album || ''}`.toLowerCase();
-                return queryWords.some((w) => combined.includes(w));
-              });
-              results = relevant;
-            } else {
-              results = data.results;
-            }
+        const saavnHits = await searchJioSaavn(q, 20, 1);
+        if (saavnHits && saavnHits.length > 0) {
+          results = saavnHits;
+          if (saavnHits.length < 20) {
+            setHasMoreOnline(false);
           }
         }
-      } catch (backendErr: any) {
-        if (backendErr.name === 'AbortError') return;
+      } catch (e) {
+        console.warn('JioSaavn search notice:', e);
       }
 
       if (controller.signal.aborted || latestQueryRef.current !== q) return;
 
-      // 2. If YouTube search returned empty, seamlessly fallback to Studio Master audio search
+      // 2. Query YouTube Music search endpoint (Vercel Serverless Function & Local Dev) if empty
       if (results.length === 0) {
         try {
-          const saavnHits = await searchJioSaavn(q);
-          if (saavnHits && saavnHits.length > 0) {
-            results = saavnHits;
+          const res = await fetch(buildApiUrl(`/api/online/search?q=${encodeURIComponent(q)}`), {
+            signal: controller.signal
+          });
+          const contentType = res.headers.get('content-type') || '';
+          if (res.ok && contentType.includes('application/json')) {
+            const data = await res.json();
+            if (data.results && data.results.length > 0) {
+              const queryWords = q.toLowerCase().split(/\s+/).filter((w) => w.length >= 3);
+              if (queryWords.length > 0) {
+                const relevant = data.results.filter((song: Song) => {
+                  const combined = `${song.title} ${song.artist} ${song.album || ''}`.toLowerCase();
+                  return queryWords.some((w) => combined.includes(w));
+                });
+                results = relevant;
+              } else {
+                results = data.results;
+              }
+              setHasMoreOnline(false);
+            }
           }
-        } catch {}
+        } catch (backendErr: any) {
+          if (backendErr.name === 'AbortError') return;
+        }
       }
 
       if (controller.signal.aborted || latestQueryRef.current !== q) return;
@@ -307,9 +345,9 @@ export const SearchView: React.FC = () => {
             sourceId: hit.sourceId,
             title: hit.title,
             artist: hit.artist,
-            album: 'YouTube Music Stream',
+            album: 'Curated Stream',
             duration: 240,
-            format: 'STREAM',
+            format: 'AAC',
             path: `https://www.youtube.com/watch?v=${hit.sourceId}`,
             filePath: `https://www.youtube.com/watch?v=${hit.sourceId}`,
             fileName: `${hit.title}.mp3`,
@@ -321,6 +359,7 @@ export const SearchView: React.FC = () => {
             coverArt: hit.thumbnail,
             isOnline: true
           }));
+          setHasMoreOnline(false);
         }
       }
 
@@ -330,15 +369,10 @@ export const SearchView: React.FC = () => {
       setCachedOnlineSearch(q, results);
       setOnlineResults(results);
 
-      // Add to online search history
-      setOnlineHistory((prev) => {
-        const filtered = prev.filter((item) => item.toLowerCase() !== q.toLowerCase());
-        const updated = [q, ...filtered].slice(0, 8);
-        try {
-          localStorage.setItem(ONLINE_HISTORY_KEY, JSON.stringify(updated));
-        } catch {}
-        return updated;
-      });
+      // Add to online search history ONLY when explicitly requested (BUG-08 fix)
+      if (saveToHistory) {
+        commitOnlineSearch(q);
+      }
     } catch (err: any) {
       if (err.name === 'AbortError') return;
       console.warn('Online search note:', err);
@@ -347,7 +381,60 @@ export const SearchView: React.FC = () => {
         setIsOnlineLoading(false);
       }
     }
-  }, []);
+  }, [commitOnlineSearch]);
+
+  // Infinite Scroll Pagination: Load More Online Songs
+  const loadMoreOnlineSongs = useCallback(async () => {
+    const q = lastExecutedQueryRef.current.trim();
+    if (!q || isOnlineLoading || isLoadingMore || !hasMoreOnline) return;
+
+    const nextPage = onlinePage + 1;
+    setIsLoadingMore(true);
+
+    try {
+      const moreSongs = await searchJioSaavn(q, 20, nextPage);
+      if (moreSongs && moreSongs.length > 0) {
+        setOnlineResults((prev) => {
+          const existing = new Set(prev.map((s) => s.id));
+          const unique = moreSongs.filter((s) => !existing.has(s.id));
+          return [...prev, ...unique];
+        });
+        setOnlinePage(nextPage);
+        if (moreSongs.length < 20) {
+          setHasMoreOnline(false);
+        }
+      } else {
+        setHasMoreOnline(false);
+      }
+    } catch (err) {
+      console.warn('Load more online songs error:', err);
+      setHasMoreOnline(false);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [isOnlineLoading, isLoadingMore, hasMoreOnline, onlinePage]);
+
+  // Infinite Scroll IntersectionObserver
+  useEffect(() => {
+    if (!hasMoreOnline || isOnlineLoading || isLoadingMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          loadMoreOnlineSongs();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    const el = sentinelRef.current;
+    if (el) {
+      observer.observe(el);
+    }
+
+    return () => {
+      if (el) observer.unobserve(el);
+    };
+  }, [hasMoreOnline, isOnlineLoading, isLoadingMore, loadMoreOnlineSongs]);
 
   // Cleanup pending search on unmount
   useEffect(() => {
@@ -358,11 +445,15 @@ export const SearchView: React.FC = () => {
     };
   }, []);
 
-  // Trigger online search on debounced query changes
+  // Trigger online search on debounced query changes (BUG-16 & BUG-24 fix: skip duplicate execution)
   useEffect(() => {
-    if (searchMode === 'online' && debouncedOnlineQuery.trim().length >= 2) {
-      performOnlineSearch(debouncedOnlineQuery);
-    } else if (!debouncedOnlineQuery.trim()) {
+    const trimmed = debouncedOnlineQuery.trim();
+    if (searchMode === 'online' && trimmed.length >= 2) {
+      if (trimmed.toLowerCase() !== lastExecutedQueryRef.current.toLowerCase()) {
+        performOnlineSearch(debouncedOnlineQuery);
+      }
+    } else if (!trimmed) {
+      lastExecutedQueryRef.current = '';
       setOnlineResults([]);
       setIsOnlineLoading(false);
       setOnlineError(null);
@@ -422,7 +513,7 @@ export const SearchView: React.FC = () => {
 
   const handleTriggerOnlineChip = (term: string) => {
     setOnlineQuery(term);
-    performOnlineSearch(term);
+    performOnlineSearch(term, true);
   };
 
   return (
@@ -433,9 +524,9 @@ export const SearchView: React.FC = () => {
           <div className="flex items-center gap-2.5 mb-1">
             <h2 className="text-3xl font-extrabold tracking-tight text-white">Search Music</h2>
             {searchMode === 'online' ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-500/20 text-red-300 border border-red-500/40 shadow-sm animate-fade-in">
-                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                YouTube Music • Primary Streaming
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm animate-fade-in">
+                <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                Online Music • Cloud Streaming
               </span>
             ) : searchMode === 'radio' ? (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm animate-fade-in">
@@ -451,7 +542,7 @@ export const SearchView: React.FC = () => {
           </div>
           <p className="text-sm text-neutral-400">
             {searchMode === 'online'
-              ? 'Primary Cloud Engine: Stream millions of Tamil & Kollywood songs from YouTube Music with instant backup'
+              ? 'Primary Cloud Engine: Stream millions of Tamil & Kollywood songs online with high-fidelity audio'
               : searchMode === 'radio'
               ? 'Listen to non-stop 24/7 live web radio stations with zero buffer and live on-air badge'
               : 'Fast fuzzy search across your local drive songs, albums, artists and folders'}
@@ -464,12 +555,12 @@ export const SearchView: React.FC = () => {
             onClick={() => setSearchMode('online')}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               searchMode === 'online'
-                ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 border border-red-500/50'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 border border-indigo-500/50'
                 : 'text-neutral-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            <PlaySquare size={15} className={searchMode === 'online' ? 'text-white' : 'text-red-400'} />
-            <span>YouTube Music (Primary)</span>
+            <Music2 size={15} className={searchMode === 'online' ? 'text-white' : 'text-indigo-400'} />
+            <span>Online Music</span>
           </button>
 
           <button
@@ -507,7 +598,15 @@ export const SearchView: React.FC = () => {
           <div className="relative max-w-2xl">
             <Radio size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-rose-400" />
             <input
-              type="text"
+              type="search"
+              name="aura_radio_search"
+              id="aura_radio_search"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-lpignore="true"
+              data-form-type="other"
               value={radioQuery}
               onChange={(e) => setRadioQuery(e.target.value)}
               placeholder="Search live radio stations by title, genre, language (Tamil, Hindi, Lo-Fi, EDM)..."
@@ -622,12 +721,20 @@ export const SearchView: React.FC = () => {
               }`}
             />
             <input
-              type="text"
+              type="search"
+              name="aura_online_search"
+              id="aura_online_search"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-lpignore="true"
+              data-form-type="other"
               value={onlineQuery}
               onChange={(e) => setOnlineQuery(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
-                  performOnlineSearch(onlineQuery);
+                  performOnlineSearch(onlineQuery, true);
                 }
               }}
               placeholder="Search any song, artist, movie (e.g., Arabic Kuthu, Hukum, Illuminati, Ed Sheeran)..."
@@ -650,7 +757,7 @@ export const SearchView: React.FC = () => {
               )}
 
               <button
-                onClick={() => performOnlineSearch(onlineQuery)}
+                onClick={() => performOnlineSearch(onlineQuery, true)}
                 disabled={isOnlineLoading || !onlineQuery.trim()}
                 className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:hover:bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
               >
@@ -757,6 +864,31 @@ export const SearchView: React.FC = () => {
                   />
                 ))}
               </div>
+
+              {/* Infinite Scroll Sentinel & Load More UI */}
+              <div ref={sentinelRef} className="pt-4 pb-4 flex flex-col items-center justify-center gap-2">
+                {isLoadingMore && (
+                  <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-xs font-semibold text-emerald-400 animate-pulse">
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>Loading more 320kbps HD songs (Page {onlinePage + 1})...</span>
+                  </div>
+                )}
+
+                {!isLoadingMore && hasMoreOnline && (
+                  <button
+                    onClick={loadMoreOnlineSongs}
+                    className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-emerald-500/20 border border-white/10 hover:border-emerald-500/30 text-neutral-300 hover:text-emerald-300 text-xs font-bold transition-all cursor-pointer shadow-md"
+                  >
+                    Load More Songs (Page {onlinePage + 1})
+                  </button>
+                )}
+
+                {!hasMoreOnline && onlineResults.length >= 20 && (
+                  <p className="text-xs text-neutral-500 font-medium">
+                    ✓ All available songs loaded ({onlineResults.length} tracks)
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
@@ -817,9 +949,22 @@ export const SearchView: React.FC = () => {
           <div className="relative max-w-2xl">
             <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400" />
             <input
-              type="text"
+              type="search"
+              name="aura_local_search"
+              id="aura_local_search"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-lpignore="true"
+              data-form-type="other"
               value={localQuery}
               onChange={(e) => setLocalQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  commitLocalSearch(localQuery);
+                }
+              }}
               placeholder="Search local titles, artists, albums, or folder names..."
               className="w-full pl-12 pr-10 py-3.5 bg-white/5 border border-white/10 rounded-2xl text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-indigo-500 shadow-xl transition-all"
               autoFocus
@@ -881,7 +1026,10 @@ export const SearchView: React.FC = () => {
                     {localHistory.map((term) => (
                       <button
                         key={term}
-                        onClick={() => setLocalQuery(term)}
+                        onClick={() => {
+                          setLocalQuery(term);
+                          commitLocalSearch(term);
+                        }}
                         className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-xs text-neutral-300 hover:text-white transition-all cursor-pointer flex items-center gap-1.5"
                       >
                         <span>{term}</span>

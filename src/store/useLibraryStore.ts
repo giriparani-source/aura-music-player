@@ -19,6 +19,7 @@ import { musicDB } from '../services/db';
 import { calculateLibraryHealth, healthToLegacyStats } from '../services/healthService';
 import { detectDuplicates } from '../services/duplicateService';
 import { buildApiUrl } from '../utils/apiConfig';
+import { PRESET_SAAVN_320K_HITS } from '../services/jiosaavnService';
 import {
   collectFilesFromDirectoryHandle,
   collectFilesFromFileList,
@@ -27,6 +28,7 @@ import {
 import { downloadService } from '../services/downloadService';
 import { auraAffinityService } from '../services/auraAffinityService';
 import { auraSkipService } from '../services/auraSkipService';
+import { extractIndividualArtists } from '../utils/artistImageHelper';
 
 interface LibraryStoreState {
   songs: Song[];
@@ -76,6 +78,7 @@ interface LibraryStoreState {
   toggleFavorite: (songId: string, fallbackSong?: Song) => Promise<void>;
   batchToggleFavorite: (songIds: string[], targetFavorite: boolean) => Promise<void>;
   createPlaylist: (name: string, description?: string) => Promise<Playlist>;
+  createPlaylistWithSongs: (name: string, description?: string, songs?: Song[], coverArt?: string) => Promise<Playlist>;
   deletePlaylist: (id: string) => Promise<void>;
   addSongToPlaylist: (playlistId: string, songId: string) => Promise<void>;
   batchAddToPlaylist: (playlistId: string, songIds: string[]) => Promise<void>;
@@ -163,10 +166,23 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       let songs = await musicDB.getAllSongs();
 
       // Cloud Metadata Auto-Hydration:
-      // When a user opens the app with 0 local songs, auto-populate the cloud catalog metadata
+      // When a user opens the app with 0 local songs, immediately seed with offline preset hits,
+      // then attempt fast cloud catalog fetch with a 3.5s timeout so startup NEVER hangs!
       if (songs.length === 0) {
         try {
-          const cloudRes = await fetch(buildApiUrl('/api/library/cloud-songs'));
+          if (PRESET_SAAVN_320K_HITS && PRESET_SAAVN_320K_HITS.length > 0) {
+            await musicDB.saveSongsBatch(PRESET_SAAVN_320K_HITS);
+            songs = await musicDB.getAllSongs();
+          }
+        } catch {
+          // Ignore local seed error
+        }
+
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3500);
+          const cloudRes = await fetch(buildApiUrl('/api/library/cloud-songs'), { signal: controller.signal });
+          clearTimeout(timeoutId);
           if (cloudRes.ok) {
             const data = await cloudRes.json();
             if (data.tracks && Array.isArray(data.tracks) && data.tracks.length > 0) {
@@ -175,7 +191,7 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
             }
           }
         } catch {
-          // Offline or dev mode fallback
+          // Offline or slow mobile connection fallback
         }
       }
 
@@ -210,15 +226,16 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       const artistMap = new Map<string, { songCount: number; albumSet: Set<string>; coverArt?: string }>();
 
       for (const s of songs) {
-        const artistName = s.artist && s.artist !== 'Not set' ? s.artist : 'Local Artist';
+        const rawArtist = s.artist && s.artist !== 'Not set' ? s.artist : 'Local Artist';
         const albumName = s.album && s.album !== 'Not set' ? s.album : 'Local Collection';
+        const primaryArtist = rawArtist.includes('•') ? rawArtist.split('•')[0].trim() : rawArtist;
 
-        const albumKey = `${albumName} - ${artistName}`;
+        const albumKey = `${albumName} - ${primaryArtist}`;
         if (!albumMap.has(albumKey)) {
           albumMap.set(albumKey, {
             id: albumKey,
             title: albumName,
-            artist: artistName,
+            artist: primaryArtist,
             year: s.year,
             songCount: 1,
             coverArt: s.artwork || s.coverArt,
@@ -233,30 +250,37 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
           }
         }
 
-        if (!artistMap.has(artistName)) {
-          artistMap.set(artistName, {
-            songCount: 1,
-            albumSet: new Set([albumName]),
-            coverArt: s.artwork || s.coverArt
-          });
-        } else {
-          const art = artistMap.get(artistName)!;
-          art.songCount++;
-          art.albumSet.add(albumName);
-          if (!art.coverArt && (s.artwork || s.coverArt)) {
-            art.coverArt = s.artwork || s.coverArt;
+        // Spotify-style Individual Artist extraction (1-to-1 exact portraits)
+        const individuals = extractIndividualArtists(rawArtist);
+        for (const ind of individuals) {
+          const artName = ind.name;
+          if (!artistMap.has(artName)) {
+            artistMap.set(artName, {
+              songCount: 1,
+              albumSet: new Set([albumName]),
+              coverArt: ind.image || s.artwork || s.coverArt
+            });
+          } else {
+            const existing = artistMap.get(artName)!;
+            existing.songCount++;
+            existing.albumSet.add(albumName);
+            if (!existing.coverArt && (ind.image || s.artwork || s.coverArt)) {
+              existing.coverArt = ind.image || s.artwork || s.coverArt;
+            }
           }
         }
       }
 
       const albums = Array.from(albumMap.values());
-      const artists: Artist[] = Array.from(artistMap.entries()).map(([name, data]) => ({
-        id: name,
-        name,
-        songCount: data.songCount,
-        albumCount: data.albumSet.size,
-        coverArt: data.coverArt
-      }));
+      const artists: Artist[] = Array.from(artistMap.entries())
+        .map(([name, data]) => ({
+          id: name,
+          name,
+          songCount: data.songCount,
+          albumCount: data.albumSet.size,
+          coverArt: data.coverArt
+        }))
+        .sort((a, b) => b.songCount - a.songCount);
 
       // Calculate health & duplicates
       const health = calculateLibraryHealth(songs);
@@ -381,6 +405,17 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       set({
         songs: songs.map((s) => (idSet.has(s.id) ? { ...s, isFavorite: targetFavorite } : s))
       });
+
+      // BUG-10 fix: Notify favorite listeners so usePlayerStore updates currentSong & queue!
+      updatedSongs.forEach((s) => {
+        favoriteListeners.forEach((fn) => {
+          try {
+            fn(s.id, targetFavorite);
+          } catch (e) {
+            console.warn('Favorite listener error in batch:', e);
+          }
+        });
+      });
     }
   },
 
@@ -396,6 +431,42 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     };
     await musicDB.savePlaylist(newPlaylist);
     set((state) => ({ playlists: [...state.playlists, newPlaylist] }));
+    return newPlaylist;
+  },
+
+  createPlaylistWithSongs: async (name: string, description?: string, songs: Song[] = [], coverArt?: string) => {
+    // 1. Save all songs into IndexedDB batch if any
+    if (songs.length > 0) {
+      await musicDB.saveSongsBatch(songs);
+    }
+
+    const songIds = songs.map((s) => s.id);
+    const resolvedCover = coverArt || (songs.length > 0 ? (songs[0].artwork || songs[0].coverArt) : undefined);
+
+    const newPlaylist: Playlist = {
+      id: 'pl-' + Date.now(),
+      name,
+      description,
+      isSmart: false,
+      coverArt: resolvedCover,
+      songIds,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+
+    // 2. Persist playlist into IndexedDB
+    await musicDB.savePlaylist(newPlaylist);
+
+    // 3. Update store state (merge songs into library so player can look them up immediately)
+    const currentSongs = get().songs;
+    const existingSongIdSet = new Set(currentSongs.map((s) => s.id));
+    const songsToAdd = songs.filter((s) => !existingSongIdSet.has(s.id));
+
+    set((state) => ({
+      playlists: [...state.playlists, newPlaylist],
+      songs: songsToAdd.length > 0 ? [...state.songs, ...songsToAdd] : state.songs
+    }));
+
     return newPlaylist;
   },
 

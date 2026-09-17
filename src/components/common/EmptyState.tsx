@@ -1,6 +1,7 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { FolderPlus, Music2, Sparkles, HardDrive, RefreshCw } from 'lucide-react';
 import { useLibraryStore } from '../../store/useLibraryStore';
+import { MusicSourcePickerModal } from '../library/MusicSourcePickerModal';
 
 interface EmptyStateProps {
   title?: string;
@@ -11,28 +12,9 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   title = 'No music yet',
   description = 'Select your music folder to build your personal local library.'
 }) => {
+  const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { scanProgress, scanFromDirectoryHandle, scanFromFileList } = useLibraryStore();
-
-  const handleNativePicker = async () => {
-    // Priority 1: Modern File System Access API (showDirectoryPicker)
-    if ('showDirectoryPicker' in window) {
-      try {
-        // @ts-ignore
-        const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
-        await scanFromDirectoryHandle(dirHandle);
-        return;
-      } catch (err: any) {
-        if (err.name === 'AbortError') {
-          return; // User cancelled the folder picker
-        }
-        console.warn('showDirectoryPicker failed, falling back to input:', err);
-      }
-    }
-
-    // Priority 2: Fallback to webkitdirectory file input
-    fileInputRef.current?.click();
-  };
+  const { scanProgress, scanFromFileList } = useLibraryStore();
 
   const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -93,7 +75,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       ) : (
         <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
           <button
-            onClick={handleNativePicker}
+            onClick={() => setIsSourcePickerOpen(true)}
             className="inline-flex items-center justify-center gap-2.5 px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-semibold text-sm rounded-xl shadow-lg shadow-indigo-600/25 transition-all active:scale-[0.98] cursor-pointer"
           >
             <FolderPlus size={18} />
@@ -101,19 +83,24 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           </button>
 
           <button
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => setIsSourcePickerOpen(true)}
             className="inline-flex items-center justify-center gap-2 px-5 py-3.5 bg-white/5 hover:bg-white/10 text-neutral-300 font-medium text-sm rounded-xl border border-white/10 transition-all cursor-pointer"
           >
             <HardDrive size={16} />
-            <span>Browse Files</span>
+            <span>Browse Music Sources</span>
           </button>
         </div>
       )}
 
       <div className="mt-8 flex items-center gap-2 text-xs text-neutral-500">
         <Sparkles size={14} className="text-indigo-400" />
-        <span>Supports MP3, OPUS, WAV, FLAC, M4A</span>
+        <span>Supports Device Storage & Google Drive Folders</span>
       </div>
+
+      <MusicSourcePickerModal
+        isOpen={isSourcePickerOpen}
+        onClose={() => setIsSourcePickerOpen(false)}
+      />
     </div>
   );
 };

@@ -187,23 +187,38 @@ class MusicDatabase {
     return songs.filter((s) => Boolean(s.isDownloaded));
   }
 
+  // BUG-21 fix: Atomic transaction over songs and history stores to prevent race condition
   async incrementPlayCount(id: string): Promise<void> {
-    const song = await this.getSongById(id);
-    if (song) {
-      const now = Date.now();
-      song.playCount = (song.playCount || 0) + 1;
-      song.lastPlayedAt = now;
-      song.lastPlayed = now; // Compatibility
-      await this.saveSong(song);
+    const db = await this.getDB();
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(['songs', 'history'], 'readwrite');
+        const songStore = tx.objectStore('songs');
+        const historyStore = tx.objectStore('history');
 
-      // Record in history table
-      const db = await this.getDB();
-      const tx = db.transaction('history', 'readwrite');
-      tx.objectStore('history').add({
-        songId: id,
-        timestamp: now
-      });
-    }
+        const getReq = songStore.get(id);
+        getReq.onsuccess = () => {
+          const song = getReq.result;
+          if (song) {
+            const now = Date.now();
+            song.playCount = (song.playCount || 0) + 1;
+            song.lastPlayedAt = now;
+            song.lastPlayed = now; // Compatibility
+            songStore.put(song);
+            historyStore.add({
+              songId: id,
+              timestamp: now
+            });
+          }
+        };
+
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      } catch (err) {
+        console.warn('Play count increment notice:', err);
+        resolve();
+      }
+    });
   }
 
   async getRecentHistory(limit = 50): Promise<Array<{ songId: string; timestamp: number }>> {
