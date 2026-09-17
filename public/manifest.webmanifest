@@ -1,0 +1,60 @@
+{
+  "name": "Aura Music Player",
+  "short_name": "Aura Music",
+  "description": "High-Fidelity Offline & Cloud Streaming Audio Player with AI Audio Suite, 3D Spatial Theatre & Realtime Karaoke",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#07090e",
+  "theme_color": "#6366f1",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/music-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "AI DJ Studio",
+      "short_name": "AI DJ",
+      "description": "Mood-based dynamic AI DJ playlist generator",
+      "url": "/?tab=ai-studio",
+      "icons": [{ "src": "/music-icon.svg", "sizes": "any" }]
+    },
+    {
+      "name": "3D Spatial Equalizer",
+      "short_name": "Equalizer",
+      "description": "10-Band EQ and Theatre Room Acoustics",
+      "url": "/?tab=equalizer",
+      "icons": [{ "src": "/music-icon.svg", "sizes": "any" }]
+    }
+  ],
+  "categories": ["music", "entertainment", "audio"]
+}

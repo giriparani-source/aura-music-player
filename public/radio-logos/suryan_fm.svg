@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+    <defs>
+      <linearGradient id="suryan_bg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#ff1a1a"/>
+        <stop offset="50%" stop-color="#ff6600"/>
+        <stop offset="100%" stop-color="#ffcc00"/>
+      </linearGradient>
+      <radialGradient id="sunburst" cx="50%" cy="45%" r="40%">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+        <stop offset="40%" stop-color="#ffe600" stop-opacity="0.7"/>
+        <stop offset="100%" stop-color="#ff3300" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <rect width="200" height="200" rx="36" fill="url(#suryan_bg)"/>
+    <circle cx="100" cy="80" r="55" fill="url(#sunburst)"/>
+    <g stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.85">
+      <line x1="100" y1="18" x2="100" y2="32"/>
+      <line x1="100" y1="128" x2="100" y2="142"/>
+      <line x1="43" y1="80" x2="57" y2="80"/>
+      <line x1="143" y1="80" x2="157" y2="80"/>
+      <line x1="60" y1="40" x2="70" y2="50"/>
+      <line x1="140" y1="40" x2="130" y2="50"/>
+      <line x1="60" y1="120" x2="70" y2="110"/>
+      <line x1="140" y1="120" x2="130" y2="110"/>
+    </g>
+    <text x="100" y="88" font-family="'Montserrat', 'Arial Black', sans-serif" font-size="24" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="2">SURYAN</text>
+    <rect x="30" y="116" width="140" height="34" rx="10" fill="#0b0d13" opacity="0.9"/>
+    <text x="100" y="139" font-family="'Arial Black', sans-serif" font-size="18" font-weight="900" fill="#ffe600" text-anchor="middle" letter-spacing="1.5">93.5 FM</text>
+    <text x="100" y="174" font-family="sans-serif" font-size="10" font-weight="800" fill="#ffffff" text-anchor="middle" letter-spacing="2">KETTA MASS</text>
+  </svg>

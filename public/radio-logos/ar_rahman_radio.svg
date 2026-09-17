@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+    <defs>
+      <linearGradient id="arr_bg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#0d001a"/>
+        <stop offset="50%" stop-color="#2e0854"/>
+        <stop offset="100%" stop-color="#6b1199"/>
+      </linearGradient>
+    </defs>
+    <rect width="200" height="200" rx="36" fill="url(#arr_bg)"/>
+    <g fill="#00f0ff" opacity="0.8">
+      <rect x="55" y="70" width="6" height="28" rx="3"/>
+      <rect x="67" y="55" width="6" height="48" rx="3"/>
+      <rect x="79" y="42" width="6" height="65" rx="3"/>
+      <rect x="91" y="35" width="6" height="75" rx="3"/>
+      <rect x="103" y="35" width="6" height="75" rx="3"/>
+      <rect x="115" y="42" width="6" height="65" rx="3"/>
+      <rect x="127" y="55" width="6" height="48" rx="3"/>
+      <rect x="139" y="70" width="6" height="28" rx="3"/>
+    </g>
+    <text x="100" y="134" font-family="'Arial Black', sans-serif" font-size="20" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="1.5">A.R. RAHMAN</text>
+    <rect x="45" y="146" width="110" height="24" rx="8" fill="#00f0ff"/>
+    <text x="100" y="162" font-family="'Arial Black', sans-serif" font-size="12" font-weight="900" fill="#0d001a" text-anchor="middle" letter-spacing="2">24/7 LIVE HD</text>
+    <text x="100" y="184" font-family="sans-serif" font-size="8.5" font-weight="700" fill="#d980ff" text-anchor="middle" letter-spacing="2">MOZART OF MADRAS</text>
+  </svg>

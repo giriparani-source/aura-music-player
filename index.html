@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en" class="dark" style="background-color: #0b0d13; color: #e2e8f0;">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="shortcut icon" href="/favicon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#6366f1" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Aura Music" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <title>Aura Music | High-Fidelity Audio Player</title>
+    <meta name="description" content="High-Fidelity Offline & Cloud Streaming Audio Player with AI Audio Suite, 3D Spatial Theatre & Realtime Karaoke." />
+    <meta property="og:title" content="Aura Music Player" />
+    <meta property="og:description" content="High-Fidelity Audio Player with AI DJ, 10-Band EQ, 3D Spatial Theatre, and Studio Master Streaming." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://aura-music-player-omega.vercel.app/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+      // 1. Immediately purge any bad service workers or cached pwa assets
+      try {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function(regs) {
+            for (var i = 0; i < regs.length; i++) {
+              regs[i].unregister();
+            }
+          });
+        }
+        if ('caches' in window) {
+          caches.keys().then(function(keys) {
+            for (var i = 0; i < keys.length; i++) {
+              if (keys[i].indexOf('aura-music-pwa') !== -1) {
+                caches.delete(keys[i]);
+              }
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('Cache purge notice:', e);
+      }
+
+      // 2. Global Startup Error Trap: Never leave user stuck on infinite loading
+      window.addEventListener('error', function(e) {
+        console.error('Startup error:', e);
+        var el = document.getElementById('root');
+        if (el && el.innerText && el.innerText.indexOf('Loading Aura Music') !== -1) {
+          el.innerHTML = '<div style="padding:28px 20px;color:#f87171;background:#0b0d13;font-family:system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;">' +
+            '<div style="width:48px;height:48px;border-radius:12px;background:#ef444420;border:1px solid #ef444440;display:flex;align-items:center;justify-content:center;margin-bottom:16px;">' +
+            '<span style="font-size:24px;">⚠️</span></div>' +
+            '<h2 style="color:#ffffff;font-size:18px;font-weight:600;margin:0 0 8px;">Aura Music Startup Error</h2>' +
+            '<p style="color:#94a3b8;font-size:13px;max-width:320px;line-height:1.5;margin:0 0 20px;">' + (e.message || 'Unable to start application engine.') + '</p>' +
+            '<button onclick="location.reload()" style="padding:10px 24px;background:#6366f1;color:#fff;border:none;border-radius:12px;font-weight:600;font-size:14px;cursor:pointer;">Retry</button>' +
+            '</div>';
+        }
+      // 3. Keep background audio and YouTube playback active when screen locks or app minimizes
+      try {
+        Object.defineProperty(document, 'hidden', {
+          get: function() { return false; },
+          configurable: true
+        });
+        Object.defineProperty(document, 'visibilityState', {
+          get: function() { return 'visible'; },
+          configurable: true
+        });
+        window.addEventListener('visibilitychange', function(e) {
+          e.stopImmediatePropagation();
+        }, true);
+      } catch (e) {
+        console.warn('Visibility hook notice:', e);
+      }
+    </script>
+  </head>
+  <body style="background-color: #0b0d13; color: #e2e8f0; margin: 0; min-height: 100vh;" class="bg-[#0b0d13] text-[#e2e8f0] antialiased selection:bg-indigo-500/30 selection:text-indigo-200 overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
+    <div id="root">
+      <div style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #0b0d13; color: #94a3b8; font-family: system-ui, -apple-system, sans-serif;">
+        <img src="/logo.png" alt="Aura Logo" style="width: 64px; height: 64px; border-radius: 16px; box-shadow: 0 12px 30px -6px rgba(99, 102, 241, 0.45); margin-bottom: 20px; object-fit: cover; border: 1px solid rgba(255,255,255,0.1);" />
+        <div style="width: 28px; height: 28px; border: 2.5px solid rgba(255,255,255,0.1); border-top-color: #6366f1; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;"></div>
+        <p style="font-size: 13px; font-weight: 500; color: #94a3b8; margin: 0; letter-spacing: 0.02em;">Loading Aura Music...</p>
+        <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

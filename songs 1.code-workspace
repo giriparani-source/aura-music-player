@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "G:/My Drive/songs 1"
+		},
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"powershell.cwd": "music player"
+	}
+}

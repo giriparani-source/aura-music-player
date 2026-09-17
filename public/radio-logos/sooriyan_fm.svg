@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+    <defs>
+      <linearGradient id="sooriyan_bg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#800000"/>
+        <stop offset="50%" stop-color="#cc2900"/>
+        <stop offset="100%" stop-color="#ff9900"/>
+      </linearGradient>
+    </defs>
+    <rect width="200" height="200" rx="36" fill="url(#sooriyan_bg)"/>
+    <circle cx="100" cy="80" r="42" fill="#ffd700" opacity="0.95"/>
+    <text x="100" y="88" font-family="'Arial Black', sans-serif" font-size="21" font-weight="900" fill="#b30000" text-anchor="middle" letter-spacing="1">SOORIYAN</text>
+    <rect x="35" y="130" width="130" height="32" rx="10" fill="#1a0000" opacity="0.9"/>
+    <text x="100" y="152" font-family="'Arial Black', sans-serif" font-size="16" font-weight="900" fill="#ffd700" text-anchor="middle" letter-spacing="1.5">103.4 FM</text>
+    <text x="100" y="182" font-family="sans-serif" font-size="9" font-weight="700" fill="#ffe6b3" text-anchor="middle" letter-spacing="2">ISLAND'S PRIDE</text>
+  </svg>
