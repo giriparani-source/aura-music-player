@@ -1,11 +1,11 @@
 import { create } from 'zustand';
-import { Song, RepeatMode, NowPlayingTab, SpatialPreset } from '../types/music';
+import { Song, RepeatMode, NowPlayingTab, SpatialPreset, ShuffleMode } from '../types/music';
 import { audioService } from '../services/audioService';
 import { audioEffectsService, BassExciterLevel } from '../services/audioEffectsService';
 import { sleepTimerService, SleepTimerPreset } from '../services/sleepTimerService';
 import { musicDB } from '../services/db';
 import { useLibraryStore, onFavoriteChanged, registerSongLookup } from './useLibraryStore';
-import { generateFairShuffleIndices, generatePureRandomIndices } from '../utils/fairShuffle';
+import { generateFairShuffleIndices, generatePureRandomIndices, reshuffleUpcomingIndices } from '../utils/fairShuffle';
 import { auraFlowService, FlowContext, DiscoveryPreference } from '../services/auraFlowService';
 
 interface PlayerStoreState {
@@ -16,6 +16,7 @@ interface PlayerStoreState {
   volume: number;
   isMuted: boolean;
   repeatMode: RepeatMode;
+  shuffleMode: ShuffleMode;
   isShuffle: boolean;
   isFairShuffle: boolean;
   shuffledQueueOrder: number[];
@@ -59,7 +60,9 @@ interface PlayerStoreState {
   nextSong: () => void;
   previousSong: () => void;
   toggleShuffle: () => void;
+  setShuffleMode: (mode: ShuffleMode) => void;
   toggleFairShuffle: () => void;
+  reshuffleQueue: () => void;
   cycleRepeat: () => void;
   toggleAuraFlow: () => void;
   setAuraFlow: (enabled: boolean) => void;
@@ -217,6 +220,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     volume: 1,
     isMuted: false,
     repeatMode: 'off',
+    shuffleMode: 'off',
     isShuffle: false,
     isFairShuffle: true,
     shuffledQueueOrder: [],
@@ -391,6 +395,49 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
           set({ shuffledQueueOrder: order });
         }
         const currentPos = order.indexOf(queueIndex);
+        const isSmart = get().shuffleMode === 'smart';
+
+        // Spotify-style Smart Shuffle: every 3-4 tracks, weave in a contextual discovery recommendation
+        if (isSmart && currentPos !== -1 && currentPos > 0 && currentPos % 3 === 0) {
+          const libState = useLibraryStore.getState();
+          const context: FlowContext = {
+            currentSong,
+            queue,
+            queueIndex,
+            playbackHistory,
+            allSongs: libState.songs || [],
+            downloadedSongIds: libState.downloadedSongIds || new Set(),
+            isOnline: libState.isOnline ?? true
+          };
+          const smartCandidate = auraFlowService.getNextTrack(context);
+          if (smartCandidate && !queue.some((s) => s.id === smartCandidate.id)) {
+            const smartSong: Song = {
+              ...smartCandidate,
+              isAuraFlow: true,
+              isSmartShuffle: true,
+              auraReason: smartCandidate.auraReason || 'discovery_pick'
+            };
+            const newQueue = [...queue, smartSong];
+            const smartIndex = newQueue.length - 1;
+            const newOrder = [
+              ...order.slice(0, currentPos + 1),
+              smartIndex,
+              ...order.slice(currentPos + 1)
+            ];
+            const updatedHistory = (currentSong ? [...playbackHistory, currentSong.id] : playbackHistory).slice(-200);
+            set({
+              queue: newQueue,
+              queueIndex: smartIndex,
+              shuffledQueueOrder: newOrder,
+              currentSong: smartSong,
+              playbackHistory: updatedHistory
+            });
+            audioService.playSong(smartSong);
+            auraFlowService.recordAuraTrackStart(smartSong);
+            return;
+          }
+        }
+
         if (currentPos !== -1 && currentPos < order.length - 1) {
           nextIndex = order[currentPos + 1];
         } else if (repeatMode === 'all') {
@@ -399,8 +446,8 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
             : generatePureRandomIndices(queue.length, 0);
           set({ shuffledQueueOrder: freshOrder });
           nextIndex = freshOrder[0];
-        } else if (isAuraFlow) {
-          // Reached shuffle queue end with Aura Flow ON: generate next song
+        } else if (isAuraFlow || isSmart) {
+          // Reached shuffle queue end with Aura Flow or Smart Shuffle ON: generate next song
           const libState = useLibraryStore.getState();
           const context: FlowContext = {
             currentSong,
@@ -413,7 +460,12 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
           };
           const nextTrack = auraFlowService.getNextTrack(context);
           if (nextTrack) {
-            const flowSong: Song = { ...nextTrack, isAuraFlow: true, auraReason: nextTrack.auraReason };
+            const flowSong: Song = {
+              ...nextTrack,
+              isAuraFlow: true,
+              isSmartShuffle: isSmart,
+              auraReason: nextTrack.auraReason
+            };
             const newQueue = [...queue, flowSong];
             const nextIdx = newQueue.length - 1;
             const newOrder = [...order, nextIdx];
@@ -552,27 +604,69 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     },
 
     toggleShuffle: () => {
-      const nextShuffle = !get().isShuffle;
-      const { queue, queueIndex, isFairShuffle } = get();
+      const currentMode = get().shuffleMode || (get().isShuffle ? (get().isFairShuffle ? 'fair' : 'fair') : 'off');
+      let nextMode: ShuffleMode;
+      if (currentMode === 'off') {
+        nextMode = 'fair';
+      } else if (currentMode === 'fair') {
+        nextMode = 'smart';
+      } else {
+        nextMode = 'off';
+      }
+      get().setShuffleMode(nextMode);
+    },
+
+    setShuffleMode: (mode: ShuffleMode) => {
+      const { queue, queueIndex } = get();
       let newOrder: number[] = [];
-      if (nextShuffle && queue.length > 0) {
-        newOrder = isFairShuffle
+      const isShuffle = mode !== 'off';
+      const isFair = mode === 'fair' || mode === 'smart';
+
+      if (isShuffle && queue.length > 0) {
+        newOrder = isFair
           ? generateFairShuffleIndices(queue, queueIndex >= 0 ? queueIndex : 0)
           : generatePureRandomIndices(queue.length, queueIndex >= 0 ? queueIndex : 0);
       }
-      set({ isShuffle: nextShuffle, shuffledQueueOrder: newOrder });
+
+      set({
+        shuffleMode: mode,
+        isShuffle,
+        isFairShuffle: isFair,
+        shuffledQueueOrder: newOrder
+      });
     },
 
     toggleFairShuffle: () => {
       const nextFair = !get().isFairShuffle;
-      const { queue, queueIndex, isShuffle } = get();
+      const { queue, queueIndex, isShuffle, shuffleMode } = get();
       let newOrder: number[] = [];
       if (isShuffle && queue.length > 0) {
         newOrder = nextFair
           ? generateFairShuffleIndices(queue, queueIndex >= 0 ? queueIndex : 0)
           : generatePureRandomIndices(queue.length, queueIndex >= 0 ? queueIndex : 0);
       }
-      set({ isFairShuffle: nextFair, shuffledQueueOrder: newOrder });
+      set({
+        isFairShuffle: nextFair,
+        shuffleMode: !nextFair ? 'fair' : shuffleMode === 'smart' ? 'smart' : 'fair',
+        shuffledQueueOrder: newOrder
+      });
+    },
+
+    reshuffleQueue: () => {
+      const { queue, queueIndex, shuffledQueueOrder, shuffleMode } = get();
+      if (queue.length <= 1) return;
+
+      const order = reshuffleUpcomingIndices(
+        queue,
+        queueIndex >= 0 ? queueIndex : 0,
+        shuffledQueueOrder
+      );
+
+      set({
+        shuffledQueueOrder: order,
+        isShuffle: true,
+        shuffleMode: shuffleMode === 'off' ? 'fair' : shuffleMode
+      });
     },
 
     cycleRepeat: () => {

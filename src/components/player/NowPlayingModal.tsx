@@ -55,6 +55,7 @@ export const NowPlayingModal: React.FC = () => {
     setVolume,
     toggleMute,
     toggleShuffle,
+    shuffleMode,
     cycleRepeat,
     setNowPlayingOpen,
     setActiveModalTab,
@@ -560,12 +561,25 @@ export const NowPlayingModal: React.FC = () => {
             <div className="flex items-center gap-1">
               <button
                 onClick={toggleShuffle}
-                className={`p-2 rounded-full transition-colors cursor-pointer ${
-                  isShuffle ? 'text-indigo-400 bg-indigo-500/15' : 'text-neutral-400 hover:text-white'
+                className={`relative p-2 rounded-full transition-all cursor-pointer ${
+                  shuffleMode === 'smart'
+                    ? 'text-emerald-400 bg-emerald-500/20 border border-emerald-500/40 shadow-sm shadow-emerald-500/30'
+                    : isShuffle
+                    ? 'text-indigo-400 bg-indigo-500/15'
+                    : 'text-neutral-400 hover:text-white'
                 }`}
-                title="Shuffle"
+                title={
+                  shuffleMode === 'smart'
+                    ? 'Smart Shuffle Active ✨ (AI Discovery recommendations active)'
+                    : isShuffle
+                    ? 'True-Fair Shuffle Active 🔀 (Even artist & album spacing)'
+                    : 'Shuffle: OFF (Click to cycle)'
+                }
               >
                 <Shuffle size={18} />
+                {shuffleMode === 'smart' && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 animate-pulse ring-2 ring-black" />
+                )}
               </button>
 
               <button

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateFairShuffleIndices, generatePureRandomIndices } from '../fairShuffle';
+import { generateFairShuffleIndices, generatePureRandomIndices, reshuffleUpcomingIndices } from '../fairShuffle';
 import { Song } from '../../types/music';
 
 function makeSong(id: string, title: string, artist: string): Song {
@@ -107,6 +107,71 @@ describe('fairShuffle', () => {
 
       // In a fair shuffle of 5 dominant / 5 other, adjacent same-artist should be heavily minimized (at most 1-2)
       expect(adjacentSameArtistCount).toBeLessThanOrEqual(2);
+    });
+
+    it('anti-clusters collaborating artists sharing a common name (e.g. "Anirudh, Jonita")', () => {
+      const songs = [
+        makeSong('1', 'Arabic Kuthu', 'Anirudh Ravichander, Jonita Gandhi'),
+        makeSong('2', 'Naa Ready', 'Anirudh Ravichander, Thalapathy Vijay'),
+        makeSong('3', 'Hukum', 'Anirudh Ravichander'),
+        makeSong('4', 'Munbe Vaa', 'A.R. Rahman, Shreya Ghoshal'),
+        makeSong('5', 'Vaseegara', 'Harris Jayaraj, Bombay Jayashri'),
+        makeSong('6', 'Oru Naalil', 'Yuvan Shankar Raja')
+      ];
+
+      const result = generateFairShuffleIndices(songs, 0);
+      expect(result).toHaveLength(6);
+
+      // Verify that Arab Kuthu and Naa Ready and Hukum are not all clustered consecutively
+      let consecutiveAnirudhCollabs = 0;
+      for (let i = 0; i < result.length - 1; i++) {
+        const a1 = songs[result[i]].artist.toLowerCase();
+        const a2 = songs[result[i + 1]].artist.toLowerCase();
+        if (a1.includes('anirudh') && a2.includes('anirudh')) {
+          consecutiveAnirudhCollabs++;
+        }
+      }
+      expect(consecutiveAnirudhCollabs).toBeLessThanOrEqual(1);
+    });
+
+    it('anti-clusters tracks from the same album/soundtrack', () => {
+      const songs: Song[] = [
+        { ...makeSong('1', 'Leo Track 1', 'Anirudh'), album: 'Leo' },
+        { ...makeSong('2', 'Leo Track 2', 'Vijay'), album: 'Leo' },
+        { ...makeSong('3', 'Leo Track 3', 'Asal Kolaar'), album: 'Leo' },
+        { ...makeSong('4', 'Jailer Track 1', 'Anirudh'), album: 'Jailer' },
+        { ...makeSong('5', 'Vikram Track 1', 'Anirudh'), album: 'Vikram' },
+        { ...makeSong('6', 'Master Track 1', 'Anirudh'), album: 'Master' }
+      ];
+
+      const result = generateFairShuffleIndices(songs, 0);
+      let adjacentLeoCount = 0;
+      for (let i = 0; i < result.length - 1; i++) {
+        if (songs[result[i]].album === 'Leo' && songs[result[i + 1]].album === 'Leo') {
+          adjacentLeoCount++;
+        }
+      }
+      expect(adjacentLeoCount).toBeLessThanOrEqual(1);
+    });
+  });
+
+  describe('reshuffleUpcomingIndices', () => {
+    it('preserves history and current playing track position while shuffling upcoming tracks', () => {
+      const songs = Array.from({ length: 8 }, (_, i) => makeSong(`${i}`, `Track ${i}`, `Artist ${i}`));
+      // Initial shuffle order: [0, 1, 2, 3, 4, 5, 6, 7]
+      const currentOrder = [0, 1, 2, 3, 4, 5, 6, 7];
+      const currentQueueIndex = 2; // User is at index 2 (position 2)
+
+      const reshuffled = reshuffleUpcomingIndices(songs, currentQueueIndex, currentOrder);
+
+      // Positions 0, 1, 2 must remain identical!
+      expect(reshuffled[0]).toBe(0);
+      expect(reshuffled[1]).toBe(1);
+      expect(reshuffled[2]).toBe(2);
+
+      // Length must be preserved and all elements must be unique
+      expect(reshuffled).toHaveLength(8);
+      expect(new Set(reshuffled).size).toBe(8);
     });
   });
 });

@@ -20,8 +20,12 @@ import {
   Users,
   Radio,
   Eye,
-  EyeOff
+  EyeOff,
+  Languages,
+  Lock
 } from 'lucide-react';
+import { useTranslation } from '../../i18n';
+import { useProfileStore } from '../../store/useProfileStore';
 import { useJamStore } from '../../store/useJamStore';
 import { MusicSourcePickerModal } from '../library/MusicSourcePickerModal';
 import { geminiAiService } from '../../services/geminiAiService';
@@ -41,6 +45,8 @@ import {
 } from '../../services/auraProfileExplainer';
 
 export const SettingsView: React.FC = () => {
+  const { t, language, setLanguage } = useTranslation();
+  const { profiles, activeProfile, setProfileModalOpen } = useProfileStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
 
@@ -193,9 +199,9 @@ export const SettingsView: React.FC = () => {
   return (
     <div className="p-6 sm:p-8 space-y-10 max-w-4xl mx-auto select-none pb-24">
       <div>
-        <h2 className="text-3xl font-extrabold tracking-tight text-white">Settings & Diagnostics</h2>
+        <h2 className="text-3xl font-extrabold tracking-tight text-white">{t('settings.title')}</h2>
         <p className="text-sm text-neutral-400 mt-1">
-          Manage local library scanning, JSON backups, health metrics, and audio diagnostics
+          {t('settings.subtitle')}
         </p>
       </div>
 
@@ -219,6 +225,110 @@ export const SettingsView: React.FC = () => {
         accept=".json,application/json"
         className="hidden"
       />
+
+      {/* Section 0: Display Language / மொழி */}
+      <div className="glass-panel p-6 rounded-3xl space-y-5 border border-indigo-500/20 bg-[#0e1118]/80 backdrop-blur-xl">
+        <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+          <Languages size={20} className="text-indigo-400" />
+          <div>
+            <h3 className="text-base font-bold text-white">{t('settings.language')}</h3>
+            <p className="text-xs text-neutral-500">{t('settings.languageSubtitle')}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+          {[
+            { id: 'en' as const, label: 'English', sub: 'English (Default)', icon: '🇬🇧' },
+            { id: 'ta' as const, label: 'தமிழ்', sub: 'Tamil (தமிழ் வடிவம்)', icon: '🇮🇳' },
+            { id: 'tanglish' as const, label: 'Tanglish', sub: 'Colloquial (Casual)', icon: '🎧' },
+          ].map((item) => {
+            const isSelected = language === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setLanguage(item.id)}
+                className={`flex items-center justify-between p-4 rounded-2xl border transition-all text-left cursor-pointer ${
+                  isSelected
+                    ? 'bg-gradient-to-r from-indigo-600/25 to-purple-600/15 border-indigo-500/50 shadow-lg shadow-indigo-500/10 text-white'
+                    : 'bg-white/5 border-white/10 hover:bg-white/[0.08] text-neutral-300'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">{item.icon}</span>
+                  <div>
+                    <div className="text-sm font-bold text-white flex items-center gap-1.5">
+                      {item.label}
+                    </div>
+                    <div className="text-[11px] text-neutral-400 font-medium">{item.sub}</div>
+                  </div>
+                </div>
+                {isSelected && <Check size={18} className="text-indigo-400 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Section 0.5: Multi-User Profiles & Security */}
+      <div className="glass-panel p-6 rounded-3xl space-y-5 border border-indigo-500/20 bg-[#0e1118]/80 backdrop-blur-xl">
+        <div className="flex items-center justify-between border-b border-white/5 pb-4">
+          <div className="flex items-center gap-3">
+            <Users size={20} className="text-indigo-400" />
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <span>User Profiles & Security</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-semibold border border-emerald-500/30">
+                  Active: {activeProfile.name}
+                </span>
+              </h3>
+              <p className="text-xs text-neutral-500">
+                Switch profiles, create private PIN-protected listener profiles, and isolate libraries
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setProfileModalOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 font-semibold text-xs border border-indigo-500/30 transition-all cursor-pointer"
+          >
+            <span>Manage Profiles ({profiles.length})</span>
+          </button>
+        </div>
+
+        {/* Profile pills quick preview */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+          {profiles.map((p) => {
+            const isActive = p.id === activeProfile.id;
+            return (
+              <div
+                key={p.id}
+                onClick={() => setProfileModalOpen(true)}
+                className={`flex items-center justify-between p-3 rounded-2xl border transition-all cursor-pointer ${
+                  isActive
+                    ? 'bg-indigo-600/15 border-indigo-500/40 text-white'
+                    : 'bg-white/5 border-white/10 hover:bg-white/[0.08] text-neutral-300'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span
+                    style={{ borderColor: p.color }}
+                    className="w-8 h-8 rounded-xl text-base flex items-center justify-center bg-white/5 border shrink-0"
+                  >
+                    {p.avatar}
+                  </span>
+                  <span className="text-xs font-bold truncate">{p.name}</span>
+                </div>
+                {isActive ? (
+                  <span className="text-[10px] font-bold text-indigo-400 flex items-center gap-1">
+                    <Check size={12} /> Active
+                  </span>
+                ) : p.isProtected ? (
+                  <Lock size={12} className="text-amber-400" />
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Section 1: Music Folder Scanner */}
       <div className="glass-panel p-6 rounded-3xl space-y-5">

@@ -68,27 +68,28 @@ class CloudPlayerService {
   private mountPlayer() {
     if (!window.YT || !window.YT.Player) return;
 
-    // Create container if not exists with on-screen dimensions to prevent Chromium WebView
-    // background video suspension and aggressive offscreen frame throttling
+    // Create container with on-screen active viewport dimensions and full opacity
+    // to prevent Chromium from categorizing the video as 'offscreen / hidden' and suspending playback
     let container = document.getElementById('aura-headless-cloud-player');
     if (!container) {
       container = document.createElement('div');
       container.id = 'aura-headless-cloud-player';
       container.style.position = 'fixed';
-      container.style.top = '0';
-      container.style.left = '0';
-      container.style.width = '240px';
-      container.style.height = '240px';
-      container.style.opacity = '0.001';
+      container.style.bottom = '0';
+      container.style.right = '0';
+      container.style.width = '2px';
+      container.style.height = '2px';
+      container.style.opacity = '1';
       container.style.pointerEvents = 'none';
-      container.style.zIndex = '-9999';
+      container.style.zIndex = '99999';
+      container.style.overflow = 'hidden';
       document.body.appendChild(container);
     }
 
     try {
       this.player = new window.YT.Player('aura-headless-cloud-player', {
-        height: '240',
-        width: '240',
+        height: '2',
+        width: '2',
         playerVars: {
           autoplay: 1,
           controls: 0,
@@ -97,7 +98,10 @@ class CloudPlayerService {
           modestbranding: 1,
           playsinline: 1,
           rel: 0,
-          origin: window.location.origin
+          enablejsapi: 1,
+          origin: (typeof window !== 'undefined' && window.location.origin.includes('localhost'))
+            ? 'https://aura-music-player-omega.vercel.app'
+            : (typeof window !== 'undefined' ? window.location.origin : '')
         },
         events: {
           onReady: () => {

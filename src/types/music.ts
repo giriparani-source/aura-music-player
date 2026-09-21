@@ -1,7 +1,9 @@
 export interface Song {
   id: string;
-  path: string; // Relative path or URI
-  filePath: string; // Alias for backward compatibility
+  /** Canonical audio file URI or path */
+  path: string;
+  /** @deprecated Legacy alias for `path`. Synchronized via `normalizeSong()`. */
+  filePath: string;
   fileName: string;
   title: string;
   artist: string; // 'Not set' if missing
@@ -18,11 +20,15 @@ export interface Song {
   dateAdded: number; // timestamp
   lastModified?: number; // file timestamp
   playCount: number;
-  lastPlayedAt?: number; // timestamp
-  lastPlayed?: number; // Alias for backward compatibility
+  /** Canonical timestamp when song was last played */
+  lastPlayedAt?: number;
+  /** @deprecated Legacy alias for `lastPlayedAt`. Synchronized via `normalizeSong()`. */
+  lastPlayed?: number;
   isFavorite: boolean;
-  artwork?: string; // base64 / blob URL
-  coverArt?: string; // Alias for backward compatibility
+  /** Canonical artwork / cover image URL or blob */
+  artwork?: string;
+  /** @deprecated Legacy alias for `artwork`. Synchronized via `normalizeSong()`. */
+  coverArt?: string;
   folder?: string;
   lyrics?: string; // Raw or embedded lyrics text
   syncedLyrics?: { time: number; text: string }[]; // Parsed timestamps
@@ -34,8 +40,11 @@ export interface Song {
   isDownloaded?: boolean;
   downloadedAt?: number;
   isAuraFlow?: boolean;
+  isSmartShuffle?: boolean;
   auraReason?: AuraRecommendationReason;
 }
+
+export type ShuffleMode = 'off' | 'fair' | 'smart';
 
 export type AuraRecommendationReason =
   | 'discovery_pick'

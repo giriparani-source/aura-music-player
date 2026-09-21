@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { jamService, JamParticipant, JamReaction } from '../services/jamService';
+import { jamService, JamParticipant, JamReaction, JamSyncStatus } from '../services/jamService';
 
 interface JamStoreState {
   isJamModalOpen: boolean;
@@ -9,6 +9,7 @@ interface JamStoreState {
   participants: JamParticipant[];
   reactions: JamReaction[];
   driftMs: number;
+  syncStatus: JamSyncStatus;
   error: string | null;
   nickname: string;
 
@@ -31,6 +32,7 @@ export const useJamStore = create<JamStoreState>((set, get) => {
       participants: state.participants,
       reactions: state.reactions,
       driftMs: state.driftMs,
+      syncStatus: state.syncStatus,
       error: state.error
     });
   });
@@ -43,6 +45,7 @@ export const useJamStore = create<JamStoreState>((set, get) => {
     participants: [],
     reactions: [],
     driftMs: 0,
+    syncStatus: 'idle',
     error: null,
     nickname: localStorage.getItem('aura_jam_nickname') || 'Music Fan',
 

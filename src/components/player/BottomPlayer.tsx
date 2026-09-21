@@ -26,11 +26,13 @@ import {
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useJamStore } from '../../store/useJamStore';
+import { useTranslation } from '../../i18n';
 import { formatTime } from '../../utils/formatters';
 import { Artwork } from '../common/Artwork';
 import { SleepTimerMenu } from './SleepTimerMenu';
 
 export const BottomPlayer: React.FC = () => {
+  const { t } = useTranslation();
   const {
     currentSong,
     isPlaying,
@@ -49,6 +51,7 @@ export const BottomPlayer: React.FC = () => {
     setVolume,
     toggleMute,
     toggleShuffle,
+    shuffleMode,
     cycleRepeat,
     setNowPlayingOpen,
     setQueueOpen,
@@ -244,18 +247,31 @@ export const BottomPlayer: React.FC = () => {
         <div className="flex items-center gap-4 sm:gap-6">
           <button
             onClick={toggleShuffle}
-            className={`p-1.5 rounded-lg transition-colors ${
-              isShuffle ? 'text-indigo-400 bg-indigo-500/10' : 'text-neutral-400 hover:text-white'
+            className={`relative p-1.5 rounded-lg transition-all cursor-pointer ${
+              shuffleMode === 'smart'
+                ? 'text-emerald-400 bg-emerald-500/15 shadow-sm shadow-emerald-500/20 ring-1 ring-emerald-500/30'
+                : isShuffle
+                ? 'text-indigo-400 bg-indigo-500/10'
+                : 'text-neutral-400 hover:text-white'
             }`}
-            title="Shuffle"
+            title={
+              shuffleMode === 'smart'
+                ? 'Smart Shuffle Active ✨ (AI Discovery recommendations active)'
+                : isShuffle
+                ? 'True-Fair Shuffle Active 🔀 (Even artist & album spacing)'
+                : 'Shuffle: OFF (Click to enable)'
+            }
           >
             <Shuffle size={16} />
+            {shuffleMode === 'smart' && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 animate-pulse ring-2 ring-black" />
+            )}
           </button>
 
           <button
             onClick={previousSong}
             className="p-1.5 rounded-lg text-neutral-300 hover:text-white transition-colors"
-            title="Previous (P)"
+            title={t('player.previous')}
           >
             <SkipBack size={18} />
           </button>
@@ -263,7 +279,7 @@ export const BottomPlayer: React.FC = () => {
           <button
             onClick={togglePlay}
             className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg shadow-white/15 cursor-pointer"
-            title="Play/Pause (Space)"
+            title={isPlaying ? t('player.pause') : t('player.play')}
           >
             {isPlaying ? <Pause size={18} className="fill-black" /> : <Play size={18} className="fill-black ml-0.5" />}
           </button>
@@ -271,7 +287,7 @@ export const BottomPlayer: React.FC = () => {
           <button
             onClick={nextSong}
             className="p-1.5 rounded-lg text-neutral-300 hover:text-white transition-colors"
-            title="Next (N)"
+            title={t('player.next')}
           >
             <SkipForward size={18} />
           </button>
@@ -281,7 +297,7 @@ export const BottomPlayer: React.FC = () => {
             className={`p-1.5 rounded-lg transition-colors ${
               repeatMode !== 'off' ? 'text-indigo-400 bg-indigo-500/10' : 'text-neutral-400 hover:text-white'
             }`}
-            title={`Repeat: ${repeatMode}`}
+            title={`${t('player.repeat')}: ${repeatMode}`}
           >
             {repeatMode === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}
           </button>
@@ -329,7 +345,7 @@ export const BottomPlayer: React.FC = () => {
         <button
           onClick={() => openWithTab('lyrics')}
           className="p-2 rounded-lg text-neutral-400 hover:text-purple-400 hover:bg-white/5 transition-colors"
-          title="Lyrics"
+          title={t('player.lyrics')}
         >
           <FileText size={17} />
         </button>
@@ -343,8 +359,8 @@ export const BottomPlayer: React.FC = () => {
           }`}
           title={
             spatialPreset !== 'off'
-              ? `Equalizer & 3D Spatial Reverb (${spatialPreset.toUpperCase()})`
-              : '10-Band Equalizer & 3D Spatial Theatre'
+              ? `${t('player.equalizer')} (${spatialPreset.toUpperCase()})`
+              : t('player.equalizer')
           }
         >
           <Sliders size={17} />
@@ -360,8 +376,8 @@ export const BottomPlayer: React.FC = () => {
           }`}
           title={
             isKaraoke
-              ? `Karaoke Mode: ON (${Math.round(karaokeDepth * 100)}% Vocal Cut)`
-              : 'Turn ON Karaoke Mode (Vocal Remover)'
+              ? `${t('player.karaoke')}: ON (${Math.round(karaokeDepth * 100)}%)`
+              : t('player.karaoke')
           }
         >
           <Mic2 size={17} className={isKaraoke ? 'animate-pulse' : ''} />
@@ -371,7 +387,7 @@ export const BottomPlayer: React.FC = () => {
         <button
           onClick={() => setAiAssistantOpen(true)}
           className="p-2 rounded-lg text-neutral-400 hover:text-amber-400 hover:bg-white/5 transition-colors cursor-pointer"
-          title="Ask Aura AI Assistant"
+          title={t('header.openAiDj')}
         >
           <Sparkles size={17} />
         </button>
@@ -386,8 +402,8 @@ export const BottomPlayer: React.FC = () => {
           }`}
           title={
             isInRoom
-              ? `Social Jam Active: Room ${roomCode}`
-              : 'Social Jam (Listen Together with Friends)'
+              ? `${t('player.socialJam')}: Room ${roomCode}`
+              : t('player.socialJam')
           }
         >
           <Users size={17} className={isInRoom ? 'animate-pulse' : ''} />
@@ -409,8 +425,8 @@ export const BottomPlayer: React.FC = () => {
           }`}
           title={
             isAuraFlow
-              ? 'Aura Flow: ON (Continuous smart autoplay active)'
-              : 'Turn ON Aura Flow (Continuous smart autoplay)'
+              ? `${t('player.auraFlow')}: ON`
+              : t('player.auraFlow')
           }
         >
           <InfinityIcon size={17} className={isAuraFlow ? 'animate-pulse text-fuchsia-400' : ''} />
@@ -421,7 +437,7 @@ export const BottomPlayer: React.FC = () => {
           className={`p-2 rounded-lg transition-colors relative ${
             isQueueOpen ? 'text-indigo-400 bg-indigo-500/15' : 'text-neutral-400 hover:text-white hover:bg-white/5'
           }`}
-          title="Queue"
+          title={t('player.queue')}
         >
           <ListMusic size={18} />
           {queue.length > 0 && (
@@ -434,7 +450,7 @@ export const BottomPlayer: React.FC = () => {
         <button
           onClick={() => setNowPlayingOpen(true)}
           className="p-2 rounded-lg text-neutral-400 hover:text-white hover:bg-white/5 transition-colors"
-          title="Expand Now Playing"
+          title={t('player.expand')}
         >
           <Maximize2 size={17} />
         </button>
@@ -444,7 +460,7 @@ export const BottomPlayer: React.FC = () => {
           <button
             onClick={toggleMute}
             className="text-neutral-400 hover:text-white transition-colors"
-            title={isMuted ? 'Unmute' : 'Mute'}
+            title={isMuted ? t('player.unmute') : t('player.mute')}
           >
             {isMuted || volume === 0 ? <VolumeX size={17} /> : <Volume2 size={17} />}
           </button>

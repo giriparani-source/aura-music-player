@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Pause, Heart, PlusCircle, Check, ListPlus, Download, CheckCircle2, Loader2, MoreHorizontal } from 'lucide-react';
+import { Play, Heart, PlusCircle, Check, ListPlus, Download, CheckCircle2, Loader2, MoreHorizontal } from 'lucide-react';
 import { Song } from '../../types/music';
 import { formatTime } from '../../utils/formatters';
 import { Artwork } from './Artwork';
@@ -61,6 +61,19 @@ const SongRowComponent: React.FC<SongRowProps> = ({
 
   const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+  // Close dropdown on any outside click
+  React.useEffect(() => {
+    if (!showDropdown) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showDropdown]);
 
   const handleRowClick = () => {
     if (isSelectMode && onToggleSelect) {
@@ -190,7 +203,7 @@ const SongRowComponent: React.FC<SongRowProps> = ({
 
         {/* More Options / Context Actions */}
         {!isSelectMode && (
-          <div className="relative">
+          <div className="relative" ref={dropdownRef}>
             <button
               onClick={(e) => {
                 e.stopPropagation();

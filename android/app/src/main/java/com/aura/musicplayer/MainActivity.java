@@ -27,6 +27,7 @@ public class MainActivity extends BridgeActivity {
         configureSystemBars();
         configureWebView();
         requestNotificationPermissionIfNeeded();
+        requestAudioPermissionIfNeeded();
     }
 
     private void configureSystemBars() {
@@ -72,6 +73,16 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        // Guarantee timers and audio threads stay awake when phone screen locks or shade is pulled down
+        if (!hasFocus && bridge != null && bridge.getWebView() != null) {
+            bridge.getWebView().onResume();
+            bridge.getWebView().resumeTimers();
+        }
+    }
+
     private void configureWebView() {
         if (bridge != null && bridge.getWebView() != null) {
             WebView webView = bridge.getWebView();
@@ -101,4 +112,27 @@ public class MainActivity extends BridgeActivity {
             }
         }
     }
+
+    private void requestAudioPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                        this,
+                        new String[]{Manifest.permission.READ_MEDIA_AUDIO},
+                        102
+                );
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                        this,
+                        new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
+                        102
+                );
+            }
+        }
+    }
 }
+

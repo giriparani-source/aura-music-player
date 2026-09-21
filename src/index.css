@@ -105,3 +105,17 @@ input[type="search"]::-webkit-search-results-decoration {
   display: none;
   -webkit-appearance: none;
 }
+
+/* iOS Safe Area Inset Helpers */
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top, 0px), 0px);
+}
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 0px);
+}
+.pl-safe {
+  padding-left: max(env(safe-area-inset-left, 0px), 0px);
+}
+.pr-safe {
+  padding-right: max(env(safe-area-inset-right, 0px), 0px);
+}

@@ -26,6 +26,7 @@ export const JamModal: React.FC = () => {
     participants,
     reactions,
     driftMs,
+    syncStatus,
     error,
     nickname,
     setNickname,
@@ -278,9 +279,27 @@ export const JamModal: React.FC = () => {
             {/* Sync & Latency Status Indicator */}
             <div className="flex items-center justify-between p-3 rounded-xl bg-black/40 border border-white/5 text-xs">
               <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    isHost
+                      ? 'bg-emerald-400 animate-pulse'
+                      : syncStatus === 'perfect'
+                      ? 'bg-emerald-400'
+                      : syncStatus === 'steering'
+                      ? 'bg-amber-400 animate-pulse'
+                      : syncStatus === 'buffering'
+                      ? 'bg-indigo-400 animate-pulse'
+                      : 'bg-emerald-400 animate-pulse'
+                  }`}
+                />
                 <span className="text-neutral-300 font-medium">
-                  {isHost ? 'Broadcasting live sync' : 'Synchronized with Host'}
+                  {isHost
+                    ? 'Broadcasting live sync'
+                    : syncStatus === 'steering'
+                    ? 'Seamlessly micro-syncing'
+                    : syncStatus === 'buffering'
+                    ? 'Buffering track...'
+                    : 'In perfect sync with Host'}
                 </span>
               </div>
               <div className="flex items-center gap-1.5 text-neutral-400 font-mono text-[11px]">

@@ -13,8 +13,6 @@ import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.Drawable;
-import android.media.AudioAttributes;
-import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.net.wifi.WifiManager;
 import android.os.Build;
@@ -36,7 +34,7 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 
-public class AuraAudioService extends Service implements AudioManager.OnAudioFocusChangeListener {
+public class AuraAudioService extends Service {
     private static final String TAG = "AuraAudioService";
     public static final String CHANNEL_ID = "aura_music_playback_channel";
     public static final int NOTIFICATION_ID = 1001;
@@ -67,10 +65,57 @@ public class AuraAudioService extends Service implements AudioManager.OnAudioFoc
     private PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
     private AudioManager audioManager;
-    private AudioFocusRequest audioFocusRequest;
-    private boolean hasAudioFocus = false;
+
+    // Call interruption monitoring without competing with Chromium WebView for AudioFocus
+    private boolean wasInterruptedByCall = false;
+    private final Runnable callStateCheckRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (audioManager != null) {
+                int mode = audioManager.getMode();
+                boolean isCallActive = (mode == AudioManager.MODE_IN_CALL ||
+                                        mode == AudioManager.MODE_RINGTONE ||
+                                        mode == AudioManager.MODE_IN_COMMUNICATION);
+
+                if (isCallActive) {
+                    if (isPlaying) {
+                        Log.d(TAG, "Phone call / ringtone detected (mode=" + mode + ") -> pausing music");
+                        wasInterruptedByCall = true;
+                        triggerMediaAction("pause", null);
+                    }
+                } else if (wasInterruptedByCall) {
+                    Log.d(TAG, "Phone call ended (mode=MODE_NORMAL) -> auto-resuming music");
+                    wasInterruptedByCall = false;
+                    mainHandler.postDelayed(() -> {
+                        triggerMediaAction("play", null);
+                        acquireLocks();
+                        startHeartbeat();
+                    }, 600);
+                }
+            }
+
+            if (isPlaying || wasInterruptedByCall) {
+                mainHandler.postDelayed(this, 1000L);
+            }
+        }
+    };
+
+    private void startCallStateMonitoring() {
+        mainHandler.removeCallbacks(callStateCheckRunnable);
+        mainHandler.post(callStateCheckRunnable);
+    }
+
+    private void stopCallStateMonitoring() {
+        mainHandler.removeCallbacks(callStateCheckRunnable);
+        wasInterruptedByCall = false;
+    }
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    // Heartbeat: fires every 20s to keep WakeLock, WifiLock, and foreground service alive.
+    // Prevents Android Battery Optimizer and LMK from killing the service mid-playlist.
+    private Runnable heartbeatRunnable;
+    private static final long HEARTBEAT_INTERVAL_MS = 20_000L;
 
     private final BroadcastReceiver noisyAudioReceiver = new BroadcastReceiver() {
         @Override
@@ -208,61 +253,6 @@ public class AuraAudioService extends Service implements AudioManager.OnAudioFoc
         AuraMediaPlugin.dispatchMediaAction(action, position);
     }
 
-    private boolean requestAudioFocus() {
-        if (hasAudioFocus) return true;
-        if (audioManager == null) return false;
-
-        int result;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            AudioAttributes playbackAttributes = new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build();
-
-            audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                    .setAudioAttributes(playbackAttributes)
-                    .setAcceptsDelayedFocusGain(true)
-                    .setOnAudioFocusChangeListener(this, mainHandler)
-                    .build();
-
-            result = audioManager.requestAudioFocus(audioFocusRequest);
-        } else {
-            result = audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
-        }
-
-        hasAudioFocus = (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
-        return hasAudioFocus;
-    }
-
-    private void abandonAudioFocus() {
-        if (!hasAudioFocus || audioManager == null) return;
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioFocusRequest != null) {
-            audioManager.abandonAudioFocusRequest(audioFocusRequest);
-        } else {
-            audioManager.abandonAudioFocus(this);
-        }
-        hasAudioFocus = false;
-    }
-
-    @Override
-    public void onAudioFocusChange(int focusChange) {
-        switch (focusChange) {
-            case AudioManager.AUDIOFOCUS_LOSS:
-            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                Log.d(TAG, "Audio focus lost -> pausing");
-                triggerMediaAction("pause", null);
-                break;
-            case AudioManager.AUDIOFOCUS_GAIN:
-                Log.d(TAG, "Audio focus regained -> resuming");
-                triggerMediaAction("play", null);
-                break;
-            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                // Transient ducking can be handled here if needed
-                break;
-        }
-    }
-
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null) return START_STICKY;
@@ -317,9 +307,14 @@ public class AuraAudioService extends Service implements AudioManager.OnAudioFoc
         this.isPlaying = newIsPlaying;
 
         if (isPlaying) {
-            requestAudioFocus();
+            startCallStateMonitoring();
             acquireLocks();
+            startHeartbeat();
         } else {
+            // Do NOT release locks or stop heartbeat on temporary pauses.
+            // The heartbeat will keep the service alive during song transitions.
+            // Only stopServiceInternal() should tear down everything.
+            stopHeartbeat();
             releaseLocks();
         }
 
@@ -357,9 +352,11 @@ public class AuraAudioService extends Service implements AudioManager.OnAudioFoc
     }
 
     private void loadArtworkAndPublishNotification() {
+        // Immediately publish notification with current/placeholder art to satisfy startForeground() within 5s!
+        publishNotification();
+
         if (artworkUrl == null || artworkUrl.trim().isEmpty()) {
             currentArtworkBitmap = null;
-            publishNotification();
             return;
         }
 
@@ -390,8 +387,6 @@ public class AuraAudioService extends Service implements AudioManager.OnAudioFoc
                         });
             } catch (Exception e) {
                 Log.w(TAG, "Error loading notification artwork", e);
-                currentArtworkBitmap = null;
-                publishNotification();
             }
         });
     }
@@ -417,7 +412,10 @@ public class AuraAudioService extends Service implements AudioManager.OnAudioFoc
         updateMediaMetadataCompat();
         Notification notification = buildNotification();
 
-        if (isPlaying) {
+        // Always keep the service in foreground while a song is loaded (even when briefly paused).
+        // Dropping foreground during a song transition gives Android's LMK a window to kill us,
+        // which is why playback stops after ~3 songs. We only drop foreground when user fully stops.
+        try {
             if (!isForegroundActive) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
@@ -428,17 +426,12 @@ public class AuraAudioService extends Service implements AudioManager.OnAudioFoc
             } else if (notificationManager != null) {
                 notificationManager.notify(NOTIFICATION_ID, notification);
             }
-        } else {
-            if (isForegroundActive) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    stopForeground(STOP_FOREGROUND_DETACH);
-                } else {
-                    stopForeground(false);
-                }
-                isForegroundActive = false;
-            }
+        } catch (Exception e) {
+            Log.w(TAG, "Foreground notification notice: " + e.getMessage());
             if (notificationManager != null) {
-                notificationManager.notify(NOTIFICATION_ID, notification);
+                try {
+                    notificationManager.notify(NOTIFICATION_ID, notification);
+                } catch (Exception ignored) {}
             }
         }
     }
@@ -499,9 +492,40 @@ public class AuraAudioService extends Service implements AudioManager.OnAudioFoc
         return builder.build();
     }
 
+    private void startHeartbeat() {
+        stopHeartbeat(); // Clear any existing heartbeat first
+        heartbeatRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (isPlaying) {
+                    Log.d(TAG, "Heartbeat: keeping wakelock and foreground service alive");
+                    acquireLocks();
+                    // Re-post the notification to prevent Android from marking service as stale
+                    if (isForegroundActive && notificationManager != null) {
+                        notificationManager.notify(NOTIFICATION_ID, buildNotification());
+                    }
+                    mainHandler.postDelayed(this, HEARTBEAT_INTERVAL_MS);
+                } else {
+                    Log.d(TAG, "Heartbeat: playback stopped, halting heartbeat");
+                }
+            }
+        };
+        mainHandler.postDelayed(heartbeatRunnable, HEARTBEAT_INTERVAL_MS);
+    }
+
+    private void stopHeartbeat() {
+        if (heartbeatRunnable != null) {
+            mainHandler.removeCallbacks(heartbeatRunnable);
+            heartbeatRunnable = null;
+        }
+    }
+
     private void stopServiceInternal() {
+        stopCallStateMonitoring();
+        stopHeartbeat();
         releaseLocks();
-        abandonAudioFocus();
+        isPlaying = false;
+        isForegroundActive = false;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE);
         } else {
@@ -519,8 +543,9 @@ public class AuraAudioService extends Service implements AudioManager.OnAudioFoc
             unregisterReceiver(noisyAudioReceiver);
         } catch (Exception ignored) {}
 
+        stopCallStateMonitoring();
+        stopHeartbeat();
         releaseLocks();
-        abandonAudioFocus();
 
         if (mediaSession != null) {
             mediaSession.setActive(false);

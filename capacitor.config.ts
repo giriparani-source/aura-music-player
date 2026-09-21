@@ -6,11 +6,18 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   server: {
     androidScheme: 'https',
+    iosScheme: 'ionic',
     cleartext: true
   },
   android: {
     allowMixedContent: true,
     webContentsDebuggingEnabled: true
+  },
+  ios: {
+    contentInset: 'always',
+    allowsLinkPreview: false,
+    scrollEnabled: false,
+    preferredContentMode: 'mobile'
   },
   plugins: {
     StatusBar: {

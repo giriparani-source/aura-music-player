@@ -1,6 +1,7 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { Song, Playlist } from '../types/music';
 import { searchJioSaavn, fetchJioSaavnPlaylist, searchJioSaavnPlaylists } from './jiosaavnService';
+import { resolveYoutubeAudioStream } from './youtubeAudioResolver';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { buildApiUrl } from '../utils/apiConfig';
 
@@ -561,8 +562,36 @@ export async function importUniversalPlaylist(
     const chunk = extracted.tracks.slice(i, i + BATCH_SIZE);
 
     const batchPromises = chunk.map(async (track) => {
-      // 0. Direct Single YouTube Video: Keep exact title, thumbnail, and stream original YouTube audio!
+      // 0. Direct Single YouTube Video: Keep exact videoId, title, thumbnail, and stream direct audio!
       if (track.isDirectVideo && track.videoId) {
+        try {
+          const streamResult = await resolveYoutubeAudioStream(track.videoId);
+          if (streamResult && streamResult.audioUrl) {
+            const songDuration = streamResult.durationSeconds || track.duration || 240;
+            return {
+              id: `online_${track.videoId}`,
+              sourceId: track.videoId,
+              title: streamResult.title || track.title,
+              artist: streamResult.artist || track.artist || 'YouTube',
+              album: 'YouTube Audio',
+              duration: songDuration,
+              format: streamResult.format || 'M4A',
+              bitrate: streamResult.bitrate || 160,
+              fileSize: songDuration * 24000,
+              dateAdded: Date.now(),
+              playCount: 0,
+              isFavorite: false,
+              artwork: streamResult.artwork || track.artwork || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`,
+              coverArt: streamResult.artwork || track.artwork || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`,
+              filePath: streamResult.audioUrl,
+              path: streamResult.audioUrl,
+              fileName: `${(streamResult.title || track.title).replace(/[^a-zA-Z0-9]/g, '_')}.m4a`,
+              isOnline: true,
+              isSaavn: true
+            } as Song;
+          }
+        } catch (_) {}
+
         const songDuration = track.duration || 240;
         return {
           id: `online_${track.videoId}`,
@@ -582,7 +611,8 @@ export async function importUniversalPlaylist(
           filePath: `https://www.youtube.com/watch?v=${track.videoId}`,
           path: `https://www.youtube.com/watch?v=${track.videoId}`,
           fileName: `${track.title.replace(/[^a-zA-Z0-9]/g, '_')}.mp3`,
-          isOnline: true
+          isOnline: true,
+          isSaavn: false
         } as Song;
       }
 
@@ -606,16 +636,42 @@ export async function importUniversalPlaylist(
           return candidate;
         }
 
-        // 2. High-Reliability Fallback: Query YouTube Music / Cloud Stream for Full Song
+        // 2. High-Reliability Fallback: Query YouTube Music / Direct Stream Resolver for Full Song
         try {
           if (track.videoId) {
+            const streamResult = await resolveYoutubeAudioStream(track.videoId);
+            if (streamResult && streamResult.audioUrl) {
+              const songDuration = streamResult.durationSeconds || track.duration || (candidate?.duration || 240);
+              return {
+                id: `online_${track.videoId}`,
+                sourceId: track.videoId,
+                title: track.title,
+                artist: track.artist || 'YouTube',
+                album: candidate?.album || 'YouTube Audio',
+                duration: songDuration,
+                format: streamResult.format || 'M4A',
+                bitrate: streamResult.bitrate || 160,
+                fileSize: songDuration * 24000,
+                dateAdded: Date.now(),
+                playCount: 0,
+                isFavorite: false,
+                artwork: track.artwork || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`,
+                coverArt: track.artwork || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`,
+                filePath: streamResult.audioUrl,
+                path: streamResult.audioUrl,
+                fileName: `${track.title.replace(/[^a-zA-Z0-9]/g, '_')}.m4a`,
+                isOnline: true,
+                isSaavn: true
+              } as Song;
+            }
+
             const songDuration = track.duration || (candidate?.duration || 240);
             return {
               id: `online_${track.videoId}`,
               sourceId: track.videoId,
               title: track.title,
               artist: track.artist || 'YouTube',
-              album: candidate?.album || 'YouTube Music',
+              album: candidate?.album || 'YouTube Video',
               duration: songDuration,
               format: 'STREAM',
               bitrate: 192,
@@ -628,7 +684,8 @@ export async function importUniversalPlaylist(
               filePath: `https://www.youtube.com/watch?v=${track.videoId}`,
               path: `https://www.youtube.com/watch?v=${track.videoId}`,
               fileName: `${track.title.replace(/[^a-zA-Z0-9]/g, '_')}.mp3`,
-              isOnline: true
+              isOnline: true,
+              isSaavn: false
             } as Song;
           }
 
@@ -645,18 +702,19 @@ export async function importUniversalPlaylist(
               artist: track.artist || ytTrack.artist || 'Artist',
               album: candidate?.album || ytTrack.album || 'Online Release',
               duration: songDuration,
-              format: 'STREAM',
-              bitrate: 192,
+              format: 'M4A',
+              bitrate: 160,
               fileSize: songDuration * 24000,
               dateAdded: Date.now(),
               playCount: 0,
               isFavorite: false,
               artwork: ytTrack.artwork || ytTrack.coverArt || candidate?.artwork || track.artwork || '',
               coverArt: ytTrack.coverArt || ytTrack.artwork || candidate?.coverArt || track.artwork || '',
-              filePath: ytTrack.filePath || `https://www.youtube.com/watch?v=${ytTrack.sourceId}`,
-              path: ytTrack.path || `https://www.youtube.com/watch?v=${ytTrack.sourceId}`,
-              fileName: `${track.title.replace(/[^a-zA-Z0-9]/g, '_')}.mp3`,
-              isOnline: true
+              filePath: buildApiUrl(`/api/online/stream?id=${encodeURIComponent(ytTrack.sourceId)}`),
+              path: buildApiUrl(`/api/online/stream?id=${encodeURIComponent(ytTrack.sourceId)}`),
+              fileName: `${track.title.replace(/[^a-zA-Z0-9]/g, '_')}.m4a`,
+              isOnline: true,
+              isSaavn: true
             } as Song;
           }
         } catch (ytErr) {
