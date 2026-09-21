@@ -8,6 +8,8 @@ import { BottomPlayer } from '../player/BottomPlayer';
 import { PwaInstallBanner } from '../common/PwaInstallBanner';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
+import { useJamStore } from '../../store/useJamStore';
+import { useProfileStore } from '../../store/useProfileStore';
 import {
   androidMediaBridge,
   registerMediaActionHandler,
@@ -153,25 +155,72 @@ export const MainLayout: React.FC = () => {
     });
 
     registerBackButtonHandler(() => {
-      const player = usePlayerStore.getState();
-      const library = useLibraryStore.getState();
-      if (player.isNowPlayingOpen) {
-        player.setNowPlayingOpen(false);
+      // 1. If any browser history modal entry is present (e.g. InbuiltPlaylistModal pushState)
+      if (window.history.state && window.history.state.modal) {
+        window.history.back();
         return true;
       }
+
+      // 2. Check if Jam room modal is open
+      const jam = useJamStore.getState();
+      if (jam.isJamModalOpen) {
+        jam.setJamModalOpen(false);
+        return true;
+      }
+
+      // 3. Check if Profile modal is open
+      const profile = useProfileStore.getState();
+      if (profile.isProfileModalOpen) {
+        profile.setProfileModalOpen(false);
+        return true;
+      }
+
+      // 4. Check if Queue Drawer is open (must be closed before NowPlayingModal)
+      const player = usePlayerStore.getState();
       if (player.isQueueOpen) {
         player.setQueueOpen(false);
         return true;
       }
+
+      // 5. Check if AI Assistant Drawer is open
       if (player.isAiAssistantOpen) {
         player.setAiAssistantOpen(false);
         return true;
       }
+
+      // 6. Check if Now Playing Modal is open
+      if (player.isNowPlayingOpen) {
+        // If user is on lyrics, equalizer, visualizer, or insights: return to artwork tab first
+        if (player.activeModalTab !== 'artwork') {
+          player.setActiveModalTab('artwork');
+          return true;
+        }
+        // If already on artwork tab, collapse the full player to the bottom player bar
+        player.setNowPlayingOpen(false);
+        return true;
+      }
+
+      // 7. Check if Library has an active playlist view open
+      const library = useLibraryStore.getState();
+      if (library.activePlaylistId !== null) {
+        library.setActivePlaylistId(null);
+        return true;
+      }
+
+      // 8. If on a non-home tab (search, library, settings, radio, etc.), go back to 'home'
       if (library.activeTab !== 'home') {
         library.setActiveTab('home');
         return true;
       }
-      return false; // let bridge minimize app
+
+      // 9. If on home with an active search query, clear it
+      if (library.searchQuery) {
+        library.setSearchQuery('');
+        return true;
+      }
+
+      // 10. Reached root Home screen with no modals -> minimize app to keep music playing in background
+      return false;
     });
 
     loadLibrary();

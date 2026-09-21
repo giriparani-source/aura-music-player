@@ -26,6 +26,7 @@ import { musicDB } from '../../services/db';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { AiSongInsights } from './AiSongInsights';
+import { pushBackButtonHandler } from '../../services/androidMediaBridge';
 
 interface LyricsViewProps {
   song: Song;
@@ -50,6 +51,16 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ song, currentTime, onSee
   const activeLineRef = useRef<HTMLDivElement | null>(null);
   const isUserScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<number | null>(null);
+
+  // Close custom lyrics editor on physical Android back button or escape
+  useEffect(() => {
+    if (!isEditing) return;
+    const unregister = pushBackButtonHandler(() => {
+      setIsEditing(false);
+      return true;
+    });
+    return unregister;
+  }, [isEditing]);
 
   // Auto-fetch synced lyrics when opening tab or when song changes
   useEffect(() => {

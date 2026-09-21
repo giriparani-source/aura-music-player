@@ -31,6 +31,7 @@ export type BackButtonCallback = () => boolean; // return true if handled by UI
 
 let mediaActionHandler: MediaActionCallback | null = null;
 let backButtonHandler: BackButtonCallback | null = null;
+const backButtonStack: BackButtonCallback[] = [];
 
 export function registerMediaActionHandler(cb: MediaActionCallback) {
   mediaActionHandler = cb;
@@ -38,6 +39,16 @@ export function registerMediaActionHandler(cb: MediaActionCallback) {
 
 export function registerBackButtonHandler(cb: BackButtonCallback) {
   backButtonHandler = cb;
+}
+
+export function pushBackButtonHandler(cb: BackButtonCallback): () => void {
+  backButtonStack.push(cb);
+  return () => {
+    const idx = backButtonStack.lastIndexOf(cb);
+    if (idx !== -1) {
+      backButtonStack.splice(idx, 1);
+    }
+  };
 }
 
 const AuraMedia = registerPlugin<AuraMediaPluginInterface>('AuraMedia');
@@ -86,12 +97,27 @@ class AndroidMediaBridge {
   private setupNativeBackButton() {
     try {
       App.addListener('backButton', () => {
-        if (backButtonHandler) {
-          const handled = backButtonHandler();
-          if (handled) return;
+        // 1. Process custom top-most modal/dialog callbacks in LIFO order
+        for (let i = backButtonStack.length - 1; i >= 0; i--) {
+          try {
+            const handled = backButtonStack[i]();
+            if (handled) return;
+          } catch (e) {
+            console.warn('Error in backButtonStack handler:', e);
+          }
         }
 
-        // On home screen with no modal open: minimize to background so playback continues!
+        // 2. Check registered central hierarchy backButtonHandler
+        if (backButtonHandler) {
+          try {
+            const handled = backButtonHandler();
+            if (handled) return;
+          } catch (e) {
+            console.warn('Error in backButtonHandler:', e);
+          }
+        }
+
+        // 3. On home screen with no modal open: minimize to background so playback continues!
         AuraMedia.minimizeApp().catch(() => {
           App.minimizeApp();
         });

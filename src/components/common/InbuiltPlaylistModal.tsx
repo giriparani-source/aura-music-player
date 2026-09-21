@@ -15,6 +15,7 @@ import { usePlayerStore } from '../../store/usePlayerStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { formatTime } from '../../utils/formatters';
 import { Artwork } from './Artwork';
+import { pushBackButtonHandler } from '../../services/androidMediaBridge';
 
 interface InbuiltPlaylistModalProps {
   playlist: InbuiltPlaylist | null;
@@ -31,7 +32,7 @@ export const InbuiltPlaylistModal: React.FC<InbuiltPlaylistModalProps> = ({
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [addedQueueNotice, setAddedQueueNotice] = useState<boolean>(false);
 
-  // Synchronize browser history for mobile hardware Back-Button handling (Gap 2)
+  // Synchronize mobile hardware Back-Button & browser history handling
   useEffect(() => {
     if (!playlist) return;
 
@@ -45,6 +46,11 @@ export const InbuiltPlaylistModal: React.FC<InbuiltPlaylistModalProps> = ({
       setIsOnline(navigator.onLine);
     };
 
+    const unregisterBack = pushBackButtonHandler(() => {
+      onClose();
+      return true;
+    });
+
     window.addEventListener('popstate', handlePopState);
     window.addEventListener('online', handleOnlineStatus);
     window.addEventListener('offline', handleOnlineStatus);
@@ -56,6 +62,7 @@ export const InbuiltPlaylistModal: React.FC<InbuiltPlaylistModalProps> = ({
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
+      unregisterBack();
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('online', handleOnlineStatus);
       window.removeEventListener('offline', handleOnlineStatus);
