@@ -1,4 +1,6 @@
-import React, { useEffect, Suspense, lazy } from 'react';
+import React, { useEffect, useRef, Suspense, lazy } from 'react';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { NavigationTab } from '../../types/music';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { MobileBottomNav } from './MobileBottomNav';
@@ -24,6 +26,7 @@ const NowPlayingModal = lazy(() => import('../player/NowPlayingModal').then((m) 
 const QueueDrawer = lazy(() => import('../player/QueueDrawer').then((m) => ({ default: m.QueueDrawer })));
 const AuraChatDrawer = lazy(() => import('../ai/AuraChatDrawer').then((m) => ({ default: m.AuraChatDrawer })));
 const JamModal = lazy(() => import('../jam/JamModal').then((m) => ({ default: m.JamModal })));
+const ProfileModal = lazy(() => import('../profile/ProfileModal').then((m) => ({ default: m.ProfileModal })));
 
 const ViewSkeleton: React.FC = () => (
   <div className="p-6 sm:p-8 space-y-6 max-w-7xl mx-auto animate-pulse select-none">
@@ -40,8 +43,72 @@ const ViewSkeleton: React.FC = () => (
   </div>
 );
 
+/**
+ * Bidirectional route map: tab ID ↔ URL path.
+ * Used by useRouteSync() to keep Zustand activeTab and URL in lockstep.
+ */
+const TAB_ROUTES: Record<NavigationTab, string> = {
+  home: '/',
+  library: '/library',
+  search: '/search',
+  radio: '/radio',
+  'ai-studio': '/ai-studio',
+  playlists: '/library',
+  settings: '/settings'
+};
+
+const PATH_TO_TAB: Record<string, NavigationTab> = {
+  '/': 'home',
+  '/library': 'library',
+  '/search': 'search',
+  '/radio': 'radio',
+  '/ai-studio': 'ai-studio',
+  '/settings': 'settings'
+};
+
+/**
+ * Bidirectional sync hook: keeps URL ↔ Zustand activeTab in lockstep.
+ * - When the URL changes (browser back/forward, Link click): updates activeTab in Zustand.
+ * - When activeTab changes programmatically (setActiveTab from any component): navigates to the correct URL.
+ * This ensures ALL existing setActiveTab() callers continue working without modification.
+ */
+function useRouteSync() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activeTab = useLibraryStore((s) => s.activeTab);
+  const setActiveTab = useLibraryStore((s) => s.setActiveTab);
+  // Guard against infinite sync loops
+  const syncSource = useRef<'url' | 'store' | null>(null);
+
+  // URL → Store: When location changes, update Zustand activeTab
+  useEffect(() => {
+    if (syncSource.current === 'store') {
+      syncSource.current = null;
+      return;
+    }
+    const tab = PATH_TO_TAB[location.pathname];
+    if (tab && tab !== activeTab) {
+      syncSource.current = 'url';
+      setActiveTab(tab);
+    }
+  }, [location.pathname]);
+
+  // Store → URL: When activeTab changes, navigate to the correct URL
+  useEffect(() => {
+    if (syncSource.current === 'url') {
+      syncSource.current = null;
+      return;
+    }
+    const targetPath = TAB_ROUTES[activeTab] || '/';
+    if (location.pathname !== targetPath) {
+      syncSource.current = 'store';
+      navigate(targetPath, { replace: false });
+    }
+  }, [activeTab]);
+}
+
 export const MainLayout: React.FC = () => {
-  const { activeTab, loadLibrary, isLoading, toggleFavorite } = useLibraryStore();
+  const { loadLibrary, isLoading, toggleFavorite } = useLibraryStore();
   const currentSong = usePlayerStore((s) => s.currentSong);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const nextSong = usePlayerStore((s) => s.nextSong);
@@ -184,26 +251,8 @@ export const MainLayout: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [togglePlay, nextSong, previousSong, seek, currentSong, isNowPlayingOpen, isQueueOpen, toggleFavorite, setNowPlayingOpen, setQueueOpen]);
 
-  const renderActiveView = () => {
-    switch (activeTab) {
-      case 'home':
-        return <HomeView />;
-      case 'library':
-        return <LibraryView />;
-      case 'search':
-        return <SearchView />;
-      case 'playlists':
-        return <LibraryView />;
-      case 'radio':
-        return <RadioView />;
-      case 'ai-studio':
-        return <AiStudioView />;
-      case 'settings':
-        return <SettingsView />;
-      default:
-        return <HomeView />;
-    }
-  };
+  // Bidirectional URL ↔ Zustand sync
+  useRouteSync();
 
   return (
     <div className="flex h-screen w-screen bg-[#090b10] text-[#e2e8f0] overflow-hidden">
@@ -214,7 +263,7 @@ export const MainLayout: React.FC = () => {
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
         <Header />
 
-        {/* Scrollable View Content with Suspense Skeleton */}
+        {/* Scrollable View Content with URL-based Routes */}
         <main className="flex-1 overflow-y-auto pb-[calc(9.5rem+env(safe-area-inset-bottom,0px))] md:pb-24">
           {isLoading ? (
             <div className="flex flex-col items-center justify-center h-64 text-neutral-500">
@@ -223,7 +272,15 @@ export const MainLayout: React.FC = () => {
             </div>
           ) : (
             <Suspense fallback={<ViewSkeleton />}>
-              {renderActiveView()}
+              <Routes>
+                <Route path="/" element={<HomeView />} />
+                <Route path="/library" element={<LibraryView />} />
+                <Route path="/search" element={<SearchView />} />
+                <Route path="/radio" element={<RadioView />} />
+                <Route path="/ai-studio" element={<AiStudioView />} />
+                <Route path="/settings" element={<SettingsView />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
             </Suspense>
           )}
         </main>
@@ -240,6 +297,7 @@ export const MainLayout: React.FC = () => {
           {isQueueOpen && <QueueDrawer />}
           <AuraChatDrawer />
           <JamModal />
+          <ProfileModal />
         </Suspense>
 
         {/* PWA Install Notification Prompt */}

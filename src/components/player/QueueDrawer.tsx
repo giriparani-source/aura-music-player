@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Trash2, Music2, Shuffle, Sparkles, Infinity as InfinityIcon } from 'lucide-react';
+import { X, Trash2, Music2, Shuffle, Sparkles, Dices, Infinity as InfinityIcon } from 'lucide-react';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { formatTime } from '../../utils/formatters';
 import { Artwork } from '../common/Artwork';
@@ -14,10 +14,12 @@ export const QueueDrawer: React.FC = () => {
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const removeFromQueue = usePlayerStore((s) => s.removeFromQueue);
   const clearQueue = usePlayerStore((s) => s.clearQueue);
+  const shuffleMode = usePlayerStore((s) => s.shuffleMode);
   const isShuffle = usePlayerStore((s) => s.isShuffle);
   const isFairShuffle = usePlayerStore((s) => s.isFairShuffle);
   const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
   const toggleFairShuffle = usePlayerStore((s) => s.toggleFairShuffle);
+  const reshuffleQueue = usePlayerStore((s) => s.reshuffleQueue);
   const isAuraFlow = usePlayerStore((s) => s.isAuraFlow);
   const toggleAuraFlow = usePlayerStore((s) => s.toggleAuraFlow);
 
@@ -61,37 +63,56 @@ export const QueueDrawer: React.FC = () => {
           </div>
         </div>
 
-        {/* Playback Automation Bar: Shuffle & Aura Flow */}
+        {/* Playback Automation Bar: 3-State Shuffle, Reshuffle & Aura Flow */}
         <div className="flex flex-col gap-1.5 p-1.5 rounded-xl bg-white/[0.03] border border-white/5 text-xs">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-1.5">
             <button
               onClick={toggleShuffle}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
-                isShuffle ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-400 hover:text-white'
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                shuffleMode === 'smart'
+                  ? 'bg-gradient-to-r from-emerald-600/30 to-teal-600/30 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                  : shuffleMode === 'fair' || isShuffle
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-neutral-400 hover:text-white'
               }`}
-              title="Toggle Queue Shuffle"
+              title="Click to cycle: Off -> True-Fair -> Smart Shuffle ✨"
             >
               <Shuffle size={13} />
-              <span>Shuffle: {isShuffle ? 'ON' : 'OFF'}</span>
+              <span>
+                {shuffleMode === 'smart' ? 'Smart ✨' : isShuffle ? 'Fair 🔀' : 'Shuffle: OFF'}
+              </span>
             </button>
 
             {isShuffle && (
-              <button
-                onClick={toggleFairShuffle}
-                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-mono uppercase font-bold transition-all border cursor-pointer ${
-                  isFairShuffle
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                    : 'bg-white/5 text-neutral-400 border-white/10'
-                }`}
-                title={
-                  isFairShuffle
-                    ? 'True-Fair Active: Anti-clustering ensures same-artist songs are evenly spaced'
-                    : 'Pure Random Shuffle: Click to enable True-Fair anti-clustering'
-                }
-              >
-                <Sparkles size={11} className={isFairShuffle ? 'text-emerald-400' : ''} />
-                <span>{isFairShuffle ? 'True-Fair' : 'Pure Random'}</span>
-              </button>
+              <div className="flex items-center gap-1">
+                {/* 1-Click Reshuffle Button */}
+                <button
+                  onClick={reshuffleQueue}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white border border-white/10 transition-all cursor-pointer active:scale-95 text-[11px]"
+                  title="Reshuffle upcoming queue now"
+                >
+                  <Dices size={12} className="text-amber-400" />
+                  <span>Reshuffle</span>
+                </button>
+
+                {/* Fair vs Pure Random Switcher */}
+                <button
+                  onClick={toggleFairShuffle}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-mono uppercase font-bold transition-all border cursor-pointer ${
+                    isFairShuffle
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                      : 'bg-white/5 text-neutral-400 border-white/10'
+                  }`}
+                  title={
+                    isFairShuffle
+                      ? 'True-Fair Active: Anti-clustering ensures same-artist & album tracks are evenly spaced'
+                      : 'Pure Random Shuffle: Click to enable True-Fair anti-clustering'
+                  }
+                >
+                  <Sparkles size={11} className={isFairShuffle ? 'text-emerald-400' : ''} />
+                  <span>{isFairShuffle ? 'Fair' : 'Random'}</span>
+                </button>
+              </div>
             )}
           </div>
 
@@ -153,7 +174,15 @@ export const QueueDrawer: React.FC = () => {
                     <h5 className={`text-xs font-semibold truncate ${isCurrent ? 'text-indigo-300' : 'text-neutral-200'}`}>
                       {song.title}
                     </h5>
-                    {song.isAuraFlow && (
+                    {song.isSmartShuffle ? (
+                      <span
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-300 border border-emerald-500/30 shrink-0"
+                        title="Smart Shuffle Recommendation"
+                      >
+                        <Sparkles size={8} className="text-emerald-400" />
+                        Smart Pick
+                      </span>
+                    ) : song.isAuraFlow ? (
                       <span
                         className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 shrink-0"
                         title={`Aura Flow Recommendation: ${getAuraReasonLabel(song.auraReason)}`}
@@ -161,7 +190,7 @@ export const QueueDrawer: React.FC = () => {
                         <Sparkles size={8} />
                         {getAuraReasonLabel(song.auraReason)}
                       </span>
-                    )}
+                    ) : null}
                   </div>
                   <p className="text-[11px] text-neutral-500 truncate mt-0.5">{song.artist}</p>
                 </div>

@@ -49,6 +49,14 @@ export const HomeView: React.FC = () => {
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const artistScrollRef = useRef<HTMLDivElement>(null);
+  const playlistScrollRef = useRef<HTMLDivElement>(null);
+
+  const scrollPlaylists = (direction: 'left' | 'right') => {
+    if (playlistScrollRef.current) {
+      const scrollAmount = direction === 'left' ? -420 : 420;
+      playlistScrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
 
   const scrollArtists = (direction: 'left' | 'right') => {
     if (artistScrollRef.current) {
@@ -390,16 +398,41 @@ export const HomeView: React.FC = () => {
               </p>
             </div>
 
-            <button
-              onClick={() => setIsImportModalOpen(true)}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 text-cyan-300 hover:text-cyan-200 border border-cyan-500/30 font-semibold text-xs shadow-md shadow-cyan-500/10 transition-all cursor-pointer self-start sm:self-auto"
-            >
-              <UploadCloud size={14} />
-              <span>Import Playlist</span>
-            </button>
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <button
+                onClick={() => setIsImportModalOpen(true)}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 text-cyan-300 hover:text-cyan-200 border border-cyan-500/30 font-semibold text-xs shadow-md shadow-cyan-500/10 transition-all cursor-pointer"
+              >
+                <UploadCloud size={14} />
+                <span>Import Playlist</span>
+              </button>
+
+              {/* Desktop Carousel Navigation Controls */}
+              <div className="hidden sm:flex items-center gap-1">
+                <button
+                  onClick={() => scrollPlaylists('left')}
+                  className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/5 text-neutral-400 hover:text-white transition-all active:scale-95 cursor-pointer"
+                  title="Previous Playlists"
+                  aria-label="Previous Playlists"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <button
+                  onClick={() => scrollPlaylists('right')}
+                  className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/5 text-neutral-400 hover:text-white transition-all active:scale-95 cursor-pointer"
+                  title="Next Playlists"
+                  aria-label="Next Playlists"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 sm:gap-4">
+          <div
+            ref={playlistScrollRef}
+            className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth snap-x pb-3 pt-1 -mx-1 px-1 touch-pan-x"
+          >
             {INBUILT_PLAYLISTS.map((playlist) => {
               const isCurrent = Boolean(
                 currentSong && playlist.tracks.some((t) => t.id === currentSong.id)
@@ -410,7 +443,7 @@ export const HomeView: React.FC = () => {
                 <div
                   key={playlist.id}
                   onClick={() => setSelectedInbuiltPlaylist(playlist)}
-                  className={`group p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                  className={`group w-40 sm:w-48 lg:w-52 shrink-0 snap-start p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
                     isCurrent
                       ? 'bg-white/[0.07] border-indigo-500/30'
                       : 'bg-white/[0.03] hover:bg-white/[0.07] border-white/5 hover:border-white/10'
@@ -572,7 +605,7 @@ export const HomeView: React.FC = () => {
                   <span>See All</span>
                   <ArrowRight size={13} className="group-hover:translate-x-1 transition-transform" />
                 </h4>
-                <p className="text-[10px] text-neutral-400 mt-0.5">Explore all 16 stations</p>
+                <p className="text-[10px] text-neutral-400 mt-0.5">Explore all {LIVE_RADIO_STATIONS.length} stations</p>
               </div>
             </div>
           </div>

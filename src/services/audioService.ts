@@ -1,15 +1,21 @@
 import { Song } from '../types/music';
-import { getRegisteredFile } from './scannerService';
 import { audioEffectsService } from './audioEffectsService';
 import { cloudPlayerService } from './cloudPlayerService';
-import { searchJioSaavn, PRESET_SAAVN_320K_HITS } from './jiosaavnService';
 import { downloadService } from './downloadService';
+import { searchJioSaavn } from './jiosaavnService';
 import { buildApiUrl } from '../utils/apiConfig';
-import { radioService } from './radioService';
-
-// Base64 1-sec silent WAV audio buffer
-// Keeps Chromium WebView, OS audio HAL, and CPU awake during background and screen-off playback
-const SILENT_AUDIO_DATA_URI = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+import { Capacitor } from '@capacitor/core';
+import { audioMediaSession } from './audioMediaSession';
+import { audioWatchdog } from './audioWatchdog';
+import {
+  extractYouTubeVideoId,
+  isPreviewClip,
+  isDirectAudioStream,
+  isLocalTrack,
+  resolveLocalAudioSource,
+  tryResolveFastPathYoutubeStream,
+  resolvePlaybackFailover
+} from './audioStreamResolver';
 
 type AudioEventListener = (state: AudioServiceState) => void;
 
@@ -24,9 +30,9 @@ export interface AudioServiceState {
   error: string | null;
 }
 
-class AudioService {
-  private audio: HTMLAudioElement;
-  private radioAudio: HTMLAudioElement;
+export class AudioService {
+  public audio: HTMLAudioElement;
+  public radioAudio: HTMLAudioElement;
   private listeners: Set<AudioEventListener> = new Set();
   private currentSong: Song | null = null;
   private currentObjectUrl: string | null = null;
@@ -40,7 +46,6 @@ class AudioService {
   private isCloudPlaying: boolean = false;
   private isUserPaused: boolean = false;
   private isFallingBack: boolean = false;
-  private cloudWatchdogTimeout: any = null;
 
   // Meaningful listen tracking
   private accumulatedListenSeconds: number = 0;
@@ -58,12 +63,20 @@ class AudioService {
     if (typeof Audio !== 'undefined') {
       this.audio = new Audio();
       this.audio.preload = 'auto';
-      this.audio.crossOrigin = 'anonymous';
+      this.audio.preservesPitch = true;
+      (this.audio as any).mozPreservesPitch = true;
+      (this.audio as any).webkitPreservesPitch = true;
+      (this.audio as any).playsInline = true;
+      (this.audio as any).webkitPlaysInline = true;
+      if (!Capacitor.isNativePlatform()) {
+        this.audio.crossOrigin = 'anonymous';
+      }
       this.audio.volume = 0.8;
 
       this.radioAudio = new Audio();
       this.radioAudio.preload = 'auto';
-      // Deliberately NO crossOrigin on radioAudio to allow direct hardware playback of any internet radio stream
+      (this.radioAudio as any).playsInline = true;
+      (this.radioAudio as any).webkitPlaysInline = true;
       this.radioAudio.volume = 0.8;
 
       if (typeof window !== 'undefined') {
@@ -173,7 +186,7 @@ class AudioService {
         !this.isFadingOut
       ) {
         const timeLeft = duration - current;
-        if (timeLeft <= this.crossfadeSeconds && timeLeft > 0.4) {
+        if (!Capacitor.isNativePlatform() && timeLeft <= this.crossfadeSeconds && timeLeft > 0.4) {
           this.isFadingOut = true;
           audioEffectsService.fadeCross(0, this.crossfadeSeconds);
         }
@@ -205,8 +218,6 @@ class AudioService {
       if (this.audio.error && this.audio.error.code === MediaError.MEDIA_ERR_ABORTED) {
         return;
       }
-      // BUG-02 fix: Guard against race condition — only fallback if this error
-      // belongs to the currently-intended song (not a stale source switch)
       const errorTimeSong = this.currentSong;
       const errorTimeRequestId = this.playRequestId;
       console.warn('Audio playback notice:', e);
@@ -220,25 +231,17 @@ class AudioService {
     cloudPlayerService.onPlay(() => {
       if (this.isUsingCloudPlayer) {
         this.isCloudPlaying = true;
-        if (this.cloudWatchdogTimeout) {
-          clearTimeout(this.cloudWatchdogTimeout);
-          this.cloudWatchdogTimeout = null;
-        }
+        audioWatchdog.clearCloudWatchdog();
         this.notify();
       }
     });
 
     cloudPlayerService.onPause(() => {
       if (this.isUsingCloudPlayer) {
-        // If pause occurred without explicit user action (e.g. mobile OS screen-off or app minimization),
-        // instantly recover and resume playback
         if (!this.isUserPaused && this.currentSong) {
-          console.log('[AudioService] Background cloud pause intercepted. Restoring playback...');
-          setTimeout(() => {
-            if (!this.isUserPaused && this.isUsingCloudPlayer) {
-              cloudPlayerService.play();
-            }
-          }, 150);
+          console.log('[AudioService] Background cloud pause intercepted. Restoring playback immediately...');
+          cloudPlayerService.play();
+          audioWatchdog.startSilentAudioAnchor(this.audio);
           return;
         }
         this.isCloudPlaying = false;
@@ -256,7 +259,7 @@ class AudioService {
       }
     });
 
-    cloudPlayerService.onTimeUpdate((_current, _duration) => {
+    cloudPlayerService.onTimeUpdate(() => {
       if (this.isUsingCloudPlayer) {
         this.notify();
       }
@@ -265,7 +268,7 @@ class AudioService {
     cloudPlayerService.onError((err) => {
       if (this.isUsingCloudPlayer && this.currentSong) {
         console.warn('YouTube playback error, switching to Studio Master audio stream:', err);
-        this.fallbackToDirectAudio(this.currentSong);
+        this.handlePlaybackFailure(this.currentSong);
       }
     });
   }
@@ -305,43 +308,7 @@ class AudioService {
     };
 
     this.listeners.forEach((listener) => listener(state));
-    this.updateMediaSession(isActuallyPlaying);
-  }
-
-  private lastMediaSessionKey: string | null = null;
-
-  private updateMediaSession(isActuallyPlaying: boolean) {
-    if (!('mediaSession' in navigator)) return;
-
-    try {
-      const desiredState: MediaSessionPlaybackState = isActuallyPlaying ? 'playing' : 'paused';
-      if (navigator.mediaSession.playbackState !== desiredState) {
-        navigator.mediaSession.playbackState = desiredState;
-      }
-
-      if (!this.currentSong) {
-        if (this.lastMediaSessionKey !== null) {
-          navigator.mediaSession.metadata = null;
-          this.lastMediaSessionKey = null;
-        }
-        return;
-      }
-
-      const songKey = `${this.currentSong.id}_${this.currentSong.title}_${this.currentSong.artist}_${this.currentSong.artwork || this.currentSong.coverArt}`;
-      if (songKey !== this.lastMediaSessionKey) {
-        this.lastMediaSessionKey = songKey;
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: this.currentSong.title,
-          artist: this.currentSong.artist !== 'Not set' ? this.currentSong.artist : 'Aura Music',
-          album: this.currentSong.album !== 'Not set' ? this.currentSong.album : 'Aura Collection',
-          artwork: (this.currentSong.artwork || this.currentSong.coverArt)
-            ? [{ src: (this.currentSong.artwork || this.currentSong.coverArt)!, sizes: '512x512', type: 'image/png' }]
-            : []
-        });
-      }
-    } catch {
-      // Ignore mediaSession errors on platforms without SMTC
-    }
+    audioMediaSession.update(this.currentSong, isActuallyPlaying);
   }
 
   public setOnSongEnd(callback: () => void) {
@@ -356,27 +323,6 @@ class AudioService {
     this.listeners.add(listener);
     this.notify();
     return () => this.listeners.delete(listener);
-  }
-
-  private extractYouTubeVideoId(song: Song): string | null {
-    if (song.isSaavn || song.filePath?.includes('saavncdn.com')) {
-      return null;
-    }
-    if (song.sourceId && song.sourceId.length >= 8 && song.sourceId.length <= 15 && (song.id?.startsWith('online_') || song.id?.startsWith('cloud_') || song.isOnline)) {
-      return song.sourceId;
-    }
-    if (song.id && song.id.startsWith('online_')) {
-      return song.id.replace('online_', '');
-    }
-    if (song.id && song.id.startsWith('cloud_')) {
-      return song.id.replace('cloud_', '');
-    }
-    const pathStr = song.filePath || song.path || '';
-    const match = pathStr.match(/(?:youtube\.com\/(?:watch\?.*v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{11})/i);
-    if (match && match[1]) {
-      return match[1];
-    }
-    return null;
   }
 
   public async playSong(song: Song, audioSourceUrl?: string): Promise<void> {
@@ -401,8 +347,6 @@ class AudioService {
       this.audio.pause();
 
       let targetUrl = audioSourceUrl || song.filePath || song.path || '';
-
-      // If stream is HTTP and page is on HTTPS, route through radio proxy to avoid mixed-content block
       if (targetUrl.startsWith('http://') && typeof window !== 'undefined' && window.location.protocol === 'https:') {
         targetUrl = buildApiUrl(`/api/radio/stream?url=${encodeURIComponent(targetUrl)}`);
       }
@@ -417,32 +361,17 @@ class AudioService {
       this.radioAudio.src = '';
     }
 
-    // 1. Local Track Playback Path (preserved untouched)
-    const registeredFile = getRegisteredFile(song.id);
-    const isLocalFile = Boolean(
-      registeredFile ||
-      (!song.isOnline && !song.isSaavn && song.path && !song.path.startsWith('http://') && !song.path.startsWith('https://'))
-    );
-
-    if (isLocalFile) {
+    // 1. Local Track Playback Path
+    if (isLocalTrack(song)) {
       this.isUsingCloudPlayer = false;
       cloudPlayerService.pause();
       try {
-        let source = audioSourceUrl;
-        if (!source) {
-          if (registeredFile) {
-            source = URL.createObjectURL(registeredFile);
-            this.currentObjectUrl = source;
-          } else if (song.filePath && (song.filePath.startsWith('/api/') || song.filePath.startsWith('blob:'))) {
-            source = song.filePath;
-          } else if (song.path && !song.path.startsWith('blob:')) {
-            source = buildApiUrl(`/api/audio?path=${encodeURIComponent(song.path)}`);
-          } else if (song.fileName) {
-            source = buildApiUrl(`/api/audio?path=${encodeURIComponent(song.fileName)}`);
+        const localSource = resolveLocalAudioSource(song, audioSourceUrl);
+        if (localSource) {
+          if (localSource.isObjectUrl) {
+            this.currentObjectUrl = localSource.source;
           }
-        }
-        if (source) {
-          await this.playDirectHtml5Audio(song, source, thisRequestId);
+          await this.playDirectHtml5Audio(song, localSource.source, thisRequestId);
           return;
         }
       } catch (err: any) {
@@ -476,73 +405,90 @@ class AudioService {
       return;
     }
 
-    // 4. Standard Online Track Playback (JioSaavn / Direct Stream / YouTube Cloud)
-    // Check if track is a preview clip (e.g. 30s iTunes sample) that should NOT be played as a full direct audio stream
-    const isPreviewClip = Boolean(
-      song.isPreview ||
-      song.id?.startsWith('itunes_') ||
-      (song.filePath && (song.filePath.includes('mzstatic.com') || song.filePath.includes('itunes.apple.com')))
-    );
-
-    // Check if track is a true direct audio stream (JioSaavn 320k master or Live FM Radio)
-    const isDirectAudioStream = !isPreviewClip && Boolean(
-      song.isSaavn ||
-      song.isLiveRadio ||
-      (song.filePath && (
-        song.filePath.includes('saavncdn.com') ||
-        song.filePath.includes('listenon.in') ||
-        song.filePath.includes('stream.zeno.fm') ||
-        song.filePath.includes('ilovemusic.de') ||
-        song.filePath.includes('dancewave.online') ||
-        song.filePath.includes('bbcmedia.co.uk') ||
-        song.filePath.includes('torontocast.com')
-      ))
-    );
-
-    // If it was a preview clip, immediately resolve full track via YouTube or JioSaavn full search
-    if (isPreviewClip) {
+    // 4. Preview clip check (e.g. 30s iTunes sample)
+    if (isPreviewClip(song)) {
       console.log(`[AudioService] Track "${song.title}" is a 30s preview clip. Resolving full song stream...`);
       await this.handlePlaybackFailure(song);
       return;
     }
 
-    // YouTube track check
-    const ytVideoId = !isDirectAudioStream ? this.extractYouTubeVideoId(song) : null;
+    // 5. Standard Online Track Playback (JioSaavn / Direct Stream / YouTube Cloud)
+    const isDirect = isDirectAudioStream(song);
+    const ytVideoId = !isDirect ? extractYouTubeVideoId(song) : null;
 
     if (ytVideoId) {
+      // 5.1 FAST PATH: Attempt Direct M4A Audio Stream Resolution
+      const fastPath = await tryResolveFastPathYoutubeStream(ytVideoId);
+      if (fastPath && fastPath.audioUrl) {
+        console.log(`[AudioService] Successfully resolved direct M4A audio stream for YouTube track "${song.title}" (${fastPath.format}, ${fastPath.bitrate}kbps)`);
+        song.filePath = fastPath.audioUrl;
+        song.path = fastPath.audioUrl;
+        song.format = fastPath.format || 'M4A';
+        song.isSaavn = true;
+        (song as any).isDirectAudioStream = true;
+
+        return await this.playSong(song, audioSourceUrl);
+      }
+
+      // 5.2 BACKEND STREAM PROXY ATTEMPT: Stream direct audio via /api/online/stream
+      if (!(song as any)._triedDirectStream) {
+        (song as any)._triedDirectStream = true;
+        try {
+          const proxyUrl = buildApiUrl(`/api/online/stream?id=${encodeURIComponent(ytVideoId)}`);
+          console.log(`[AudioService] Connecting direct audio stream for YouTube track "${song.title}" via ${proxyUrl}`);
+          song.filePath = proxyUrl;
+          song.path = proxyUrl;
+          song.format = 'M4A';
+          song.isSaavn = true;
+          (song as any).isDirectAudioStream = true;
+          return await this.playSong(song, proxyUrl);
+        } catch (proxyErr) {
+          console.warn(`[AudioService] Direct stream proxy attempt failed for ${ytVideoId}:`, proxyErr);
+        }
+      }
+
+      // 5.3 Headless Cloud Player with Silent Audio Anchor & Background Watchdog
       this.isUsingCloudPlayer = true;
-      // Engage Silent Audio Anchor to prevent Chromium and Android from suspending background/screen-off audio
-      this.startSilentAudioAnchor();
+      audioWatchdog.startSilentAudioAnchor(this.audio);
       this.isCloudPlaying = false;
       cloudPlayerService.loadVideo(ytVideoId, 0);
       this.notify();
 
-      // Arm watchdog: Increase timeout to 8000ms to avoid false-positive aborts on slow mobile networks
-      if (this.cloudWatchdogTimeout) clearTimeout(this.cloudWatchdogTimeout);
-      this.cloudWatchdogTimeout = setTimeout(() => {
-        if (this.isUsingCloudPlayer && !this.isCloudPlaying && this.currentSong?.id === song.id) {
-          console.warn('YouTube stream watchdog triggered: buffering timeout or embed restriction. Switching to Studio Master audio.');
-          this.fallbackToDirectAudio(song);
+      audioWatchdog.startPlaybackWatchdog(
+        () => this.isUsingCloudPlayer,
+        () => this.isUserPaused,
+        () => this.isCloudPlaying,
+        () => {
+          cloudPlayerService.play();
+          audioWatchdog.startSilentAudioAnchor(this.audio);
         }
-      }, 8000);
+      );
+
+      audioWatchdog.armCloudWatchdog(
+        8000,
+        () => this.isUsingCloudPlayer && !this.isCloudPlaying && this.currentSong?.id === song.id,
+        () => {
+          console.warn('YouTube stream watchdog triggered: buffering timeout or embed restriction. Switching to Studio Master audio.');
+          this.handlePlaybackFailure(song);
+        }
+      );
       return;
     }
 
-    // Direct Audio Stream (JioSaavn 320k / Live Radio):
+    // 6. Direct Audio Stream (JioSaavn 320k / Live Radio)
     this.isUsingCloudPlayer = false;
     cloudPlayerService.pause();
 
     try {
       let source = audioSourceUrl;
       if (!source) {
-        if (isDirectAudioStream && song.filePath) {
+        if (isDirect && song.filePath) {
           source = song.filePath;
         } else if (song.filePath && (song.filePath.startsWith('http://') || song.filePath.startsWith('https://') || song.filePath.startsWith('/api/'))) {
           source = song.filePath;
         } else if (song.path && (song.path.startsWith('http://') || song.path.startsWith('https://') || song.path.startsWith('/api/'))) {
           source = song.path;
         } else if (song.title) {
-          // Dynamically resolve audio stream for this specific song
           const searchResults = await searchJioSaavn(song.title);
           if (thisRequestId !== this.playRequestId) return;
           if (searchResults.length > 0 && searchResults[0].filePath) {
@@ -591,7 +537,6 @@ class AudioService {
       }
       console.warn('Direct live radio playback notice:', err);
 
-      // If direct playback had an issue (e.g. Mixed Content or network restriction) and we haven't tried proxy yet:
       const rawUrl = song.filePath || song.path;
       if (rawUrl && !sourceUrl.includes('/api/radio/stream') && typeof window !== 'undefined') {
         const proxyUrl = buildApiUrl(`/api/radio/stream?url=${encodeURIComponent(rawUrl)}`);
@@ -626,32 +571,41 @@ class AudioService {
     this.isUsingCloudPlayer = false;
     cloudPlayerService.pause();
 
+    const isNative = Capacitor.isNativePlatform();
+
     try {
       this.audio.pause();
+      if (isNative) {
+        this.audio.removeAttribute('crossorigin');
+      }
       this.audio.src = sourceUrl;
       this.audio.load();
 
       this.isFadingOut = false;
 
-      try {
-        audioEffectsService.init(this.audio);
-        await audioEffectsService.resumeContext();
-      } catch (effectErr) {
-        console.warn('Audio effects notice:', effectErr);
-      }
+      if (!isNative) {
+        try {
+          audioEffectsService.init(this.audio);
+          await audioEffectsService.resumeContext();
+        } catch (effectErr) {
+          console.warn('Audio effects notice:', effectErr);
+        }
 
-      if (this.crossfadeSeconds > 0) {
-        audioEffectsService.fadeCross(0, 0.01);
+        if (this.crossfadeSeconds > 0) {
+          audioEffectsService.fadeCross(0, 0.01);
+        }
       }
 
       await this.audio.play();
 
       if (requestId !== undefined && requestId !== this.playRequestId) return;
 
-      if (this.crossfadeSeconds > 0) {
-        audioEffectsService.fadeCross(1, Math.min(1.5, this.crossfadeSeconds));
-      } else {
-        audioEffectsService.fadeCross(1, 0.05);
+      if (!isNative) {
+        if (this.crossfadeSeconds > 0) {
+          audioEffectsService.fadeCross(1, Math.min(1.5, this.crossfadeSeconds));
+        } else {
+          audioEffectsService.fadeCross(1, 0.05);
+        }
       }
 
       this.notify();
@@ -660,6 +614,22 @@ class AudioService {
         return;
       }
       console.warn('Direct audio playback error:', err);
+
+      if (this.audio.hasAttribute('crossorigin')) {
+        try {
+          console.log('⚡ Retrying direct audio without CORS restrictions...');
+          this.audio.removeAttribute('crossorigin');
+          this.audio.src = sourceUrl;
+          this.audio.load();
+          await this.audio.play();
+          if (requestId !== undefined && requestId !== this.playRequestId) return;
+          this.notify();
+          return;
+        } catch (retryErr) {
+          console.warn('Direct audio retry without CORS also failed:', retryErr);
+        }
+      }
+
       if (song && !this.isFallingBack) {
         await this.handlePlaybackFailure(song);
       }
@@ -669,92 +639,32 @@ class AudioService {
   private async handlePlaybackFailure(song: Song) {
     if (this.isFallingBack) return;
     this.isFallingBack = true;
-    if (this.cloudWatchdogTimeout) {
-      clearTimeout(this.cloudWatchdogTimeout);
-      this.cloudWatchdogTimeout = null;
-    }
+    audioWatchdog.clearCloudWatchdog();
 
     try {
-      // Live Radio Auto-Failover
-      if (song.isLiveRadio) {
-        const station = radioService.getStationByUrl(song.filePath || song.path);
-        if (station && station.backupUrls && station.backupUrls.length > 0) {
-          const nextUrl = station.backupUrls.find((u) => u !== song.filePath);
-          if (nextUrl) {
-            console.log(`⚡ Live Radio Auto-Failover: "${station.name}" switching to mirror stream:`, nextUrl);
-            song.filePath = nextUrl;
-            song.path = nextUrl;
-            await this.playRadioStream(song, nextUrl, this.playRequestId);
-            return;
-          }
-        }
-        this.notify(`Live radio stream for "${song.title}" is currently offline. Retrying shortly.`);
-        return;
+      const result = await resolvePlaybackFailover(song);
+      switch (result.type) {
+        case 'radio':
+          song.filePath = result.url;
+          song.path = result.url;
+          await this.playRadioStream(song, result.url, this.playRequestId);
+          break;
+        case 'cloud':
+          this.isUsingCloudPlayer = true;
+          audioWatchdog.startSilentAudioAnchor(this.audio);
+          this.isCloudPlaying = false;
+          this.audio.pause();
+          cloudPlayerService.loadVideo(result.videoId, 0);
+          this.notify();
+          break;
+        case 'direct':
+          Object.assign(song, result.songUpdates);
+          await this.playDirectHtml5Audio(song, result.url, this.playRequestId);
+          break;
+        case 'failed':
+          this.notify(result.message);
+          break;
       }
-
-      const cleanTitle = song.title
-        .replace(/\([^)]*\)/g, '')
-        .replace(/\[[^\]]*\]/g, '')
-        .replace(/video song/gi, '')
-        .replace(/lyric video/gi, '')
-        .replace(/audio/gi, '')
-        .trim();
-
-      const lower = cleanTitle.toLowerCase();
-      const preset = PRESET_SAAVN_320K_HITS.find((p) => {
-        const pLower = p.title.toLowerCase().trim();
-        return pLower === lower || (lower.length >= 4 && pLower.includes(lower));
-      });
-
-      let fallbackUrl = (preset?.filePath && preset.filePath !== song.filePath) ? preset.filePath : '';
-
-      if (!fallbackUrl) {
-        const results = await searchJioSaavn(cleanTitle);
-        const validFullSaavn = results?.find(
-          (r) => r.filePath && r.filePath !== song.filePath && !r.isPreview && !r.id.startsWith('itunes_')
-        );
-        if (validFullSaavn && validFullSaavn.filePath) {
-          fallbackUrl = validFullSaavn.filePath;
-          if (validFullSaavn.artwork && !song.coverArt) {
-            song.coverArt = validFullSaavn.artwork;
-            song.artwork = validFullSaavn.artwork;
-          }
-        }
-      }
-
-      if (fallbackUrl) {
-        console.log('⚡ Switched to Ultra-HD 320k Studio Master audio:', song.title, '->', fallbackUrl);
-        song.isSaavn = true;
-        song.isPreview = false;
-        song.format = '320k AAC';
-        song.bitrate = 320;
-        song.filePath = fallbackUrl;
-        song.path = fallbackUrl;
-
-        await this.playDirectHtml5Audio(song, fallbackUrl, this.playRequestId);
-        return;
-      }
-
-      // If direct audio search didn't yield a stream, try YouTube online search
-      try {
-        const ytRes = await fetch(buildApiUrl(`/api/online/search?q=${encodeURIComponent(cleanTitle + ' ' + (song.artist || 'Tamil'))}`));
-        if (ytRes.ok) {
-          const ytData = await ytRes.json();
-          const firstYt = ytData.results?.[0];
-          if (firstYt?.sourceId) {
-            console.log('⚡ Switched to YouTube Cloud Player stream:', song.title, '->', firstYt.sourceId);
-            this.isUsingCloudPlayer = true;
-            this.audio.pause();
-            cloudPlayerService.loadVideo(firstYt.sourceId, 0);
-            this.isCloudPlaying = true;
-            this.notify();
-            return;
-          }
-        }
-      } catch {}
-
-      console.warn('Audio stream unavailable for:', song.title);
-      this.notify('Audio stream unavailable for this track.');
     } catch (err) {
       console.warn('Playback failure recovery error:', err);
     } finally {
@@ -762,34 +672,13 @@ class AudioService {
     }
   }
 
-  private async fallbackToDirectAudio(song: Song) {
-    await this.handlePlaybackFailure(song);
-  }
-
-  private startSilentAudioAnchor(): void {
-    try {
-      if (this.audio.src !== SILENT_AUDIO_DATA_URI) {
-        this.audio.src = SILENT_AUDIO_DATA_URI;
-        this.audio.loop = true;
-      }
-      this.audio.play().catch(() => {});
-    } catch (_) {}
-  }
-
-  private pauseSilentAudioAnchor(): void {
-    try {
-      if (this.audio.src === SILENT_AUDIO_DATA_URI) {
-        this.audio.pause();
-      }
-    } catch (_) {}
-  }
-
   public pause(): void {
     this.isUserPaused = true;
+    audioWatchdog.stopPlaybackWatchdog();
     if (this.isUsingCloudPlayer) {
       cloudPlayerService.pause();
       this.isCloudPlaying = false;
-      this.pauseSilentAudioAnchor();
+      audioWatchdog.pauseSilentAudioAnchor(this.audio);
     } else if (this.currentSong?.isLiveRadio) {
       this.radioAudio.pause();
     } else {
@@ -801,7 +690,7 @@ class AudioService {
   public async resume(): Promise<void> {
     this.isUserPaused = false;
     if (this.isUsingCloudPlayer) {
-      this.startSilentAudioAnchor();
+      audioWatchdog.startSilentAudioAnchor(this.audio);
       cloudPlayerService.play();
       this.isCloudPlaying = true;
       this.notify();
@@ -827,11 +716,13 @@ class AudioService {
       }
 
       try {
-        try {
-          audioEffectsService.init(this.audio);
-          await audioEffectsService.resumeContext();
-        } catch (effectsErr) {
-          console.warn('Effects resume notice:', effectsErr);
+        if (!Capacitor.isNativePlatform()) {
+          try {
+            audioEffectsService.init(this.audio);
+            await audioEffectsService.resumeContext();
+          } catch (effectsErr) {
+            console.warn('Effects resume notice:', effectsErr);
+          }
         }
         await this.audio.play();
         this.notify();
@@ -886,7 +777,9 @@ class AudioService {
         this.lastTimeUpdateSecond = this.audio.currentTime;
         if (this.isFadingOut) {
           this.isFadingOut = false;
-          audioEffectsService.fadeCross(1, 0.2);
+          if (!Capacitor.isNativePlatform()) {
+            audioEffectsService.fadeCross(1, 0.2);
+          }
         }
       }
       this.notify();
@@ -933,8 +826,18 @@ class AudioService {
   }
 
   public setPlaybackRate(rate: number): void {
-    this.audio.playbackRate = rate;
+    if (this.audio) {
+      const clamped = Math.max(0.5, Math.min(2.0, rate));
+      this.audio.playbackRate = clamped;
+      this.audio.preservesPitch = true;
+      (this.audio as any).mozPreservesPitch = true;
+      (this.audio as any).webkitPreservesPitch = true;
+    }
     this.notify();
+  }
+
+  public getPlaybackRate(): number {
+    return this.audio ? this.audio.playbackRate : 1.0;
   }
 
   public setLoop(loop: boolean): void {

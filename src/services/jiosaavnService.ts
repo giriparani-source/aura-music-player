@@ -274,15 +274,6 @@ class JioSaavnService {
       cooldownUntil: 0,
       totalSuccesses: 0,
       totalFailures: 0
-    },
-    {
-      url: 'https://saavn.dev/api',
-      name: 'SaavnDev Mirror',
-      failureCount: 0,
-      lastFailureTime: 0,
-      cooldownUntil: 0,
-      totalSuccesses: 0,
-      totalFailures: 0
     }
   ];
 

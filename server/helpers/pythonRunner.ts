@@ -29,12 +29,12 @@ export function checkPythonAvailable(): boolean {
     _pythonChecked = true;
     _pythonAvailable = res.status === 0;
     if (!_pythonAvailable) {
-      console.warn(`[Aura] Python not found (tried '${PYTHON_BIN} --version'). Online streaming via yt-dlp is disabled. YouTube HTML search will still work.`);
+      console.info(`[Aura] Python not found (tried '${PYTHON_BIN} --version'). Pure Node.js multi-mirror stream fallback is active.`);
     }
   } catch {
     _pythonChecked = true;
     _pythonAvailable = false;
-    console.warn(`[Aura] Python not found (tried '${PYTHON_BIN} --version'). Online streaming via yt-dlp is disabled. YouTube HTML search will still work.`);
+    console.info(`[Aura] Python not found (tried '${PYTHON_BIN} --version'). Pure Node.js multi-mirror stream fallback is active.`);
   }
 
   return _pythonAvailable;

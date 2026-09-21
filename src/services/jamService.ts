@@ -29,6 +29,20 @@ export interface JamRoomState {
   reactions: JamReaction[];
 }
 
+export type JamSyncStatus = 'idle' | 'syncing' | 'perfect' | 'steering' | 'buffering';
+
+export interface JamStatePayload {
+  isInRoom: boolean;
+  isHost: boolean;
+  roomCode: string | null;
+  participants: JamParticipant[];
+  reactions: JamReaction[];
+  driftMs: number;
+  syncStatus: JamSyncStatus;
+  clockOffsetMs: number;
+  error: string | null;
+}
+
 export const JAM_ICE_SERVERS: RTCIceServer[] = [
   // High Availability Google STUNs
   { urls: 'stun:stun.l.google.com:19302' },
@@ -40,7 +54,7 @@ export const JAM_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.cloudflare.com:3478' },
   // Metered STUN
   { urls: 'stun:stun.relay.metered.ca:80' },
-  // OpenRelay TURN Servers (Bypasses strict symmetric NAT, college Wi-Fi & UDP blocking)
+  // OpenRelay TURN Servers (Bypasses symmetric NAT, carrier firewalls, college Wi-Fi & cellular barriers across cities)
   {
     urls: 'turn:openrelay.metered.ca:80',
     username: 'openrelay',
@@ -72,15 +86,7 @@ export const JAM_PEER_CONFIG = {
   }
 };
 
-type JamEventListener = (state: {
-  isInRoom: boolean;
-  isHost: boolean;
-  roomCode: string | null;
-  participants: JamParticipant[];
-  reactions: JamReaction[];
-  driftMs: number;
-  error: string | null;
-}) => void;
+type JamEventListener = (state: JamStatePayload) => void;
 
 class JamService {
   private isInRoom = false;
@@ -91,12 +97,22 @@ class JamService {
   private participants: JamParticipant[] = [];
   private reactions: JamReaction[] = [];
   private driftMs = 0;
+  private syncStatus: JamSyncStatus = 'idle';
   private error: string | null = null;
 
   // WebRTC PeerJS State
   private peer: Peer | null = null;
   private hostConnection: DataConnection | null = null; // For listeners
   private peerConnections: Map<string, DataConnection> = new Map(); // For host
+
+  // High-Precision Synchronization & NTP Clock Calibration Engine
+  private clockOffsetMs = 0; // Host time minus listener time
+  private isClockCalibrated = false;
+  private calibrationSamples: Array<{ rttMs: number; offset: number }> = [];
+  private clockPingInterval: any = null;
+  private lastHardSeekTime = 0;
+  private isBufferingNewSong = false;
+  private unsubAudioService: (() => void) | null = null;
 
   private syncInterval: any = null;
   private broadcastChannel: BroadcastChannel | null = null;
@@ -121,7 +137,6 @@ class JamService {
   }
 
   private generatePeerId(code: string): string {
-    // Normalize: strip non-alphanumerics, map 'o' to '0', and 'i'/'l' to '1'
     const normalized = code
       .toLowerCase()
       .replace(/[\s-]/g, '')
@@ -135,7 +150,6 @@ class JamService {
     this.leaveRoom();
     this.myName = hostName.trim() || 'Aura Host';
 
-    // Generate unambiguous 4-character code (excludes confusing characters: 0, O, 1, I, L)
     const SAFE_CHARS = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
     let randomChars = '';
     for (let i = 0; i < 4; i++) {
@@ -153,9 +167,11 @@ class JamService {
           this.isHost = true;
           this.roomCode = code;
           this.participants = [{ id: this.myId, name: this.myName, isHost: true }];
+          this.syncStatus = 'perfect';
           this.error = null;
 
           this.startHostSyncLoop();
+          this.setupHostAudioListener();
           this.notify();
           resolve(code);
         });
@@ -167,7 +183,6 @@ class JamService {
         this.peer.on('error', (err: any) => {
           console.warn('PeerJS Host notice:', err);
           if (!this.isInRoom) {
-            // If Peer ID already taken, retry with fresh code
             this.createRoom(hostName).then(resolve).catch(reject);
           }
         });
@@ -197,7 +212,9 @@ class JamService {
     });
 
     conn.on('data', (data: any) => {
-      if (data && data.type === 'JOIN') {
+      if (!data) return;
+
+      if (data.type === 'JOIN') {
         const existing = this.participants.find((p) => p.id === data.participantId);
         if (!existing) {
           this.participants.push({
@@ -207,9 +224,17 @@ class JamService {
           });
           this.notify();
         }
-      } else if (data && data.type === 'REACTION') {
+      } else if (data.type === 'CLOCK_PING') {
+        // Immediately bounce back NTP pong to calibrate listener's clock offset
+        conn.send({
+          type: 'CLOCK_PONG',
+          clientPingId: data.clientPingId,
+          clientSendPerf: data.clientSendPerf,
+          clientSendDate: data.clientSendDate,
+          hostDate: Date.now()
+        });
+      } else if (data.type === 'REACTION') {
         this.handleIncomingReaction(data.reaction);
-        // Relay reaction to all other connected peers
         this.broadcastToPeers(data);
       }
     });
@@ -259,6 +284,7 @@ class JamService {
             this.isInRoom = true;
             this.isHost = false;
             this.roomCode = cleanCode;
+            this.syncStatus = 'syncing';
             this.error = null;
 
             // Send Join announcement
@@ -273,12 +299,20 @@ class JamService {
               { id: this.myId, name: this.myName, isHost: false }
             ];
 
+            // Perform high-precision NTP clock calibration over WebRTC
+            this.performClockCalibration();
+            this.startRecurringClockSync();
+
             this.notify();
             resolve(true);
           });
 
           conn.on('data', (data: any) => {
-            if (data.type === 'INIT' || data.type === 'SYNC') {
+            if (!data) return;
+
+            if (data.type === 'CLOCK_PONG') {
+              this.handleClockPong(data);
+            } else if (data.type === 'INIT' || data.type === 'SYNC') {
               this.applyIncomingPlaybackSync(data);
             } else if (data.type === 'REACTION') {
               this.handleIncomingReaction(data.reaction);
@@ -324,6 +358,73 @@ class JamService {
     });
   }
 
+  /**
+   * High-Precision NTP Clock Calibration
+   * Exchanges ping/pong packets with the host to measure RTT and cancel out
+   * system clock skew between two different mobile devices.
+   */
+  private performClockCalibration() {
+    if (!this.hostConnection || !this.hostConnection.open) return;
+
+    this.calibrationSamples = [];
+    for (let i = 0; i < 4; i++) {
+      setTimeout(() => {
+        if (this.hostConnection && this.hostConnection.open) {
+          this.hostConnection.send({
+            type: 'CLOCK_PING',
+            clientPingId: i,
+            clientSendPerf: performance.now(),
+            clientSendDate: Date.now()
+          });
+        }
+      }, i * 120);
+    }
+  }
+
+  private handleClockPong(data: any) {
+    const receivePerf = performance.now();
+    const rttMs = Math.max(1, receivePerf - data.clientSendPerf);
+    const oneWayMs = rttMs / 2;
+    // Host clock offset relative to client clock
+    const sampleOffset = data.hostDate - (data.clientSendDate + oneWayMs);
+
+    this.calibrationSamples.push({ rttMs, offset: sampleOffset });
+
+    // Pick best sample with lowest round-trip latency
+    const bestSample = this.calibrationSamples.reduce((best, curr) =>
+      curr.rttMs < best.rttMs ? curr : best
+    );
+
+    if (!this.isClockCalibrated) {
+      this.clockOffsetMs = Math.round(bestSample.offset);
+      this.isClockCalibrated = true;
+    } else {
+      // Gentle smoothing EWMA (0.85 old + 0.15 new)
+      this.clockOffsetMs = Math.round(this.clockOffsetMs * 0.85 + bestSample.offset * 0.15);
+    }
+  }
+
+  private startRecurringClockSync() {
+    this.stopRecurringClockSync();
+    this.clockPingInterval = setInterval(() => {
+      if (!this.isHost && this.isInRoom && this.hostConnection && this.hostConnection.open) {
+        this.hostConnection.send({
+          type: 'CLOCK_PING',
+          clientPingId: 99,
+          clientSendPerf: performance.now(),
+          clientSendDate: Date.now()
+        });
+      }
+    }, 12000);
+  }
+
+  private stopRecurringClockSync() {
+    if (this.clockPingInterval) {
+      clearInterval(this.clockPingInterval);
+      this.clockPingInterval = null;
+    }
+  }
+
   private broadcastToPeers(payload: any) {
     this.peerConnections.forEach((conn) => {
       if (conn.open) {
@@ -336,35 +437,71 @@ class JamService {
     });
   }
 
+  /**
+   * Broadcast immediate state update whenever the host pauses, plays, seeks, or changes track
+   */
+  private broadcastCurrentState() {
+    if (!this.isHost || !this.isInRoom) return;
+
+    const currentSong = audioService.getCurrentSong();
+    const currentTime = audioService.getCurrentPlaybackTime();
+    const isPlaying = audioService.isCurrentlyPlaying();
+
+    const payload = {
+      type: 'SYNC',
+      roomCode: this.roomCode,
+      currentSong,
+      currentTime,
+      isPlaying,
+      timestamp: Date.now()
+    };
+
+    this.broadcastToPeers(payload);
+
+    if (this.broadcastChannel) {
+      this.broadcastChannel.postMessage({
+        type: 'SYNC',
+        payload
+      });
+    }
+  }
+
+  private setupHostAudioListener() {
+    if (this.unsubAudioService) {
+      this.unsubAudioService();
+      this.unsubAudioService = null;
+    }
+
+    let lastSongId = audioService.getCurrentSong()?.id || null;
+    let lastIsPlaying = audioService.isCurrentlyPlaying();
+    let lastTime = audioService.getCurrentPlaybackTime();
+
+    this.unsubAudioService = audioService.subscribe((state) => {
+      if (!this.isHost || !this.isInRoom) return;
+
+      const currentSongId = state.currentSong?.id || null;
+      const isPlaying = state.isPlaying;
+      const currentTime = state.currentTime;
+
+      const songChanged = currentSongId !== lastSongId;
+      const playStateChanged = isPlaying !== lastIsPlaying;
+      const timeJumped = Math.abs(currentTime - lastTime) > 2.0;
+
+      lastSongId = currentSongId;
+      lastIsPlaying = isPlaying;
+      lastTime = currentTime;
+
+      if (songChanged || playStateChanged || timeJumped) {
+        this.broadcastCurrentState();
+      }
+    });
+  }
+
   private startHostSyncLoop() {
     this.stopSyncLoop();
     this.syncInterval = setInterval(() => {
-      if (!this.isHost || !this.isInRoom) return;
-
-      const currentSong = audioService.getCurrentSong();
-      const currentTime = audioService.getCurrentPlaybackTime();
-      const isPlaying = audioService.isCurrentlyPlaying();
-
-      const payload = {
-        type: 'SYNC',
-        roomCode: this.roomCode,
-        currentSong,
-        currentTime,
-        isPlaying,
-        timestamp: Date.now()
-      };
-
-      // 1. Broadcast to WebRTC peers across internet
-      this.broadcastToPeers(payload);
-
-      // 2. Broadcast to local tabs on same machine
-      if (this.broadcastChannel) {
-        this.broadcastChannel.postMessage({
-          type: 'SYNC',
-          payload
-        });
-      }
-    }, 1200);
+      this.broadcastCurrentState();
+    }, 1500);
   }
 
   private stopSyncLoop() {
@@ -374,60 +511,151 @@ class JamService {
     }
   }
 
+  /**
+   * Continuous, seamless 3-tier playback synchronization without audio break
+   */
   private applyIncomingPlaybackSync(data: any) {
     if (this.isHost || !data) return;
 
     const { currentSong, currentTime, isPlaying, timestamp } = data;
-    const now = Date.now();
-    const networkLatencySec = Math.max(0, (now - (timestamp || now)) / 1000);
-    const expectedTime = isPlaying ? currentTime + networkLatencySec : currentTime;
+    if (typeof currentTime !== 'number') return;
 
     const mySong = audioService.getCurrentSong();
-    const myTime = audioService.getCurrentPlaybackTime();
-    const drift = Math.abs(myTime - expectedTime);
-    this.driftMs = Math.round(drift * 1000);
 
-    // Song difference check
+    // 1. Song Change Check
     if (currentSong && (!mySong || mySong.id !== currentSong.id)) {
-      audioService.playSong(currentSong);
-      
-      let synced = false;
-      const onReadyToSync = () => {
-        if (synced) return;
-        synced = true;
-        audioService.seek(expectedTime);
-        if (isPlaying) {
-          audioService.play();
-        } else {
-          audioService.pause();
-        }
-      };
+      this.handleTrackTransition(currentSong, currentTime, isPlaying);
+      return;
+    }
 
-      const audioEl = audioService.getAudioElement();
-      if (audioEl) {
-        audioEl.addEventListener('loadedmetadata', onReadyToSync, { once: true });
-        audioEl.addEventListener('canplay', onReadyToSync, { once: true });
-      }
-      const unsubCloud = cloudPlayerService.onPlay(() => {
-        onReadyToSync();
-        unsubCloud();
-      });
-      setTimeout(onReadyToSync, 800);
-    } else {
-      // Drift compensation: only seek if drift > 1.2s to prevent audio stutter
-      if (drift > 1.2) {
-        audioService.seek(expectedTime);
-      }
+    // 2. Guard against interrupting initial track buffer
+    if (this.isBufferingNewSong) {
+      return;
+    }
 
-      const currentlyPlaying = audioService.isCurrentlyPlaying();
-      if (isPlaying && !currentlyPlaying) {
-        audioService.play();
-      } else if (!isPlaying && currentlyPlaying) {
-        audioService.pause();
+    // 3. NTP-Calibrated Expected Playback Position
+    const listenerTimeNow = Date.now();
+    // Translate host timestamp to listener's timeline: hostTime - clockOffsetMs
+    const clientEquivalentTimestamp = (timestamp || listenerTimeNow) - this.clockOffsetMs;
+    const elapsedSinceHostSendSec = Math.max(0, Math.min(5, (listenerTimeNow - clientEquivalentTimestamp) / 1000));
+    const expectedHostPlaybackTime = isPlaying ? currentTime + elapsedSinceHostSendSec : currentTime;
+
+    const myTime = audioService.getCurrentPlaybackTime();
+    // trueDelta: positive = listener is ahead of host; negative = listener is behind host
+    const trueDelta = myTime - expectedHostPlaybackTime;
+    const driftAbs = Math.abs(trueDelta);
+    this.driftMs = Math.round(driftAbs * 1000);
+
+    // 4. Play / Pause state synchronization
+    const currentlyPlaying = audioService.isCurrentlyPlaying();
+    if (isPlaying && !currentlyPlaying) {
+      audioService.play();
+    } else if (!isPlaying && currentlyPlaying) {
+      audioService.pause();
+      audioService.setPlaybackRate(1.0);
+      this.syncStatus = 'perfect';
+      this.notify();
+      return;
+    }
+
+    // If host is paused, keep playhead locked without playback rate modifications
+    if (!isPlaying) {
+      if (driftAbs > 0.4) {
+        audioService.seek(expectedHostPlaybackTime);
+      }
+      audioService.setPlaybackRate(1.0);
+      this.syncStatus = 'perfect';
+      this.notify();
+      return;
+    }
+
+    // 5. 3-Tier Drift Compensation (When Host is Playing)
+    // Tier 1: Tight Lock (< 60ms) -> Imperceptible difference, standard 1.0x rate
+    if (driftAbs < 0.06) {
+      if (audioService.getPlaybackRate() !== 1.0) {
+        audioService.setPlaybackRate(1.0);
+      }
+      this.syncStatus = 'perfect';
+    }
+    // Tier 2: Seamless Micro-Rate Steering (60ms to 1200ms) -> NEVER HARD SEEK! ZERO AUDIO BREAK!
+    else if (driftAbs <= 1.2) {
+      let targetRate = 1.0;
+      if (trueDelta < -0.06) {
+        // Listener is behind host -> gently accelerate to catch up
+        targetRate = driftAbs > 0.3 ? 1.05 : 1.025;
+      } else if (trueDelta > 0.06) {
+        // Listener is ahead of host -> gently decelerate to let host catch up
+        targetRate = driftAbs > 0.3 ? 0.95 : 0.975;
+      }
+      audioService.setPlaybackRate(targetRate);
+      this.syncStatus = 'steering';
+    }
+    // Tier 3: Hard Jump (> 1.2s) -> Host scrubbed or significant network glitch
+    else {
+      const now = Date.now();
+      if (now - this.lastHardSeekTime > 4000) {
+        // Enforce 4s cooldown between hard seeks to prevent thrashing
+        this.lastHardSeekTime = now;
+        audioService.seek(expectedHostPlaybackTime);
+        audioService.setPlaybackRate(1.0);
+        this.syncStatus = 'syncing';
+      } else {
+        // In cooldown period: steer at max safe rate instead of repeated seeking
+        const steerRate = trueDelta < 0 ? 1.06 : 0.94;
+        audioService.setPlaybackRate(steerRate);
+        this.syncStatus = 'steering';
       }
     }
 
     this.notify();
+  }
+
+  private handleTrackTransition(song: Song, targetTime: number, shouldPlay: boolean) {
+    this.lastHardSeekTime = Date.now();
+    this.isBufferingNewSong = true;
+    this.syncStatus = 'buffering';
+    this.notify();
+
+    audioService.playSong(song);
+
+    let hasSynced = false;
+    const audioEl = audioService.getAudioElement();
+
+    const applyInitialSync = () => {
+      if (hasSynced) return;
+      hasSynced = true;
+      this.isBufferingNewSong = false;
+      this.lastHardSeekTime = Date.now();
+
+      if (targetTime > 0.5) {
+        audioService.seek(targetTime);
+      }
+      if (shouldPlay) {
+        audioService.play();
+      } else {
+        audioService.pause();
+      }
+      audioService.setPlaybackRate(1.0);
+      this.syncStatus = 'perfect';
+      this.notify();
+    };
+
+    if (audioEl) {
+      audioEl.addEventListener('canplay', applyInitialSync, { once: true });
+      audioEl.addEventListener('playing', applyInitialSync, { once: true });
+    }
+
+    const unsubCloud = cloudPlayerService.onPlay(() => {
+      applyInitialSync();
+      unsubCloud();
+    });
+
+    // Fallback in case media events are delayed
+    setTimeout(() => {
+      if (!hasSynced) {
+        applyInitialSync();
+      }
+    }, 3500);
   }
 
   public sendReaction(emoji: string) {
@@ -448,14 +676,12 @@ class JamService {
       reaction
     };
 
-    // If host, send to all peers; if listener, send to host
     if (this.isHost) {
       this.broadcastToPeers(payload);
     } else if (this.hostConnection && this.hostConnection.open) {
       this.hostConnection.send(payload);
     }
 
-    // Also broadcast to local tabs
     if (this.broadcastChannel) {
       this.broadcastChannel.postMessage({
         type: 'REACTION',
@@ -468,7 +694,6 @@ class JamService {
     this.reactions = [...this.reactions.slice(-15), reaction];
     this.notify();
 
-    // Auto cleanup old reactions after 4 seconds
     setTimeout(() => {
       this.reactions = this.reactions.filter((r) => r.id !== reaction.id);
       this.notify();
@@ -477,6 +702,14 @@ class JamService {
 
   public leaveRoom() {
     this.stopSyncLoop();
+    this.stopRecurringClockSync();
+
+    if (this.unsubAudioService) {
+      this.unsubAudioService();
+      this.unsubAudioService = null;
+    }
+
+    audioService.setPlaybackRate(1.0);
 
     if (this.hostConnection) {
       this.hostConnection.close();
@@ -497,6 +730,9 @@ class JamService {
     this.participants = [];
     this.reactions = [];
     this.driftMs = 0;
+    this.clockOffsetMs = 0;
+    this.isClockCalibrated = false;
+    this.syncStatus = 'idle';
     this.error = null;
     this.notify();
   }
@@ -508,13 +744,15 @@ class JamService {
   }
 
   private notify() {
-    const state = {
+    const state: JamStatePayload = {
       isInRoom: this.isInRoom,
       isHost: this.isHost,
       roomCode: this.roomCode,
       participants: this.participants,
       reactions: this.reactions,
       driftMs: this.driftMs,
+      syncStatus: this.syncStatus,
+      clockOffsetMs: this.clockOffsetMs,
       error: this.error
     };
     this.listeners.forEach((l) => l(state));
@@ -535,6 +773,12 @@ class JamService {
   }
   public getReactions() {
     return this.reactions;
+  }
+  public getSyncStatus() {
+    return this.syncStatus;
+  }
+  public getClockOffsetMs() {
+    return this.clockOffsetMs;
   }
 }
 

@@ -1,5 +1,6 @@
 import { Song, Playlist, LibraryStats, LibraryHealth } from '../types/music';
 import { calculateLibraryHealth, healthToLegacyStats } from './healthService';
+import { normalizeSong } from '../utils/songUtils';
 
 const DB_NAME = 'AuraMusicDB';
 const DB_VERSION = 2; // Incremented for upgraded indexes & directory handle store
@@ -80,7 +81,7 @@ class MusicDatabase {
       const tx = db.transaction('songs', 'readonly');
       const store = tx.objectStore('songs');
       const req = store.getAll();
-      req.onsuccess = () => resolve(req.result || []);
+      req.onsuccess = () => resolve((req.result || []).map(normalizeSong));
       req.onerror = () => reject(req.error);
     });
   }
@@ -91,7 +92,7 @@ class MusicDatabase {
       const tx = db.transaction('songs', 'readonly');
       const store = tx.objectStore('songs');
       const req = store.get(id);
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => resolve(req.result ? normalizeSong(req.result) : undefined);
       req.onerror = () => reject(req.error);
     });
   }
@@ -101,7 +102,7 @@ class MusicDatabase {
     return new Promise((resolve, reject) => {
       const tx = db.transaction('songs', 'readwrite');
       const store = tx.objectStore('songs');
-      const req = store.put(song);
+      const req = store.put(normalizeSong(song));
       req.onsuccess = () => resolve();
       req.onerror = () => reject(req.error);
     });
@@ -114,7 +115,7 @@ class MusicDatabase {
       const tx = db.transaction('songs', 'readwrite');
       const store = tx.objectStore('songs');
       for (const song of songs) {
-        store.put(song);
+        store.put(normalizeSong(song));
       }
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);

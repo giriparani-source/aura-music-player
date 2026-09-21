@@ -58,11 +58,12 @@ def search_tracks(query, limit=12):
 def get_stream_url(video_id):
     """
     Extracts the direct high-quality audio stream URL for a given video ID.
+    Prefers m4a/AAC for universal hardware playback across Android/iOS/Web.
     """
     url = f'https://www.youtube.com/watch?v={video_id}'
     cmd = [
         sys.executable, '-m', 'yt_dlp',
-        '-f', 'bestaudio',
+        '-f', 'ba[ext=m4a]/ba/b',
         '-g',
         url,
         '--no-warnings',
@@ -73,7 +74,7 @@ def get_stream_url(video_id):
         if proc.returncode != 0 and not proc.stdout:
             return {'error': proc.stderr.strip() or 'Failed to extract stream URL'}
         
-        lines = [line.strip() for line in proc.stdout.strip().split('\n') if line.strip()]
+        lines = [line.strip() for line in proc.stdout.strip().split('\n') if line.strip().startswith('http')]
         if not lines:
             return {'error': 'No stream URL returned'}
         

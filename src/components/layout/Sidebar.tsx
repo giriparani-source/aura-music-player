@@ -1,19 +1,32 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Home, Library, Search, Settings, Sparkles, Plus, Radio } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { NavigationTab } from '../../types/music';
 import { SidebarPwaButton } from '../common/PwaInstallBanner';
 
+const TAB_ROUTES: Record<NavigationTab, string> = {
+  home: '/',
+  library: '/library',
+  radio: '/radio',
+  search: '/search',
+  'ai-studio': '/ai-studio',
+  settings: '/settings',
+  playlists: '/library',
+};
+
 export const Sidebar: React.FC = () => {
+  const { t } = useTranslation();
   const { activeTab, setActiveTab, setLibrarySubTab, playlists, stats, setActivePlaylistId, createPlaylist } = useLibraryStore();
 
   const navItems: Array<{ id: NavigationTab; label: string; icon: React.ReactNode }> = [
-    { id: 'home', label: 'Home', icon: <Home size={19} /> },
-    { id: 'library', label: 'My Library', icon: <Library size={19} /> },
-    { id: 'radio', label: 'Live Radio FM', icon: <Radio size={19} /> },
-    { id: 'search', label: 'Search', icon: <Search size={19} /> },
-    { id: 'ai-studio', label: 'AI DJ Studio', icon: <Sparkles size={19} className="text-amber-400" /> },
-    { id: 'settings', label: 'Settings', icon: <Settings size={19} /> },
+    { id: 'home', label: t('nav.home'), icon: <Home size={19} /> },
+    { id: 'library', label: t('nav.library'), icon: <Library size={19} /> },
+    { id: 'radio', label: t('nav.radio'), icon: <Radio size={19} /> },
+    { id: 'search', label: t('nav.search'), icon: <Search size={19} /> },
+    { id: 'ai-studio', label: t('nav.aiStudio'), icon: <Sparkles size={19} className="text-amber-400" /> },
+    { id: 'settings', label: t('nav.settings'), icon: <Settings size={19} /> },
   ];
 
   const smartPlaylists = playlists.filter((p) => p.isSmart);
@@ -32,7 +45,7 @@ export const Sidebar: React.FC = () => {
           <h1 className="font-bold text-base tracking-tight text-white flex items-center gap-1.5">
             Aura <span className="text-xs px-1.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400 font-semibold border border-indigo-500/30">Music</span>
           </h1>
-          <p className="text-[11px] text-neutral-400 font-medium">Personal Audio Library</p>
+          <p className="text-[11px] text-neutral-400 font-medium">{t('nav.subTitle')}</p>
         </div>
       </div>
 
@@ -41,8 +54,9 @@ export const Sidebar: React.FC = () => {
         {navItems.map((item) => {
           const isActive = activeTab === item.id;
           return (
-            <button
+            <Link
               key={item.id}
+              to={TAB_ROUTES[item.id]}
               onClick={() => setActiveTab(item.id)}
               className={`w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all cursor-pointer ${
                 isActive
@@ -57,20 +71,20 @@ export const Sidebar: React.FC = () => {
               {item.id === 'radio' && (
                 <span className="ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
-                  LIVE
+                  {t('nav.liveBadge')}
                 </span>
               )}
               {item.id === 'search' && (
                 <span className="ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                  Cloud
+                  {t('nav.cloudBadge')}
                 </span>
               )}
               {item.id === 'ai-studio' && (
                 <span className="ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300 border border-purple-500/30 animate-pulse">
-                  AI DJ
+                  {t('nav.aiBadge')}
                 </span>
               )}
-            </button>
+            </Link>
           );
         })}
       </nav>
@@ -81,7 +95,7 @@ export const Sidebar: React.FC = () => {
       <div className="flex-1 overflow-y-auto pr-1 space-y-4">
         <div>
           <p className="px-3 text-[11px] font-bold uppercase tracking-wider text-neutral-500 mb-2">
-            Smart Mixes
+            {t('nav.smartMixes')}
           </p>
           <div className="space-y-0.5">
             {smartPlaylists.map((pl) => (
