@@ -933,7 +933,7 @@ export const SettingsView: React.FC = () => {
             <Bot size={20} className="text-indigo-400" />
             <div>
               <h3 className="text-base font-bold text-white flex items-center gap-2">
-                Aura AI Assistant & Gemini Intelligence
+                Aura AI Assistant Intelligence
                 <span
                   className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                     geminiApiKey.trim()
@@ -941,11 +941,15 @@ export const SettingsView: React.FC = () => {
                       : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
                   }`}
                 >
-                  {geminiApiKey.trim() ? 'Gemini 2.5 Flash Connected' : 'Smart Offline Tanglish NLP'}
+                  {geminiApiKey.trim().startsWith('sk-')
+                    ? 'OpenAI GPT-4o-mini Connected'
+                    : geminiApiKey.trim()
+                    ? 'Gemini 2.5 Flash Connected'
+                    : 'Smart Offline Tanglish NLP'}
                 </span>
               </h3>
               <p className="text-xs text-neutral-500">
-                Configure Google Gemini API key for high-intelligence voice and text conversation in Tanglish
+                Configure Google Gemini or OpenAI API key for high-intelligence voice and text conversation in Tanglish
               </p>
             </div>
           </div>
@@ -954,7 +958,7 @@ export const SettingsView: React.FC = () => {
         <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 space-y-3">
           <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
             <Key size={14} className="text-amber-400" />
-            <span>Google Gemini API Key</span>
+            <span>AI Assistant API Key (Google Gemini or OpenAI)</span>
           </label>
           <div className="flex gap-2">
             <div className="relative flex-1">
@@ -970,7 +974,7 @@ export const SettingsView: React.FC = () => {
                 data-form-type="other"
                 value={geminiApiKey}
                 onChange={(e) => setGeminiApiKey(e.target.value)}
-                placeholder="Enter Google AI Studio Gemini Key (e.g. AIzaSy...)"
+                placeholder="Enter Gemini Key (AIzaSy...) or OpenAI Key (sk-...)"
                 className="w-full pl-4 pr-10 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-indigo-500 transition-colors"
               />
               <button
@@ -991,9 +995,9 @@ export const SettingsView: React.FC = () => {
             </button>
           </div>
           <p className="text-[11px] text-neutral-500">
-            Free tier API keys are available from Google AI Studio. Even without an API key, Aura AI Assistant can
-            fully control playback, Karaoke mode, Equalizer presets, and AI DJ Studio using its built-in offline
-            engine.
+            Supports both Google AI Studio keys (100% free tier) and OpenAI keys. Even without an API key,
+            Aura AI Assistant can fully control playback, Karaoke mode, Equalizer presets, and AI DJ Studio
+            using its built-in offline Tanglish NLP engine.
           </p>
         </div>
       </div>
