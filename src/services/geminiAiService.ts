@@ -42,10 +42,17 @@ class GeminiAiService {
     return Boolean(this.getApiKey());
   }
 
+  public getProvider(): 'openai' | 'gemini' | 'none' {
+    const key = this.getApiKey();
+    if (!key) return 'none';
+    if (key.startsWith('sk-')) return 'openai';
+    return 'gemini';
+  }
+
   /**
    * Primary entry point for AI Chat interactions.
-   * Uses Google Gemini 2.5 Flash when API key is provided,
-   * falling back automatically to the advanced local Tanglish NLP engine.
+   * Seamlessly routes to OpenAI (GPT-4o-mini) or Google Gemini based on the key prefix (sk-... vs AIza...),
+   * falling back automatically to the high-precision local Tanglish NLP engine.
    */
   public async askAssistant(message: string, context: AssistantContext): Promise<AssistantResponse> {
     const text = message.trim();
@@ -57,12 +64,15 @@ class GeminiAiService {
 
     if (apiKey) {
       try {
-        const geminiRes = await this.callGeminiApi(text, apiKey, context);
-        if (geminiRes) {
-          return geminiRes;
+        if (apiKey.startsWith('sk-')) {
+          const openAiRes = await this.callOpenAiApi(text, apiKey, context);
+          if (openAiRes) return openAiRes;
+        } else {
+          const geminiRes = await this.callGeminiApi(text, apiKey, context);
+          if (geminiRes) return geminiRes;
         }
       } catch (err) {
-        console.warn('[GeminiAiService] Gemini API call error, using smart local fallback:', err);
+        console.warn('[AiService] Remote AI API call error, using smart local fallback:', err);
       }
     }
 
@@ -158,6 +168,89 @@ Return strictly a valid JSON object without markdown fences, with this exact sch
 
     const data = await response.json();
     return this.parseGeminiOutput(data);
+  }
+
+  /**
+   * Direct REST call to OpenAI chat completions endpoint (supports gpt-4o-mini / gpt-4o)
+   */
+  private async callOpenAiApi(
+    prompt: string,
+    apiKey: string,
+    context: AssistantContext
+  ): Promise<AssistantResponse | null> {
+    const currentInfo = context.currentSong
+      ? `Current Playing Song: "${context.currentSong.title}" by ${context.currentSong.artist || 'Unknown'}`
+      : 'No track is currently playing.';
+
+    const systemInstruction = `You are "Aura AI Assistant", an intelligent, cheerful, and witty music assistant embedded inside Aura Music Player.
+You speak naturally in friendly Tamil/Tanglish (using casual words like 'nanba', 'thalaiva', 'adipoli', 'sema vibe') or English when addressed in English.
+You have FULL control over the music player.
+
+PLAYER CAPABILITIES:
+- TOGGLE_KARAOKE: Turn on/off Karaoke mode (removes/mutes center vocal channel)
+- SET_EQ_PRESET: Apply equalizer preset ('bass', 'vocal', 'pop', 'rock', 'electronic', 'classical', 'flat')
+- PLAY: Resume/play audio
+- PAUSE: Pause playback
+- NEXT_TRACK: Skip to next song
+- PREV_TRACK: Go to previous song
+- TOGGLE_SHUFFLE: Shuffle queue
+- SEARCH_AND_PLAY: Search library or online catalog and play immediately (pass query: string)
+- NAVIGATE_TAB: Switch tab ('home', 'library', 'search', 'playlists', 'ai-studio', 'settings')
+- OPEN_AI_INSIGHTS: Open poetic lyrics breakdown and emotional analysis for current song
+- SET_VOLUME: Set volume between 0 and 1 (pass volume: number)
+
+CONTEXT:
+${currentInfo}
+Is Playing: ${context.isPlaying ? 'Yes' : 'No'}
+
+CRITICAL INSTRUCTION:
+Return strictly a valid JSON object without markdown fences, with this exact schema:
+{
+  "reply": "friendly Tanglish/English response text",
+  "action": {
+    "type": "TOGGLE_KARAOKE" | "SET_EQ_PRESET" | "PLAY" | "PAUSE" | "NEXT_TRACK" | "PREV_TRACK" | "TOGGLE_SHUFFLE" | "SEARCH_AND_PLAY" | "NAVIGATE_TAB" | "OPEN_AI_INSIGHTS" | "SET_VOLUME",
+    "preset"?: "bass" | "vocal" | "pop" | "rock" | "electronic" | "classical" | "flat",
+    "tab"?: "home" | "library" | "search" | "playlists" | "ai-studio" | "settings",
+    "query"?: string,
+    "volume"?: number
+  } | null
+}`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey.trim()}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: prompt }
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.3
+      })
+    });
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    const rawText = data.choices?.[0]?.message?.content;
+    if (!rawText) return null;
+
+    try {
+      const parsed = JSON.parse(rawText.trim());
+      if (parsed && typeof parsed.reply === 'string') {
+        return {
+          reply: parsed.reply,
+          action: parsed.action || undefined
+        };
+      }
+    } catch (e) {
+      console.warn('Failed to parse OpenAI response JSON:', e);
+    }
+
+    return null;
   }
 
   private parseGeminiOutput(data: any): AssistantResponse | null {

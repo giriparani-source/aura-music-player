@@ -219,11 +219,23 @@ export const AuraChatDrawer: React.FC = () => {
                   Aura AI Assistant
                   <span
                     className={`w-2 h-2 rounded-full ${hasApiKey ? 'bg-emerald-400 animate-pulse' : 'bg-indigo-400'}`}
-                    title={hasApiKey ? 'Gemini 2.5 Flash Connected' : 'Smart Offline NLP Active'}
+                    title={
+                      geminiAiService.getProvider() === 'openai'
+                        ? 'OpenAI GPT-4o-mini Connected'
+                        : hasApiKey
+                        ? 'Gemini 2.5 Flash Connected'
+                        : 'Smart Offline NLP Active'
+                    }
                   />
                 </h4>
                 <p className="text-[10px] text-neutral-400">
-                  {currentSong ? `Playing: ${currentSong.title}` : hasApiKey ? 'Gemini AI' : 'Smart Tanglish Agent'}
+                  {currentSong
+                    ? `Playing: ${currentSong.title}`
+                    : geminiAiService.getProvider() === 'openai'
+                    ? 'OpenAI GPT-4o-mini'
+                    : hasApiKey
+                    ? 'Gemini AI'
+                    : 'Smart Tanglish Agent'}
                 </p>
               </div>
             </div>
@@ -234,31 +246,32 @@ export const AuraChatDrawer: React.FC = () => {
                 className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                   hasApiKey
                     ? 'text-emerald-400 hover:bg-emerald-500/10'
-                    : 'text-neutral-400 hover:text-white hover:bg-white/10'
+                    : 'text-neutral-400 hover:text-white hover:bg-white/5'
                 }`}
-                title="Configure Gemini API Key"
+                title="Configure Gemini or OpenAI API Key"
               >
-                <Key size={16} />
+                <Sparkles size={16} />
               </button>
               <button
                 onClick={() => setAiAssistantOpen(false)}
-                className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                className="p-1.5 text-neutral-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+                title="Close Assistant"
               >
                 <X size={16} />
               </button>
             </div>
           </div>
 
-          {/* Optional Gemini API Key Drawer / Settings Banner */}
+          {/* Optional Gemini / OpenAI API Key Drawer / Settings Banner */}
           {showApiKeyModal && (
             <div className="p-3 bg-indigo-950/40 border-b border-indigo-500/20 space-y-2 text-xs animate-fade-in">
               <div className="flex items-center justify-between text-indigo-300 font-semibold text-[11px]">
                 <span className="flex items-center gap-1.5">
                   <Sparkles size={12} />
-                  Google Gemini API Key
+                  AI API Key (Gemini or OpenAI)
                 </span>
                 <span className="text-[10px] text-neutral-400">
-                  {hasApiKey ? 'Connected 🟢' : 'Optional (Free Tier)'}
+                  {hasApiKey ? 'Connected 🟢' : 'Optional (Cloud AI)'}
                 </span>
               </div>
               <div className="flex gap-1.5">
@@ -266,7 +279,7 @@ export const AuraChatDrawer: React.FC = () => {
                   type="password"
                   value={tempApiKey}
                   onChange={(e) => setTempApiKey(e.target.value)}
-                  placeholder="Paste AI Studio Gemini Key..."
+                  placeholder="Paste Gemini (AIza...) or OpenAI (sk-...) Key"
                   className="flex-1 px-2.5 py-1.5 rounded-lg bg-black/50 border border-white/10 text-white text-xs placeholder:text-neutral-500 focus:outline-none focus:border-indigo-500"
                 />
                 <button
