@@ -19,12 +19,6 @@ import {
 import { musicDB } from '../services/db';
 import { calculateLibraryHealth, healthToLegacyStats } from '../services/healthService';
 import { detectDuplicates } from '../services/duplicateService';
-import { buildApiUrl } from '../utils/apiConfig';
-import {
-  collectFilesFromDirectoryHandle,
-  collectFilesFromFileList,
-  runDifferentialScan
-} from '../services/scannerService';
 import { downloadService } from '../services/downloadService';
 import { audioService } from '../services/audioService';
 import { auraAffinityService } from '../services/auraAffinityService';
@@ -92,8 +86,6 @@ interface LibraryStoreState {
   deleteDownloadedTrack: (songId: string) => Promise<void>;
   clearAllDownloads: () => Promise<void>;
   refreshDownloads: () => Promise<void>;
-  scanFromDirectoryHandle: (dirHandle: FileSystemDirectoryHandle) => Promise<ScanResult>;
-  scanFromFileList: (files: FileList) => Promise<ScanResult>;
   clearLibrary: () => Promise<void>;
   syncCloudCatalog: () => Promise<number>;
 }
@@ -769,66 +761,6 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         songs: updatedSongs
       };
     });
-  },
-
-  scanFromDirectoryHandle: async (dirHandle: FileSystemDirectoryHandle): Promise<ScanResult> => {
-    set({
-      scanProgress: {
-        status: 'scanning',
-        currentFile: 'Collecting audio files...',
-        processedCount: 0,
-        totalCount: 0
-      }
-    });
-
-    const entries = await collectFilesFromDirectoryHandle(dirHandle);
-
-    const { result } = await runDifferentialScan(entries, (progress) => {
-      set({ scanProgress: progress });
-    });
-
-    set({
-      scanProgress: {
-        status: 'complete',
-        currentFile: '',
-        processedCount: result.totalScanned,
-        totalCount: result.totalScanned,
-        result
-      }
-    });
-
-    await get().loadLibrary();
-    return result;
-  },
-
-  scanFromFileList: async (files: FileList): Promise<ScanResult> => {
-    set({
-      scanProgress: {
-        status: 'scanning',
-        currentFile: 'Collecting audio files...',
-        processedCount: 0,
-        totalCount: files.length
-      }
-    });
-
-    const entries = collectFilesFromFileList(files);
-
-    const { result } = await runDifferentialScan(entries, (progress) => {
-      set({ scanProgress: progress });
-    });
-
-    set({
-      scanProgress: {
-        status: 'complete',
-        currentFile: '',
-        processedCount: result.totalScanned,
-        totalCount: result.totalScanned,
-        result
-      }
-    });
-
-    await get().loadLibrary();
-    return result;
   },
 
   clearLibrary: async () => {

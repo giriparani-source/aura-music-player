@@ -6,12 +6,10 @@ export interface TranslationSchema {
     library: string;
     radio: string;
     search: string;
-    aiStudio: string;
     settings: string;
     smartMixes: string;
     liveBadge: string;
     cloudBadge: string;
-    aiBadge: string;
     subTitle: string;
   };
   player: {
@@ -44,7 +42,6 @@ export interface TranslationSchema {
     librarySearchPlaceholder: string;
     clearSearch: string;
     storageUsage: string;
-    openAiDj: string;
   };
   settings: {
     title: string;
@@ -59,7 +56,6 @@ export interface TranslationSchema {
     socialJamTitle: string;
     backupRestoreTitle: string;
     libraryHealthTitle: string;
-    geminiAiTitle: string;
   };
   common: {
     songs: string;

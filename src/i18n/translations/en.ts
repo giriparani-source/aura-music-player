@@ -6,12 +6,10 @@ export const en: TranslationSchema = {
     library: 'My Library',
     radio: 'Live Radio FM',
     search: 'Search',
-    aiStudio: 'AI DJ Studio',
     settings: 'Settings',
     smartMixes: 'Smart Mixes',
     liveBadge: 'LIVE',
     cloudBadge: 'Cloud',
-    aiBadge: 'AI DJ',
     subTitle: 'Personal Audio Library'
   },
   player: {
@@ -43,12 +41,11 @@ export const en: TranslationSchema = {
     searchPlaceholder: 'Search songs, artists (Enter for Cloud)...',
     librarySearchPlaceholder: 'Filter library or press Enter for Cloud...',
     clearSearch: 'Clear search',
-    storageUsage: 'Storage Usage',
-    openAiDj: 'Open Aura AI Assistant'
+    storageUsage: 'Storage Usage'
   },
   settings: {
     title: 'Settings & Maintenance',
-    subtitle: 'Manage music sources, AI assistant preferences, audio configuration, and backups.',
+    subtitle: 'Manage music sources, audio configuration, and backups.',
     language: 'Display Language',
     languageSubtitle: 'Choose your preferred language for Aura interface.',
     english: 'English',
@@ -58,8 +55,7 @@ export const en: TranslationSchema = {
     auraFlowTitle: 'Aura Flow & Taste Intelligence',
     socialJamTitle: 'Social Jam Session',
     backupRestoreTitle: 'Backup & Restore',
-    libraryHealthTitle: 'Library Health & Maintenance',
-    geminiAiTitle: 'Gemini AI Assistant Key'
+    libraryHealthTitle: 'Library Health & Maintenance'
   },
   common: {
     songs: 'Songs',

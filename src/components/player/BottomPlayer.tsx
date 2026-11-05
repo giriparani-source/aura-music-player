@@ -96,7 +96,6 @@ export const BottomPlayer: React.FC = () => {
   const karaokeDepth = usePlayerStore((s) => s.karaokeDepth);
   const spatialPreset = usePlayerStore((s) => s.spatialPreset);
   const toggleKaraoke = usePlayerStore((s) => s.toggleKaraoke);
-  const setAiAssistantOpen = usePlayerStore((s) => s.setAiAssistantOpen);
   const isAuraFlow = usePlayerStore((s) => s.isAuraFlow);
   const toggleAuraFlow = usePlayerStore((s) => s.toggleAuraFlow);
 
@@ -413,15 +412,6 @@ export const BottomPlayer: React.FC = () => {
             }
           >
             <Mic2 size={17} className={isKaraoke ? 'animate-pulse' : ''} />
-          </button>
-
-          {/* Ask Aura AI Assistant Button */}
-          <button
-            onClick={() => setAiAssistantOpen(true)}
-            className="p-2 rounded-lg text-[#998d9e] hover:text-[#e0b6ff] hover:bg-white/5 transition-colors cursor-pointer"
-            title={t('header.openAiDj') || 'Open AI DJ'}
-          >
-            <Sparkles size={17} />
           </button>
 
           {/* WebRTC Social Jam Button */}

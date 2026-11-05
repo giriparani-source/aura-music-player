@@ -6,12 +6,10 @@ export const tanglish: TranslationSchema = {
     library: 'Enadhu Library',
     radio: 'Live Radio FM',
     search: 'Thedu',
-    aiStudio: 'AI DJ Studio',
     settings: 'Settings',
     smartMixes: 'Smart Mix-gal',
     liveBadge: 'LIVE',
     cloudBadge: 'Cloud',
-    aiBadge: 'AI DJ',
     subTitle: 'Personal Audio Library'
   },
   player: {
@@ -43,12 +41,11 @@ export const tanglish: TranslationSchema = {
     searchPlaceholder: 'Paattugal, padagargalai thedu (Enter for Cloud)...',
     librarySearchPlaceholder: 'Library filter pannu illana Enter adikkavum...',
     clearSearch: 'Clear pannu',
-    storageUsage: 'Storage Usage',
-    openAiDj: 'Aura AI Assistant-a Open Pannu'
+    storageUsage: 'Storage Usage'
   },
   settings: {
     title: 'Settings & Maintenance',
-    subtitle: 'Music sources, AI assistant, audio configuration, and backups-a manage pannunga.',
+    subtitle: 'Music sources, audio configuration, and backups-a manage pannunga.',
     language: 'Display Language / Mozhi',
     languageSubtitle: 'Aura interface-kaga ungalukku pidicha mozhiya choose pannunga.',
     english: 'English',
@@ -58,8 +55,7 @@ export const tanglish: TranslationSchema = {
     auraFlowTitle: 'Aura Flow & Taste Intelligence',
     socialJamTitle: 'Social Jam Session',
     backupRestoreTitle: 'Backup & Restore',
-    libraryHealthTitle: 'Library Health & Maintenance',
-    geminiAiTitle: 'Gemini AI Assistant Key'
+    libraryHealthTitle: 'Library Health & Maintenance'
   },
   common: {
     songs: 'Paattugal',

@@ -43,12 +43,11 @@
   3. *Tier 3 Broadcast:* 24/7 Live Web Radio FM Stations
 - **Key Directory Map:**
   - `src/components/player/` -> BottomPlayer, NowPlayingModal, QueueDrawer, AudioEffectsModal.
-  - `src/components/views/` -> HomeView, SearchView, LibraryView, PlaylistsView, RadioView, SettingsView, AiStudioView.
+  - `src/components/views/` -> HomeView, SearchView, LibraryView, PlaylistsView, RadioView, SettingsView.
   - `src/components/layout/` -> MobileBottomNav, Sidebar, Header, MainLayout.
   - `src/components/jam/` -> Real-time group listening / Jam rooms via PeerJS.
-  - `src/components/ai/` -> AI DJ Studio, mood-based playlists, Aura Flow drawer.
   - `src/store/` -> Domain-separated Zustand state stores.
-  - `src/services/` -> JioSaavn resolver, YouTube stream failovers, database, audio effects.
+  - `src/services/` -> JioSaavn resolver, YouTube stream failovers, database, audio effects, Aura Flow engine.
 
 ---
 
@@ -57,11 +56,11 @@
 | Feature Module | Status | Primary Files | Key Details |
 | :--- | :---: | :--- | :--- |
 | **Pure Cloud Streaming Core** | ✅ DONE | `src/services/audioService.ts` | 100% cloud streaming (JioSaavn 320k + YouTube failover) |
-| **Local File Scanning / Storage** | ❌ REMOVED | `src/store/useLibraryStore.ts` | Permanently removed from UI, UX, and store by user directive |
-| **Stitch Spotify Home Screen** | ✅ DONE | `src/components/views/HomeView.tsx` | Contextual greeting, 6-pack quick access sessions grid, Aura AI DJ hero banner, curated carousels, circular artist portraits, live radio |
+| **Local File Scanning / Storage** | ❌ PURGED | N/A | Permanently removed from UI, permissions, store, and server by user directive |
+| **Stitch Spotify Home Screen** | ✅ DONE | `src/components/views/HomeView.tsx` | Contextual greeting, 6-pack quick access sessions grid, curated carousels, circular artist portraits, live radio |
 | **Spotify Search & Discovery** | ✅ DONE | `src/components/views/SearchView.tsx` | Elevated pill search bar, filter pills (All, JioSaavn 320k, Live Radio), recent searches flow chips with 1-click removal, Bento vibe & genre grid |
 | **Spotify Library Hub** | ✅ DONE | `src/components/views/LibraryView.tsx` | Pinned Collections hub (Liked Songs, Downloaded Cache, Recently Played), subtab pills, search & sort toolbar, grid/list toggles |
-| **Expandable Now Playing Hero** | ✅ DONE | `src/components/player/NowPlayingModal.tsx` | Ambient dynamic luminescence (`blur-[120px]`), vinyl sheen artwork, Hi-Res 320k badge, cyan scrubber thumb, 72x72 kinetic hero play trigger |
+| **Expandable Now Playing Hero** | ✅ DONE | `src/components/player/NowPlayingModal.tsx` | High-performance ambient radial gradient, vinyl sheen artwork, Hi-Res 320k badge, cyan scrubber thumb, 72x72 kinetic hero play trigger |
 | **Floating Mini Player Dock** | ✅ DONE | `src/components/player/BottomPlayer.tsx` | Floating frosted glass dock (`rounded-2xl`, 2.5dp bottom gradient progress bar `from-[#00f1fd] via-[#9d4edd] to-[#e0b6ff]`, vinyl sheen, kinetic play) |
 | **Persistent Bottom Navigation** | ✅ DONE | `src/components/layout/MobileBottomNav.tsx` | 64dp frosted dock with Home, Search, Library, Radio, Settings, active violet glow, 48dp touch targets |
 | **Desktop Studio Sidebar & Header** | ✅ DONE | `src/components/layout/Sidebar.tsx`, `Header.tsx` | Nocturne desktop sidebar (`bg-[#12101b]/95`), 320k brand badge, active gradient nav pills, frosted top bar (`bg-[#14121a]/80`) |
@@ -69,8 +68,8 @@
 | **Universal Playlist Importer** | ✅ DONE | `src/services/universalPlaylistImporter.ts` | Spotify & YouTube playlist import with 320k auto-matching |
 | **24/7 Live Radio FM** | ✅ DONE | `src/services/radioService.ts` | Real-time live Tamil and regional radio broadcast stations |
 | **P2P Social Jam Rooms** | ✅ DONE | `src/components/jam/` | PeerJS room creation, sync, and emoji reactions |
-| **AI DJ Studio & Assistant** | ✅ DONE | `src/components/ai/` | Gemini / OpenAI intelligent playlists & aura chat drawer |
-| **Android APK Build Pipeline** | ✅ DONE | `package.json`, `build-apk.ps1` | `npm run apk:build` -> generates `AuraMusic-v1.2.5.apk`, `AuraMusic-v1.2.4.apk`, and `AuraMusic-latest.apk` (11.6 MB) |
+| **AI DJ Studio & Assistant** | ❌ PURGED | N/A | Completely removed from app, store, types, and server (Zero AI directive) |
+| **Android APK Build Pipeline** | ✅ DONE | `package.json`, `build-apk.ps1` | `npm run apk:build` -> generates `AuraMusic-latest.apk` (11.6 MB) |
 
 ---
 
