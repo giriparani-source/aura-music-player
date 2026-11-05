@@ -8,11 +8,9 @@ import { SidebarPwaButton } from '../common/PwaInstallBanner';
 
 const TAB_ROUTES: Record<NavigationTab, string> = {
   home: '/',
-  local: '/library',
   library: '/library',
   radio: '/radio',
   search: '/search',
-  'ai-studio': '/ai-studio',
   settings: '/settings',
   playlists: '/library',
 };
@@ -26,7 +24,6 @@ export const Sidebar: React.FC = () => {
     { id: 'library', label: t('nav.library') || 'Your Library', icon: <Library size={19} /> },
     { id: 'radio', label: t('nav.radio') || 'Radio', icon: <Radio size={19} /> },
     { id: 'search', label: t('nav.search') || 'Search', icon: <Search size={19} /> },
-    { id: 'ai-studio', label: t('nav.aiStudio') || 'AI Studio', icon: <Sparkles size={19} className="text-[#00f1fd]" /> },
     { id: 'settings', label: t('nav.settings') || 'Settings', icon: <Settings size={19} /> },
   ];
 
@@ -80,11 +77,6 @@ export const Sidebar: React.FC = () => {
               {item.id === 'search' && (
                 <span className="ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-[#9d4edd]/20 text-[#e0b6ff] border border-[#9d4edd]/30">
                   {t('nav.cloudBadge') || 'CLOUD'}
-                </span>
-              )}
-              {item.id === 'ai-studio' && (
-                <span className="ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-gradient-to-r from-[#9d4edd]/30 to-[#00f1fd]/20 text-[#00f1fd] border border-[#00f1fd]/30">
-                  {t('nav.aiBadge') || 'AI'}
                 </span>
               )}
             </Link>

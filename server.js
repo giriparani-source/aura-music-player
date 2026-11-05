@@ -13,7 +13,6 @@ import { fileURLToPath } from 'url';
 import {
   onlineSearchHandler,
   onlineStreamHandler,
-  aiRouterHandler,
   jamRoomHandler,
   localAudioHandler,
   cloudManifestHandler,
@@ -42,10 +41,7 @@ app.use('/api/online/search', onlineSearchHandler);
 // 2. Online Stream Proxy
 app.use('/api/online/stream', onlineStreamHandler);
 
-// 3. AI Unified Router (DJ / Insights / Chat)
-app.use('/api/ai', aiRouterHandler);
-
-// 4. WebRTC Jam Session Signaling
+// 3. WebRTC Jam Session Signaling
 app.use('/api/jam', jamRoomHandler);
 
 // 5. Audio Streaming Endpoint (Cloud Object Storage + Local Range Streaming)

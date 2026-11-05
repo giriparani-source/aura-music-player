@@ -34,8 +34,6 @@ interface PlayerStoreState {
   spatialPreset: SpatialPreset;
   spatialMix: number;
   crossfadeSeconds: number;
-  isAiAssistantOpen: boolean;
-  aiEqStatus: string | null;
 
   // Aura Flow: Continuous Smart Autoplay
   isAuraFlow: boolean;
@@ -86,8 +84,6 @@ interface PlayerStoreState {
   setSpatialPreset: (preset: SpatialPreset) => void;
   setSpatialMix: (mix: number) => void;
   setCrossfadeSeconds: (seconds: number) => void;
-  setAiAssistantOpen: (open: boolean) => void;
-  autoTuneCurrentSong: () => void;
 
   // Sleep Timer Actions
   setSleepTimer: (preset: SleepTimerPreset, customMinutes?: number) => void;
@@ -316,8 +312,6 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     spatialPreset: audioEffectsService.getSpatialPreset(),
     spatialMix: audioEffectsService.getSpatialMix(),
     crossfadeSeconds: audioService.getCrossfadeSeconds(),
-    isAiAssistantOpen: false,
-    aiEqStatus: null,
     isAuraFlow: false,
     discoveryPreference: auraFlowService.getDiscoveryPreference(),
     sleepTimerRemaining: sleepTimerService.getRemainingSeconds(),
@@ -1088,17 +1082,6 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     setCrossfadeSeconds: (seconds: number) => {
       audioService.setCrossfadeSeconds(seconds);
       set({ crossfadeSeconds: audioService.getCrossfadeSeconds() });
-    },
-
-    setAiAssistantOpen: (open: boolean) => {
-      set({ isAiAssistantOpen: open });
-    },
-
-    autoTuneCurrentSong: () => {
-      const { currentSong } = get();
-      if (!currentSong) return;
-      const result = audioEffectsService.autoTuneForSong(currentSong.title, currentSong.artist);
-      set({ aiEqStatus: result.profileName });
     },
 
     setSleepTimer: (preset: SleepTimerPreset, customMinutes?: number) => {

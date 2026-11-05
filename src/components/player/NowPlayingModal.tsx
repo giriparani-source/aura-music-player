@@ -15,7 +15,6 @@ import {
   Activity,
   FileText,
   Sliders,
-  Sparkles,
   Mic2,
   Film,
   Download,
@@ -34,7 +33,6 @@ import { Artwork } from '../common/Artwork';
 import { AudioVisualizer } from './AudioVisualizer';
 import { EqualizerPanel } from './EqualizerPanel';
 import { LyricsView } from './LyricsView';
-import { AiSongInsights } from './AiSongInsights';
 import { SleepTimerMenu } from './SleepTimerMenu';
 import { NowPlayingTab, Song } from '../../types/music';
 
@@ -179,8 +177,7 @@ export const NowPlayingModal: React.FC = () => {
     { id: 'artwork', label: 'Artwork', icon: <Disc size={15} /> },
     { id: 'lyrics', label: 'Lyrics', icon: <FileText size={15} /> },
     { id: 'equalizer', label: 'Equalizer & 3D', icon: <Sliders size={15} /> },
-    { id: 'visualizer', label: 'Visualizer', icon: <Activity size={15} /> },
-    { id: 'ai-insights', label: 'AI Insights', icon: <Sparkles size={15} /> }
+    { id: 'visualizer', label: 'Visualizer', icon: <Activity size={15} /> }
   ];
 
   return (
@@ -441,12 +438,6 @@ export const NowPlayingModal: React.FC = () => {
                 <h3 className="text-lg font-bold text-white">{currentSong.title}</h3>
                 <p className="text-xs text-[#998d9e]">{currentSong.artist}</p>
               </div>
-            </div>
-          )}
-
-          {activeModalTab === 'ai-insights' && (
-            <div className="w-full h-80 sm:h-96 flex flex-col max-w-2xl mx-auto my-auto py-4">
-              <AiSongInsights song={currentSong} />
             </div>
           )}
         </div>

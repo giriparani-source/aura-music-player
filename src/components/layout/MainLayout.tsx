@@ -21,12 +21,10 @@ const HomeView = lazy(() => import('../views/HomeView').then((m) => ({ default: 
 const LibraryView = lazy(() => import('../views/LibraryView').then((m) => ({ default: m.LibraryView })));
 const SearchView = lazy(() => import('../views/SearchView').then((m) => ({ default: m.SearchView })));
 const SettingsView = lazy(() => import('../views/SettingsView').then((m) => ({ default: m.SettingsView })));
-const AiStudioView = lazy(() => import('../views/AiStudioView').then((m) => ({ default: m.AiStudioView })));
 const RadioView = lazy(() => import('../views/RadioView').then((m) => ({ default: m.RadioView })));
 
 const NowPlayingModal = lazy(() => import('../player/NowPlayingModal').then((m) => ({ default: m.NowPlayingModal })));
 const QueueDrawer = lazy(() => import('../player/QueueDrawer').then((m) => ({ default: m.QueueDrawer })));
-const AuraChatDrawer = lazy(() => import('../ai/AuraChatDrawer').then((m) => ({ default: m.AuraChatDrawer })));
 const JamModal = lazy(() => import('../jam/JamModal').then((m) => ({ default: m.JamModal })));
 const ProfileModal = lazy(() => import('../profile/ProfileModal').then((m) => ({ default: m.ProfileModal })));
 
@@ -51,22 +49,18 @@ const ViewSkeleton: React.FC = () => (
  */
 const TAB_ROUTES: Record<NavigationTab, string> = {
   home: '/',
-  local: '/library',
   library: '/library',
   search: '/search',
   radio: '/radio',
-  'ai-studio': '/ai-studio',
   playlists: '/library',
   settings: '/settings'
 };
 
 const PATH_TO_TAB: Record<string, NavigationTab> = {
   '/': 'home',
-  '/local': 'library',
   '/library': 'library',
   '/search': 'search',
   '/radio': 'radio',
-  '/ai-studio': 'ai-studio',
   '/settings': 'settings'
 };
 
@@ -153,13 +147,7 @@ export const MainLayout: React.FC = () => {
         return true;
       }
 
-      // 5. Check if AI Assistant Drawer is open
-      if (player.isAiAssistantOpen) {
-        player.setAiAssistantOpen(false);
-        return true;
-      }
-
-      // 6. Check if Now Playing Modal is open
+      // 5. Check if Now Playing Modal is open
       if (player.isNowPlayingOpen) {
         // If user is on lyrics, equalizer, visualizer, or insights: return to artwork tab first
         if (player.activeModalTab !== 'artwork') {
@@ -335,7 +323,6 @@ export const MainLayout: React.FC = () => {
                 <Route path="/library" element={<LibraryView />} />
                 <Route path="/search" element={<SearchView />} />
                 <Route path="/radio" element={<RadioView />} />
-                <Route path="/ai-studio" element={<AiStudioView />} />
                 <Route path="/settings" element={<SettingsView />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
@@ -353,7 +340,6 @@ export const MainLayout: React.FC = () => {
         <Suspense fallback={null}>
           {isNowPlayingOpen && <NowPlayingModal />}
           {isQueueOpen && <QueueDrawer />}
-          <AuraChatDrawer />
           <JamModal />
           <ProfileModal />
         </Suspense>

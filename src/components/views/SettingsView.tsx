@@ -13,20 +13,15 @@ import {
   Sparkles,
   RotateCcw,
   Compass,
-  Bot,
-  Key,
   Check,
   Users,
   Radio,
-  Eye,
-  EyeOff,
   Languages,
   Lock
 } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { useProfileStore } from '../../store/useProfileStore';
 import { useJamStore } from '../../store/useJamStore';
-import { geminiAiService } from '../../services/geminiAiService';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { formatBytes } from '../../utils/formatters';
@@ -62,18 +57,8 @@ export const SettingsView: React.FC = () => {
     message: string;
   } | null>(null);
 
-  const [geminiApiKey, setGeminiApiKey] = useState(() => geminiAiService.getApiKey());
-  const [isGeminiSaved, setIsGeminiSaved] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
-
   // Social Jam State
   const { isInRoom, roomCode, setJamModalOpen, participants } = useJamStore();
-
-  const handleSaveGeminiKey = () => {
-    geminiAiService.setApiKey(geminiApiKey);
-    setIsGeminiSaved(true);
-    setTimeout(() => setIsGeminiSaved(false), 2500);
-  };
 
   // Aura Flow Controls & Taste Intelligence State
   const discoveryPreference = usePlayerStore((s) => s.discoveryPreference);
@@ -843,82 +828,6 @@ export const SettingsView: React.FC = () => {
         <p className="text-xs text-neutral-400 leading-relaxed">
           Version 1.2.1 • Android Native & Web Edition. Built with React 19, TypeScript, Tailwind CSS v4, Native Android MediaSession, Foreground Service, and Web Audio API.
         </p>
-      </div>
-
-      {/* Section: Aura AI & Google Gemini Assistant */}
-      <div className="glass-panel p-6 rounded-3xl space-y-5">
-        <div className="flex items-center justify-between border-b border-white/5 pb-4">
-          <div className="flex items-center gap-3">
-            <Bot size={20} className="text-indigo-400" />
-            <div>
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                Aura AI Assistant Intelligence
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                    geminiApiKey.trim()
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                      : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                  }`}
-                >
-                  {geminiApiKey.trim().startsWith('sk-')
-                    ? 'OpenAI GPT-4o-mini Connected'
-                    : geminiApiKey.trim()
-                    ? 'Gemini 2.5 Flash Connected'
-                    : 'Smart Offline Tanglish NLP'}
-                </span>
-              </h3>
-              <p className="text-xs text-neutral-500">
-                Configure Google Gemini or OpenAI API key for high-intelligence voice and text conversation in Tanglish
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 space-y-3">
-          <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
-            <Key size={14} className="text-amber-400" />
-            <span>AI Assistant API Key (Google Gemini or OpenAI)</span>
-          </label>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <input
-                type={showApiKey ? 'text' : 'password'}
-                name="gemini_api_key_secret"
-                id="gemini_api_key_secret"
-                autoComplete="new-password"
-                autoCorrect="off"
-                autoCapitalize="off"
-                spellCheck={false}
-                data-lpignore="true"
-                data-form-type="other"
-                value={geminiApiKey}
-                onChange={(e) => setGeminiApiKey(e.target.value)}
-                placeholder="Enter Gemini Key (AIzaSy...) or OpenAI Key (sk-...)"
-                className="w-full pl-4 pr-10 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-indigo-500 transition-colors"
-              />
-              <button
-                type="button"
-                onClick={() => setShowApiKey((prev) => !prev)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white p-1 cursor-pointer transition-colors"
-                title={showApiKey ? 'Hide Key' : 'Show Key'}
-              >
-                {showApiKey ? <EyeOff size={15} /> : <Eye size={15} />}
-              </button>
-            </div>
-            <button
-              onClick={handleSaveGeminiKey}
-              className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-md shadow-indigo-600/20 shrink-0"
-            >
-              {isGeminiSaved ? <Check size={14} /> : null}
-              <span>{isGeminiSaved ? 'Saved!' : 'Save Key'}</span>
-            </button>
-          </div>
-          <p className="text-[11px] text-neutral-500">
-            Supports both Google AI Studio keys (100% free tier) and OpenAI keys. Even without an API key,
-            Aura AI Assistant can fully control playback, Karaoke mode, Equalizer presets, and AI DJ Studio
-            using its built-in offline Tanglish NLP engine.
-          </p>
-        </div>
       </div>
 
       {/* Section: Social Jam (Listen Together) */}

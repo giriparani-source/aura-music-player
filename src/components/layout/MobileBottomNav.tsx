@@ -7,11 +7,9 @@ import { NavigationTab } from '../../types/music';
 
 const TAB_ROUTES: Record<NavigationTab, string> = {
   home: '/',
-  local: '/library',
   library: '/library',
   radio: '/radio',
   search: '/search',
-  'ai-studio': '/ai-studio',
   settings: '/settings',
   playlists: '/library',
 };

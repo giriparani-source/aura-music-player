@@ -25,7 +25,6 @@ import { lyricsService } from '../../services/lyricsService';
 import { musicDB } from '../../services/db';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
-import { AiSongInsights } from './AiSongInsights';
 import { pushBackButtonHandler } from '../../services/androidMediaBridge';
 
 interface LyricsViewProps {
@@ -38,7 +37,6 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ song, currentTime, onSee
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState('');
   const [useDemo, setUseDemo] = useState(false);
-  const [showAiMeaning, setShowAiMeaning] = useState(false);
   const [isLoadingOnline, setIsLoadingOnline] = useState(false);
   const [syncOffset, setSyncOffset] = useState<number>(0); // -0.5s, 0s, +0.5s etc.
   const [fetchedLyrics, setFetchedLyrics] = useState<string | null>(song.lyrics || null);
@@ -287,20 +285,6 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ song, currentTime, onSee
             </div>
           )}
 
-          {/* AI Meaning Toggle */}
-          <button
-            onClick={() => setShowAiMeaning(!showAiMeaning)}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs transition-colors border cursor-pointer ${
-              showAiMeaning
-                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
-                : 'bg-white/5 text-neutral-400 border-white/5 hover:text-white'
-            }`}
-            title="Toggle AI Lyric Meaning & Context"
-          >
-            <Sparkles size={12} className={showAiMeaning ? 'text-amber-400' : ''} />
-            <span className="hidden sm:inline">AI Story</span>
-          </button>
-
           {/* Edit / Paste Lyrics */}
           <button
             onClick={startEdit}
@@ -314,17 +298,12 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ song, currentTime, onSee
       </div>
 
       {/* Main Lyrics Stage Area */}
-      {showAiMeaning ? (
-        <div className="flex-1 overflow-y-auto p-4 max-w-2xl mx-auto w-full">
-          <AiSongInsights song={song} />
-        </div>
-      ) : (
-        <div
-          ref={containerRef}
-          onScroll={handleScroll}
-          className="flex-1 overflow-y-auto px-6 sm:px-12 py-16 space-y-6 text-center scrollbar-none relative"
-          style={{ scrollBehavior: 'smooth' }}
-        >
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-6 sm:px-12 py-16 space-y-6 text-center scrollbar-none relative"
+        style={{ scrollBehavior: 'smooth' }}
+      >
           {isLoadingOnline ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[260px] text-neutral-400 space-y-3">
               <Loader2 size={32} className="animate-spin text-indigo-400" />
@@ -387,7 +366,6 @@ export const LyricsView: React.FC<LyricsViewProps> = ({ song, currentTime, onSee
             </div>
           )}
         </div>
-      )}
 
       {/* Edit / Paste Custom Lyrics Modal */}
       {isEditing && (

@@ -367,7 +367,7 @@ export const LibraryView: React.FC = () => {
               </div>
             </div>
 
-            {/* AI DJ Mixes Tile */}
+            {/* Smart Mix: Recently Played Tile */}
             <div
               onClick={() => setActivePlaylistId('smart-recent')}
               className="p-4 rounded-2xl bg-[#1c1b22] hover:bg-[#201f26] border border-white/[0.08] text-white flex flex-col justify-between shadow-lg cursor-pointer hover:scale-[1.02] transition-all relative overflow-hidden group"

@@ -8,6 +8,7 @@
 		}
 	],
 	"settings": {
-		"powershell.cwd": "music player"
+		"powershell.cwd": "music player",
+		"java.configuration.updateBuildConfiguration": "automatic"
 	}
 }

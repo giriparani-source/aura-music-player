@@ -170,12 +170,12 @@ export interface LibraryStats {
   possibleDuplicates: number;
 }
 
-export type NavigationTab = 'home' | 'local' | 'library' | 'radio' | 'search' | 'playlists' | 'ai-studio' | 'settings';
+export type NavigationTab = 'home' | 'library' | 'radio' | 'search' | 'playlists' | 'settings';
 export type LibrarySubTab = 'songs' | 'albums' | 'artists' | 'playlists' | 'folders' | 'downloads';
 export type SortOption = 'recent' | 'title' | 'artist' | 'album' | 'duration' | 'mostPlayed' | 'bitrate' | 'fileSize';
 export type ViewMode = 'grid' | 'list';
 
-export type NowPlayingTab = 'artwork' | 'visualizer' | 'lyrics' | 'equalizer' | 'ai-insights';
+export type NowPlayingTab = 'artwork' | 'visualizer' | 'lyrics' | 'equalizer';
 export type VisualizerMode = 'spectrum' | 'waveform' | 'radial';
 
 export type EqualizerPreset =
@@ -201,53 +201,7 @@ export interface EqualizerBand {
 export type SpatialPreset = 'off' | 'theatre' | 'concert' | 'cathedral' | 'club';
 
 
-// AI Feature Interfaces
-export interface AiDjTrack {
-  title: string;
-  artist: string;
-}
 
-export interface AiDjPlaylist {
-  title: string;
-  intro: string;
-  vibe: string;
-  suggested_eq: string;
-  tracks: AiDjTrack[];
-}
-
-export interface SongAiInsights {
-  theme: string;
-  emotion: string;
-  story: string;
-  lines: { tamil: string; meaning: string }[];
-  composer_notes: string;
-  recommended_eq: string;
-}
-
-export interface AiChatMessage {
-  id: string;
-  sender: 'user' | 'aura';
-  text: string;
-  timestamp: number;
-  action?: {
-    type:
-      | 'TOGGLE_KARAOKE'
-      | 'SET_EQ_PRESET'
-      | 'PAUSE'
-      | 'PLAY'
-      | 'NEXT_TRACK'
-      | 'PREV_TRACK'
-      | 'TOGGLE_SHUFFLE'
-      | 'SEARCH_AND_PLAY'
-      | 'SET_VOLUME'
-      | 'OPEN_AI_INSIGHTS'
-      | 'NAVIGATE_TAB';
-    preset?: EqualizerPreset;
-    tab?: NavigationTab;
-    query?: string;
-    volume?: number;
-  };
-}
 
 // Phase 3: Backup & Restore Schema
 export interface BackupPlaylist {

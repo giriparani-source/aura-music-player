@@ -1,7 +1,7 @@
 {
   "name": "Aura Music Player",
   "short_name": "Aura Music",
-  "description": "High-Fidelity Offline & Cloud Streaming Audio Player with AI Audio Suite, 3D Spatial Theatre & Realtime Karaoke",
+  "description": "High-Fidelity Cloud Streaming Audio Player with 3D Spatial Theatre & Realtime Karaoke",
   "start_url": "/",
   "display": "standalone",
   "orientation": "any",
@@ -41,13 +41,6 @@
     }
   ],
   "shortcuts": [
-    {
-      "name": "AI DJ Studio",
-      "short_name": "AI DJ",
-      "description": "Mood-based dynamic AI DJ playlist generator",
-      "url": "/?tab=ai-studio",
-      "icons": [{ "src": "/music-icon.svg", "sizes": "any" }]
-    },
     {
       "name": "3D Spatial Equalizer",
       "short_name": "Equalizer",

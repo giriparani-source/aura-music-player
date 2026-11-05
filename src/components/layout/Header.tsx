@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Search, HardDrive, X, Sparkles } from 'lucide-react';
+import { Search, HardDrive, X } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
@@ -7,7 +7,6 @@ import { useProfileStore } from '../../store/useProfileStore';
 
 export const Header: React.FC = () => {
   const { t } = useTranslation();
-  const setAiAssistantOpen = usePlayerStore((s) => s.setAiAssistantOpen);
   const { activeProfile, setProfileModalOpen } = useProfileStore();
   const searchQuery = useLibraryStore((s) => s.searchQuery);
   const setSearchQuery = useLibraryStore((s) => s.setSearchQuery);
@@ -81,16 +80,6 @@ export const Header: React.FC = () => {
 
       {/* Right Header Actions */}
       <div className="flex items-center gap-2.5">
-        {/* Sleek Embedded Ask AI Trigger */}
-        <button
-          onClick={() => setAiAssistantOpen(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-[#e0b6ff] bg-[#9d4edd]/15 hover:bg-[#9d4edd]/25 border border-[#9d4edd]/30 transition-all cursor-pointer shadow-sm active:scale-95"
-          title={t('header.openAiDj') || 'Open AI DJ'}
-        >
-          <Sparkles size={14} className="text-[#00f1fd] animate-pulse" />
-          <span className="hidden sm:inline">Ask AI DJ</span>
-        </button>
-
         <button
           onClick={() => setActiveTab('library')}
           className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium text-[#d0c2d5] bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] transition-colors cursor-pointer"

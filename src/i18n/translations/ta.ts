@@ -6,12 +6,10 @@ export const ta: TranslationSchema = {
     library: 'எனது நூலகம்',
     radio: 'நேரலை வானொலி FM',
     search: 'தேடுக',
-    aiStudio: 'AI DJ ஸ்டுடியோ',
     settings: 'அமைப்புகள்',
     smartMixes: 'ஸ்மார்ட் கலவைகள்',
     liveBadge: 'நேரலை',
     cloudBadge: 'கிளவுட்',
-    aiBadge: 'AI DJ',
     subTitle: 'தனிப்பயன் இசை நூலகம்'
   },
   player: {
@@ -43,12 +41,11 @@ export const ta: TranslationSchema = {
     searchPlaceholder: 'பாடல்கள், கலைஞர்களைத் தேடுக (Enter கிளவுடுக்கு)...',
     librarySearchPlaceholder: 'நூலகத்தில் தேடுக அல்லது Enter அழுத்தவும்...',
     clearSearch: 'தேடலை அழி',
-    storageUsage: 'சேமிப்பக பயன்பாடு',
-    openAiDj: 'Aura AI உதவியாளரைத் திற'
+    storageUsage: 'சேமிப்பக பயன்பாடு'
   },
   settings: {
     title: 'அமைப்புகள் & பராமரிப்பு',
-    subtitle: 'இசை மூலங்கள், AI விருப்பத்தேர்வுகள், ஒலி கட்டமைப்பு மற்றும் காப்புப்பிரதிகளை நிர்வகிக்கவும்.',
+    subtitle: 'இசை மூலங்கள், ஒலி கட்டமைப்பு மற்றும் காப்புப்பிரதிகளை நிர்வகிக்கவும்.',
     language: 'காட்சி மொழி',
     languageSubtitle: 'ஆரா பயன்பாட்டிற்கான உங்கள் விருப்ப மொழியைத் தேர்வுசெய்யவும்.',
     english: 'English',
@@ -58,8 +55,7 @@ export const ta: TranslationSchema = {
     auraFlowTitle: 'ஆரா ஃப்ளோ & ரசனை நுண்ணறிவு',
     socialJamTitle: 'சமூக ஜாம் அமர்வு',
     backupRestoreTitle: 'காப்புப்பிரதி & மீட்டெடுப்பு',
-    libraryHealthTitle: 'நூலக ஆரோக்கியம் & பராமரிப்பு',
-    geminiAiTitle: 'Gemini AI சாவி'
+    libraryHealthTitle: 'நூலக ஆரோக்கியம் & பராமரிப்பு'
   },
   common: {
     songs: 'பாடல்கள்',

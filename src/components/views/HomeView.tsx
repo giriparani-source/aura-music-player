@@ -16,8 +16,7 @@ import {
   Clock,
   ListMusic,
   Plus,
-  Compass,
-  Headphones
+  Compass
 } from 'lucide-react';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
@@ -54,11 +53,8 @@ export const HomeView: React.FC = () => {
   const playSong = usePlayerStore((s) => s.playSong);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const playBatch = usePlayerStore((s) => s.playBatch);
-  const setAiAssistantOpen = usePlayerStore((s) => s.setAiAssistantOpen);
-  const isAuraFlow = usePlayerStore((s) => s.isAuraFlow);
-  const toggleAuraFlow = usePlayerStore((s) => s.toggleAuraFlow);
 
-  const [activeFilter, setActiveFilter] = useState<'all' | 'playlists' | 'radio' | 'ai'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'playlists' | 'radio'>('all');
   const [selectedInbuiltPlaylist, setSelectedInbuiltPlaylist] = useState<InbuiltPlaylist | null>(null);
   const [selectedArtist, setSelectedArtist] = useState<TamilArtist | null>(null);
   const [artistCategoryFilter, setArtistCategoryFilter] = useState<ArtistCategory>('all');
@@ -428,14 +424,6 @@ export const HomeView: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('ai-studio')}
-            className="px-4 py-2 rounded-full text-xs font-bold transition-all cursor-pointer border shrink-0 flex items-center gap-1.5 bg-[#1c1b22] text-[#d0c2d5] border-white/[0.08] hover:bg-[#9d4edd]/20 hover:text-[#e0b6ff]"
-          >
-            <Headphones size={13} className="text-[#e0b6ff]" />
-            <span>AI DJ Studio</span>
-          </button>
-
-          <button
             onClick={() => setIsImportModalOpen(true)}
             className="px-4 py-2 rounded-full text-xs font-bold transition-all cursor-pointer border shrink-0 flex items-center gap-1.5 bg-gradient-to-r from-[#00f1fd]/15 to-[#9d4edd]/15 text-[#00f1fd] border-[#00f1fd]/30 hover:text-white"
           >
@@ -547,64 +535,6 @@ export const HomeView: React.FC = () => {
           })}
         </div>
       )}
-
-      {/* ========================================================================= */}
-      {/* ZONE 2.5: Aura AI DJ Spotlight Banner ("Nova Focus Flow")                 */}
-      {/* ========================================================================= */}
-      <div className="relative w-full rounded-2xl overflow-hidden p-5 sm:p-6 bg-gradient-to-r from-[#1c1b22] via-[#242036] to-[#1a1726] border border-[#9d4edd]/30 shadow-xl group">
-        <div className="absolute -right-8 -bottom-8 w-48 h-48 bg-[#9d4edd]/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute left-1/3 -top-12 w-48 h-48 bg-[#00f1fd]/15 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#9d4edd] to-[#00f1fd] p-0.5 shadow-[0_0_20px_rgba(157,78,221,0.4)] shrink-0 flex items-center justify-center">
-              <div className="w-full h-full bg-[#14121a] rounded-[14px] flex items-center justify-center">
-                <Sparkles size={22} className="text-[#00f1fd] animate-pulse" />
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase tracking-wider font-extrabold px-2 py-0.5 rounded-full bg-[#9d4edd]/25 text-[#e0b6ff] border border-[#9d4edd]/40">
-                  Nova Focus Flow
-                </span>
-                <span className="text-xs text-[#00f1fd] font-bold">AI DJ Spotlight</span>
-              </div>
-              <h3 className="text-lg sm:text-xl font-extrabold text-white mt-1">
-                Adaptive Tamil Cloud Flow
-              </h3>
-              <p className="text-xs text-[#998d9e] mt-0.5 max-w-xl">
-                Continuous intelligent music selection based on your listening habits with lossless 320kbps cloud transitions.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2.5 shrink-0">
-            <button
-              onClick={() => {
-                toggleAuraFlow();
-                if (!isPlaying && quickAccessItems[1]?.playlist) {
-                  playBatch(quickAccessItems[1].playlist.tracks);
-                }
-              }}
-              className={`px-4 py-2.5 rounded-full font-bold text-xs transition-all cursor-pointer flex items-center gap-2 shadow-md active:scale-95 ${
-                isAuraFlow
-                  ? 'bg-gradient-to-r from-[#00f1fd] to-[#00dce6] text-black shadow-[0_0_16px_rgba(0,241,253,0.5)]'
-                  : 'bg-gradient-to-r from-[#9d4edd] to-[#8433c4] text-white shadow-[0_4px_16px_rgba(157,78,221,0.4)] hover:brightness-110'
-              }`}
-            >
-              <Sparkles size={14} />
-              <span>{isAuraFlow ? 'Flow Active' : 'Start Session'}</span>
-            </button>
-
-            <button
-              onClick={() => setAiAssistantOpen(true)}
-              className="px-4 py-2.5 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-[#e5e0eb] font-semibold text-xs transition-colors cursor-pointer"
-            >
-              Ask AI DJ
-            </button>
-          </div>
-        </div>
-      </div>
 
       {/* ========================================================================= */}
       {/* ZONE 3: Recently Played (Recents)                                         */}

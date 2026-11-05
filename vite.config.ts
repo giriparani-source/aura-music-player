@@ -4,7 +4,6 @@ import tailwindcss from '@tailwindcss/vite';
 import {
   onlineSearchHandler,
   onlineStreamHandler,
-  aiRouterHandler,
   jamRoomHandler,
   startJamRoomCleanup,
   localAudioHandler,
@@ -27,10 +26,7 @@ function localMusicServerPlugin() {
       // 2. Online Stream Proxy Endpoint
       server.middlewares.use('/api/online/stream', onlineStreamHandler);
 
-      // 3. AI Unified Router (DJ / Insights / Chat)
-      server.middlewares.use('/api/ai', aiRouterHandler);
-
-      // 4. WebRTC Social Jam (Listen Together) Backend
+      // 3. WebRTC Social Jam (Listen Together) Backend
       startJamRoomCleanup();
       server.middlewares.use('/api/jam', jamRoomHandler);
 
