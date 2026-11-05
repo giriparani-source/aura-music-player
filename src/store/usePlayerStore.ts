@@ -7,6 +7,9 @@ import { musicDB } from '../services/db';
 import { useLibraryStore, onFavoriteChanged, registerSongLookup } from './useLibraryStore';
 import { generateFairShuffleIndices, generatePureRandomIndices, reshuffleUpcomingIndices } from '../utils/fairShuffle';
 import { auraFlowService, FlowContext, DiscoveryPreference } from '../services/auraFlowService';
+import { playbackSessionService } from '../services/playbackSessionService';
+import { isLocalTrack } from '../services/audioStreamResolver';
+import { registerMediaActionHandler } from '../services/androidMediaBridge';
 
 interface PlayerStoreState {
   currentSong: Song | null;
@@ -94,6 +97,10 @@ interface PlayerStoreState {
   toggleLimiter: () => void;
   setBassExciterLevel: (level: BassExciterLevel) => void;
   toggleSubsonicFilter: () => void;
+
+  // Session Persistence Actions
+  restorePlaybackSession: () => Promise<boolean>;
+  persistSessionImmediate: () => void;
 }
 
 export const usePlayerStore = create<PlayerStoreState>((set, get) => {
@@ -107,7 +114,41 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       isMuted: state.isMuted,
       errorMessage: state.error
     });
+
+    // Throttled session persistence during active playback (saves every 2.5–3s)
+    const current = get();
+    if (state.isPlaying && current.currentSong) {
+      const session = playbackSessionService.createSession({
+        currentSong: current.currentSong,
+        currentTime: state.currentTime,
+        duration: state.duration || current.currentSong.duration || 0,
+        queue: current.queue,
+        queueIndex: current.queueIndex,
+        isShuffle: current.isShuffle,
+        shuffleMode: current.shuffleMode,
+        shuffledQueueOrder: current.shuffledQueueOrder,
+        repeatMode: current.repeatMode
+      });
+      playbackSessionService.saveSessionThrottled(session);
+    }
   });
+
+  const persistCurrentSessionImmediate = () => {
+    const current = get();
+    if (!current.currentSong) return;
+    const session = playbackSessionService.createSession({
+      currentSong: current.currentSong,
+      currentTime: current.currentTime,
+      duration: current.duration || current.currentSong.duration || 0,
+      queue: current.queue,
+      queueIndex: current.queueIndex,
+      isShuffle: current.isShuffle,
+      shuffleMode: current.shuffleMode,
+      shuffledQueueOrder: current.shuffledQueueOrder,
+      repeatMode: current.repeatMode
+    });
+    playbackSessionService.saveSessionImmediate(session).catch(() => {});
+  };
 
   // Wire up audioEffectsService subscriber for real-time DSP state sync
   audioEffectsService.subscribe(() => {
@@ -147,6 +188,46 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     get().nextSong();
   });
 
+  // Central native media action handler (ExoPlayer ended, notification buttons, Bluetooth controls, lock screen)
+  registerMediaActionHandler((action, position) => {
+    switch (action) {
+      case 'play':
+      case 'resume':
+        if (!get().isPlaying) get().togglePlay();
+        break;
+      case 'pause':
+        if (get().isPlaying) get().togglePlay();
+        break;
+      case 'toggle':
+        get().togglePlay();
+        break;
+      case 'next':
+        get().nextSong();
+        break;
+      case 'previous':
+        get().previousSong();
+        break;
+      case 'seek':
+        if (typeof position === 'number') {
+          // Native player already seeked ExoPlayer; update store currentTime without re-dispatching seekNative.
+          set({ currentTime: position });
+          if (!audioService.isUsingNativePlayer) {
+            audioService.seek(position);
+          }
+        }
+        break;
+      case 'seekbackward':
+        get().seek(Math.max(0, (get().currentTime || 0) - (position || 10)));
+        break;
+      case 'seekforward':
+        get().seek((get().currentTime || 0) + (position || 10));
+        break;
+      case 'save_session':
+        persistCurrentSessionImmediate();
+        break;
+    }
+  });
+
   // Synchronize favorites between library/db and player store (currentSong & queue)
   onFavoriteChanged((songId, isFavorite) => {
     if (isFavorite) {
@@ -170,7 +251,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
   // Aura Flow buffer helper: maintains max 1 upcoming track buffer when queue is nearing end
   const ensureAuraFlowBuffer = () => {
     const state = get();
-    if (!state.isAuraFlow || !state.currentSong || state.queue.length === 0) return;
+    if (!state.isAuraFlow || !state.currentSong || state.queue.length === 0 || isLocalTrack(state.currentSong)) return;
 
     // In shuffle mode, check position within shuffled order; in sequential mode, check queueIndex
     const currentPos =
@@ -253,30 +334,68 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       let newIndex = 0;
       let queueChanged = false;
 
-      if (customQueue && customQueue.length > 0) {
-        newQueue = customQueue;
-        if (targetIndex !== undefined && targetIndex >= 0 && targetIndex < customQueue.length) {
-          newIndex = targetIndex;
-        } else {
-          newIndex = customQueue.findIndex((s) => s.id === song.id);
-          if (newIndex === -1) newIndex = 0;
-        }
-        queueChanged = true;
-      } else if (queue.length === 0) {
-        newQueue = [song];
-        newIndex = 0;
-        queueChanged = true;
-      } else {
-        if (targetIndex !== undefined && targetIndex >= 0 && targetIndex < queue.length) {
-          newIndex = targetIndex;
-        } else {
-          const found = queue.findIndex((s) => s.id === song.id);
-          if (found !== -1) {
-            newIndex = found;
+      const isCurrentLocal = isLocalTrack(song);
+
+      if (isCurrentLocal) {
+        // Requirement 1: When a local song is played, automatically create a playback queue from the current Local Music list.
+        // Requirement 6: Do not affect online streaming or mix local and online songs.
+        if (customQueue && customQueue.length > 1) {
+          const localOnlyQueue = customQueue.filter(isLocalTrack);
+          newQueue = localOnlyQueue.length > 0 ? localOnlyQueue : [song];
+          if (targetIndex !== undefined && targetIndex >= 0 && targetIndex < newQueue.length) {
+            newIndex = targetIndex;
           } else {
-            newQueue = [...queue, song];
-            newIndex = newQueue.length - 1;
-            queueChanged = true;
+            newIndex = newQueue.findIndex((s) => s.id === song.id);
+            if (newIndex === -1) newIndex = 0;
+          }
+          queueChanged = true;
+        } else {
+          // Single song clicked without a queue or single-item queue:
+          // Build queue automatically from all available local songs in library!
+          const librarySongs = useLibraryStore.getState().songs || [];
+          const allLocal = librarySongs.filter(isLocalTrack);
+          if (allLocal.length > 0) {
+            const foundIdx = allLocal.findIndex((s) => s.id === song.id);
+            if (foundIdx !== -1) {
+              newQueue = allLocal;
+              newIndex = foundIdx;
+            } else {
+              newQueue = [song, ...allLocal];
+              newIndex = 0;
+            }
+          } else {
+            newQueue = [song];
+            newIndex = 0;
+          }
+          queueChanged = true;
+        }
+      } else {
+        if (customQueue && customQueue.length > 0) {
+          newQueue = customQueue;
+          if (targetIndex !== undefined && targetIndex >= 0 && targetIndex < customQueue.length) {
+            newIndex = targetIndex;
+          } else {
+            newIndex = customQueue.findIndex((s) => s.id === song.id);
+            if (newIndex === -1) newIndex = 0;
+          }
+          queueChanged = true;
+        } else if (queue.length === 0 || queue.some(isLocalTrack)) {
+          // If previous queue was local songs, replace queue with single online song
+          newQueue = [song];
+          newIndex = 0;
+          queueChanged = true;
+        } else {
+          if (targetIndex !== undefined && targetIndex >= 0 && targetIndex < queue.length) {
+            newIndex = targetIndex;
+          } else {
+            const found = queue.findIndex((s) => s.id === song.id);
+            if (found !== -1) {
+              newIndex = found;
+            } else {
+              newQueue = [...queue, song];
+              newIndex = newQueue.length - 1;
+              queueChanged = true;
+            }
           }
         }
       }
@@ -305,21 +424,36 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
           : generatePureRandomIndices(newQueue.length, newIndex);
       }
 
+      const isDownloaded = Boolean(
+        song.isDownloaded ||
+        useLibraryStore.getState().downloadedSongIds.has(song.id)
+      );
+      const effectiveSong = isDownloaded
+        ? {
+            ...song,
+            isDownloaded: true,
+            isForegroundOnly: false,
+            playbackMode: 'direct-catalog' as const,
+            isDirectAudioStream: true
+          }
+        : song;
+
       set({
-        currentSong: song,
+        currentSong: effectiveSong,
         queue: newQueue,
         queueIndex: newIndex,
         playbackHistory: updatedHistory,
         shuffledQueueOrder: resolvedShuffleOrder
       });
 
-      await audioService.playSong(song);
-      if (song.isAuraFlow) {
-        auraFlowService.recordAuraTrackStart(song);
+      await audioService.playSong(effectiveSong);
+      if (effectiveSong.isAuraFlow) {
+        auraFlowService.recordAuraTrackStart(effectiveSong);
       }
-      if (get().isAuraFlow) {
+      if (get().isAuraFlow && !isCurrentLocal) {
         setTimeout(() => ensureAuraFlowBuffer(), 100);
       }
+      persistCurrentSessionImmediate();
     },
 
     playBatch: async (songs: Song[]) => {
@@ -327,27 +461,44 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       if (songs[0].isOnline) {
         useLibraryStore.getState().registerOnlineSong(songs[0]).catch(() => {});
       }
+      const isDownloaded = Boolean(
+        songs[0].isDownloaded ||
+        useLibraryStore.getState().downloadedSongIds.has(songs[0].id)
+      );
+      const effectiveFirstSong = isDownloaded
+        ? {
+            ...songs[0],
+            isDownloaded: true,
+            isForegroundOnly: false,
+            playbackMode: 'direct-catalog' as const,
+            isDirectAudioStream: true
+          }
+        : songs[0];
+
       // Reset shuffle order so nextSong regenerates it cleanly for the new queue.
       set({
         queue: [...songs],
         queueIndex: 0,
-        currentSong: songs[0],
+        currentSong: effectiveFirstSong,
         playbackHistory: [],
         shuffledQueueOrder: []
       });
-      await audioService.playSong(songs[0]);
+      await audioService.playSong(effectiveFirstSong);
       if (get().isAuraFlow) {
         setTimeout(() => ensureAuraFlowBuffer(), 100);
       }
+      persistCurrentSessionImmediate();
     },
 
     togglePlay: () => {
       const { currentSong } = get();
       audioService.togglePlay(currentSong);
+      persistCurrentSessionImmediate();
     },
 
     seek: (seconds: number) => {
       audioService.seek(seconds);
+      persistCurrentSessionImmediate();
     },
 
     setVolume: (level: number) => {
@@ -384,6 +535,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         return;
       }
 
+      const isCurrentLocal = currentSong ? isLocalTrack(currentSong) : queue.some(isLocalTrack);
       let nextIndex: number;
 
       if (isShuffle) {
@@ -398,7 +550,8 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         const isSmart = get().shuffleMode === 'smart';
 
         // Spotify-style Smart Shuffle: every 3-4 tracks, weave in a contextual discovery recommendation
-        if (isSmart && currentPos !== -1 && currentPos > 0 && currentPos % 3 === 0) {
+        // STRICT RULE: ONLY for online streaming tracks, NEVER for local device music
+        if (!isCurrentLocal && isSmart && currentPos !== -1 && currentPos > 0 && currentPos % 3 === 0) {
           const libState = useLibraryStore.getState();
           const context: FlowContext = {
             currentSong,
@@ -446,8 +599,8 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
             : generatePureRandomIndices(queue.length, 0);
           set({ shuffledQueueOrder: freshOrder });
           nextIndex = freshOrder[0];
-        } else if (isAuraFlow || isSmart) {
-          // Reached shuffle queue end with Aura Flow or Smart Shuffle ON: generate next song
+        } else if (!isCurrentLocal && (isAuraFlow || isSmart)) {
+          // Reached shuffle queue end with online Aura Flow or Smart Shuffle ON: generate next song
           const libState = useLibraryStore.getState();
           const context: FlowContext = {
             currentSong,
@@ -494,8 +647,8 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
           nextIndex = queueIndex + 1;
         } else if (repeatMode === 'all') {
           nextIndex = 0;
-        } else if (isAuraFlow) {
-          // Reached sequential queue end with Aura Flow ON: generate next song
+        } else if (!isCurrentLocal && isAuraFlow) {
+          // Reached sequential queue end with online Aura Flow ON: generate next song
           const libState = useLibraryStore.getState();
           const context: FlowContext = {
             currentSong,
@@ -544,9 +697,10 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         if (nextSongItem.isAuraFlow) {
           auraFlowService.recordAuraTrackStart(nextSongItem);
         }
-        if (get().isAuraFlow) {
+        if (!isCurrentLocal && get().isAuraFlow) {
           setTimeout(() => ensureAuraFlowBuffer(), 100);
         }
+        persistCurrentSessionImmediate();
       }
     },
 
@@ -562,6 +716,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       // If playing past 3 seconds, restart current song first
       if (currentTime > 3) {
         audioService.seek(0);
+        persistCurrentSessionImmediate();
         return;
       }
 
@@ -577,6 +732,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
             playbackHistory: playbackHistory.slice(0, -1)
           });
           audioService.playSong(prevSong);
+          persistCurrentSessionImmediate();
           return;
         }
       }
@@ -587,6 +743,8 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         const currentPos = shuffledQueueOrder.indexOf(queueIndex);
         if (currentPos > 0) {
           prevIndex = shuffledQueueOrder[currentPos - 1];
+        } else {
+          prevIndex = shuffledQueueOrder[shuffledQueueOrder.length - 1];
         }
       } else if (prevIndex < 0) {
         prevIndex = queueIndex > 0 ? queueIndex - 1 : queue.length - 1;
@@ -600,6 +758,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
           playbackHistory: playbackHistory.slice(0, -1)
         });
         audioService.playSong(prevSong);
+        persistCurrentSessionImmediate();
       }
     },
 
@@ -634,6 +793,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         isFairShuffle: isFair,
         shuffledQueueOrder: newOrder
       });
+      persistCurrentSessionImmediate();
     },
 
     toggleFairShuffle: () => {
@@ -650,6 +810,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         shuffleMode: !nextFair ? 'fair' : shuffleMode === 'smart' ? 'smart' : 'fair',
         shuffledQueueOrder: newOrder
       });
+      persistCurrentSessionImmediate();
     },
 
     reshuffleQueue: () => {
@@ -667,6 +828,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         isShuffle: true,
         shuffleMode: shuffleMode === 'off' ? 'fair' : shuffleMode
       });
+      persistCurrentSessionImmediate();
     },
 
     cycleRepeat: () => {
@@ -675,6 +837,7 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       const nextMode = modes[(modes.indexOf(current) + 1) % modes.length];
       audioService.setLoop(nextMode === 'one');
       set({ repeatMode: nextMode });
+      persistCurrentSessionImmediate();
     },
 
     toggleAuraFlow: () => {
@@ -959,6 +1122,60 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     toggleSubsonicFilter: () => {
       const next = audioEffectsService.toggleSubsonicFilter();
       set({ isSubsonicActive: next });
+    },
+
+    persistSessionImmediate: () => {
+      persistCurrentSessionImmediate();
+    },
+
+    restorePlaybackSession: async (): Promise<boolean> => {
+      try {
+        const session = await playbackSessionService.loadSession();
+        if (!session) return false;
+
+        const snapshot = session.queueTracks?.find((s) => s.id === session.songId);
+        const { track: restoredSong, isDeletedOrUnavailable } =
+          await playbackSessionService.resolveSavedTrack(session.songId, snapshot);
+
+        if (isDeletedOrUnavailable || !restoredSong) {
+          // Saved track no longer exists in library/sources -> clear stale session
+          await playbackSessionService.clearSession();
+          return false;
+        }
+
+        // Reconstruct queue
+        let queue: Song[] = [];
+        if (session.queueTracks && session.queueTracks.length > 0) {
+          queue = session.queueTracks;
+        } else {
+          queue = [restoredSong];
+        }
+
+        const foundIdx = queue.findIndex((s) => s.id === restoredSong.id);
+        const targetIndex = foundIdx !== -1 ? foundIdx : Math.min(session.queueIndex, queue.length - 1);
+        const trackDuration = restoredSong.duration > 0 ? restoredSong.duration : session.duration;
+        const clampedPos = Math.max(0, Math.min(session.position, trackDuration > 0 ? trackDuration : session.position));
+
+        set({
+          currentSong: restoredSong,
+          currentTime: clampedPos,
+          duration: trackDuration,
+          isPlaying: false,
+          queue,
+          queueIndex: Math.max(0, targetIndex),
+          isShuffle: session.shuffleState.isShuffle,
+          shuffleMode: session.shuffleState.shuffleMode,
+          shuffledQueueOrder: session.shuffleState.shuffledQueueOrder || [],
+          repeatMode: session.repeatState
+        });
+
+        // Pre-load / cue audio engine to restored position without auto-playing
+        await audioService.restoreSession(restoredSong, clampedPos);
+        return true;
+      } catch (err) {
+        console.warn('[usePlayerStore] restorePlaybackSession error:', err);
+        return false;
+      }
     }
   };
 });
@@ -970,6 +1187,6 @@ if (typeof window !== 'undefined') {
   }).catch(() => {
     // Fail gracefully, keep in-memory 'balanced' default
   });
+}if (typeof window !== 'undefined') {
+  (window as any).__playerStore = usePlayerStore;
 }
-
-

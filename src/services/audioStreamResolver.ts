@@ -2,6 +2,7 @@ import { Song } from '../types/music';
 import { getRegisteredFile } from './scannerService';
 import { resolveYoutubeAudioStream } from './youtubeAudioResolver';
 import { searchJioSaavn, PRESET_SAAVN_320K_HITS } from './jiosaavnService';
+import { matchYouTubeToCatalog } from './catalogMatcher';
 import { radioService } from './radioService';
 import { buildApiUrl } from '../utils/apiConfig';
 import { Capacitor } from '@capacitor/core';
@@ -89,15 +90,15 @@ export function isDirectAudioStream(song: Song): boolean {
  * Checks if a track is a locally registered or stored file.
  */
 export function isLocalTrack(song: Song): boolean {
-  const registeredFile = getRegisteredFile(song.id);
-  return Boolean(
-    registeredFile ||
-      (!song.isOnline &&
-        !song.isSaavn &&
-        song.path &&
-        !song.path.startsWith('http://') &&
-        !song.path.startsWith('https://'))
-  );
+  if (getRegisteredFile(song.id)) return true;
+  if (song.id?.startsWith('device_') || song.id?.startsWith('local-')) return true;
+  if ((song as any).contentUri) return true;
+  if (song.path?.startsWith('content://') || (song as any).filePath?.startsWith('content://')) return true;
+  if (song.path?.startsWith('file://') || song.path?.startsWith('/storage/')) return true;
+  const isHttp =
+    (song.path && (song.path.startsWith('http://') || song.path.startsWith('https://'))) ||
+    (song.filePath && (song.filePath.startsWith('http://') || song.filePath.startsWith('https://')));
+  return Boolean(!song.isSaavn && !isHttp && (song.path || song.filePath));
 }
 
 /**
@@ -106,14 +107,14 @@ export function isLocalTrack(song: Song): boolean {
 export function resolveLocalAudioSource(
   song: Song,
   audioSourceUrl?: string
-): { source: string; isObjectUrl: boolean } | null {
+): { source: string; rawNativeSource?: string; isObjectUrl: boolean } | null {
   if (audioSourceUrl) {
-    return { source: audioSourceUrl, isObjectUrl: false };
+    return { source: audioSourceUrl, rawNativeSource: audioSourceUrl, isObjectUrl: false };
   }
   const registeredFile = getRegisteredFile(song.id);
   if (registeredFile) {
     const objectUrl = URL.createObjectURL(registeredFile);
-    return { source: objectUrl, isObjectUrl: true };
+    return { source: objectUrl, rawNativeSource: objectUrl, isObjectUrl: true };
   }
   if (
     Capacitor.isNativePlatform() ||
@@ -123,17 +124,32 @@ export function resolveLocalAudioSource(
   ) {
     const rawPath = (song as any).contentUri || song.path || song.filePath || '';
     if (rawPath) {
-      return { source: Capacitor.convertFileSrc(rawPath), isObjectUrl: false };
+      const converted = typeof Capacitor?.convertFileSrc === 'function'
+        ? Capacitor.convertFileSrc(rawPath)
+        : rawPath;
+      return {
+        source: converted,
+        rawNativeSource: rawPath,
+        isObjectUrl: false
+      };
     }
   }
   if (song.filePath && (song.filePath.startsWith('/api/') || song.filePath.startsWith('blob:'))) {
-    return { source: song.filePath, isObjectUrl: false };
+    return { source: song.filePath, rawNativeSource: song.filePath, isObjectUrl: false };
   }
   if (song.path && !song.path.startsWith('blob:')) {
-    return { source: buildApiUrl(`/api/audio?path=${encodeURIComponent(song.path)}`), isObjectUrl: false };
+    return {
+      source: buildApiUrl(`/api/audio?path=${encodeURIComponent(song.path)}`),
+      rawNativeSource: song.path,
+      isObjectUrl: false
+    };
   }
   if (song.fileName) {
-    return { source: buildApiUrl(`/api/audio?path=${encodeURIComponent(song.fileName)}`), isObjectUrl: false };
+    return {
+      source: buildApiUrl(`/api/audio?path=${encodeURIComponent(song.fileName)}`),
+      rawNativeSource: song.fileName,
+      isObjectUrl: false
+    };
   }
   return null;
 }
@@ -142,14 +158,27 @@ export function resolveLocalAudioSource(
  * Sanitizes a song title by stripping parenthesis tags, "[video song]", etc.
  * for higher search matching accuracy against audio stream databases.
  */
-export function cleanSongTitle(title: string): string {
-  return title
+export function cleanSongTitle(title: string, artist?: string): string {
+  let clean = title
+    // Strip bracketed descriptors like [Official Video], [4K], (Lyric Video), etc.
+    .replace(/\[\s*(official|music|video|audio|lyrics?|hd|4k|8k|remastered|visualizer).*?\]/gi, '')
+    .replace(/\(\s*(official|music|video|audio|lyrics?|hd|4k|8k|remastered|visualizer|video\s+song|full\s+video|lyrical).*?\)/gi, '')
     .replace(/\([^)]*\)/g, '')
     .replace(/\[[^\]]*\]/g, '')
-    .replace(/video song/gi, '')
-    .replace(/lyric video/gi, '')
-    .replace(/audio/gi, '')
+    // Strip trailing movie/crew credits after pipe or bullet
+    .replace(/[|•].*$/gi, '')
+    // Strip common YouTube unbracketed tags
+    .replace(/\b(video\s+song|lyric\s+video|official\s+video|full\s+video\s+song|full\s+video|music\s+video|lyrical\s+video|audio\s+song|4k\s+video|4k|8k|uhd|full\s+hd|remastered|visualizer)\b/gi, '')
+    // Strip trailing dashes with descriptors
+    .replace(/\s*-\s*(video|audio|lyrics?|song|4k).*$/gi, '')
+    .replace(/\b(ft\.?|feat\.?|featuring)\s+.*$/i, '')
+    .replace(/\s+/g, ' ')
     .trim();
+
+  if (artist && artist !== 'YouTube' && !clean.toLowerCase().includes(artist.toLowerCase())) {
+    clean = `${clean} ${artist}`;
+  }
+  return clean.replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -173,10 +202,10 @@ export async function tryResolveFastPathYoutubeStream(
 /**
  * Multi-tier failover and recovery engine when a stream fails to load or play.
  * Tier 1: Live radio station auto-failover to mirror backup URLs.
- * Tier 2: YouTube track recovery (ensures long DJ mixes aren't matched against 3-min pop songs).
+ * Tier 2: YouTube Mixtape protection (>10m DJ mixes stay on YouTube).
  * Tier 3: Preset Saavn 320k exact title match.
  * Tier 4: Dynamic JioSaavn live search for 320k studio master audio.
- * Tier 5: Fallback to YouTube Online search API.
+ * Tier 5: Fallback to YouTube Cloud / Online search API.
  */
 export async function resolvePlaybackFailover(song: Song): Promise<FailoverResult> {
   // Tier 1: Live Radio Auto-Failover
@@ -195,23 +224,26 @@ export async function resolvePlaybackFailover(song: Song): Promise<FailoverResul
     };
   }
 
-  // Tier 2: YouTube Mixtape / Online video protection:
-  // Never match a 1-hour YouTube DJ mix to a 3-minute movie track on JioSaavn.
+  // Tier 2: YouTube Mixtape / Long Video Protection (>10 min)
+  // Only long DJ mixes / podcasts are locked to YouTube to prevent matching to short pop songs
   const ytVid = extractYouTubeVideoId(song) || song.sourceId;
-  if (
+  const isYoutubeTrack = Boolean(
     ytVid ||
     song.id?.startsWith('online_') ||
     song.album === 'YouTube Video' ||
     song.album === 'YouTube Audio'
-  ) {
+  );
+  const isLongMix = Boolean(song.duration && song.duration > 600);
+
+  if (isYoutubeTrack && isLongMix) {
     const cleanVid = ytVid || (song.id?.startsWith('online_') ? song.id.replace('online_', '') : null);
     if (cleanVid) {
-      console.log(`[AudioStreamResolver] YouTube track recovery: playing original video "${song.title}" (${cleanVid})`);
+      console.log(`[AudioStreamResolver] Long YouTube track (>10m) recovery: playing original video "${song.title}" (${cleanVid})`);
       return { type: 'cloud', videoId: cleanVid };
     }
   }
 
-  const cleanTitle = cleanSongTitle(song.title);
+  const cleanTitle = cleanSongTitle(song.title, song.artist);
   const lower = cleanTitle.toLowerCase();
 
   // Tier 3: Preset Saavn 320k match
@@ -223,42 +255,72 @@ export async function resolvePlaybackFailover(song: Song): Promise<FailoverResul
   let fallbackUrl = preset?.filePath && preset.filePath !== song.filePath ? preset.filePath : '';
   let updatedArtwork = '';
 
-  // Tier 4: Dynamic JioSaavn search
-  if (!fallbackUrl) {
-    try {
-      const results = await searchJioSaavn(cleanTitle);
-      const validFullSaavn = results?.find(
-        (r) => r.filePath && r.filePath !== song.filePath && !r.isPreview && !r.id.startsWith('itunes_')
-      );
-      if (validFullSaavn && validFullSaavn.filePath) {
-        fallbackUrl = validFullSaavn.filePath;
-        if (validFullSaavn.artwork && !song.coverArt) {
-          updatedArtwork = validFullSaavn.artwork;
-        }
-      }
-    } catch (saavnErr) {
-      console.warn('[AudioStreamResolver] JioSaavn fallback search error:', saavnErr);
-    }
-  }
+  // Tier 4: Dynamic Authorized Catalog Matching with Hard Gates (artist, duration, version)
+  const matchResult = await matchYouTubeToCatalog(
+    song.title,
+    song.artist !== 'YouTube' ? song.artist : undefined,
+    song.duration,
+    ytVid || undefined,
+    song.coverArt || song.artwork
+  );
 
-  if (fallbackUrl) {
-    console.log('⚡ Switched to Ultra-HD 320k Studio Master audio:', song.title, '->', fallbackUrl);
+  if (matchResult.status === 'MATCHED') {
+    console.log('⚡ Switched to Ultra-HD 320k Studio Master audio:', song.title, '->', matchResult.streamUrl);
     const updates: Partial<Song> = {
       isSaavn: true,
       isPreview: false,
+      isDirectAudioStream: true,
+      isForegroundOnly: false,
+      playbackMode: 'direct-catalog',
       format: '320k AAC',
       bitrate: 320,
-      filePath: fallbackUrl,
-      path: fallbackUrl
+      filePath: matchResult.streamUrl,
+      path: matchResult.streamUrl
     };
-    if (updatedArtwork) {
-      updates.coverArt = updatedArtwork;
-      updates.artwork = updatedArtwork;
+    if (matchResult.song.artwork) {
+      updates.coverArt = matchResult.song.artwork;
+      updates.artwork = matchResult.song.artwork;
     }
-    return { type: 'direct', url: fallbackUrl, songUpdates: updates };
+    return { type: 'direct', url: matchResult.streamUrl, songUpdates: updates };
   }
 
-  // Tier 5: YouTube online search fallback
+  // Tier 5: JIT Fast-Path Direct Audio Stream Resolution (ExoPlayer background ready)
+  if (isYoutubeTrack) {
+    const cleanVid = ytVid || (song.id?.startsWith('online_') ? song.id.replace('online_', '') : null);
+    if (cleanVid) {
+      try {
+        const streamResult = await tryResolveFastPathYoutubeStream(cleanVid);
+        if (streamResult && streamResult.audioUrl) {
+          console.log(`[AudioStreamResolver] JIT M4A Stream resolved for "${song.title}": ${streamResult.audioUrl}`);
+          const updates: Partial<Song> = {
+            isSaavn: false,
+            isPreview: false,
+            isDirectAudioStream: true,
+            isForegroundOnly: false,
+            playbackMode: 'direct-catalog',
+            format: streamResult.format || 'M4A',
+            bitrate: streamResult.bitrate || 160,
+            filePath: streamResult.audioUrl,
+            path: streamResult.audioUrl
+          };
+          return { type: 'direct', url: streamResult.audioUrl, songUpdates: updates };
+        }
+      } catch (streamErr) {
+        console.warn(`[AudioStreamResolver] JIT stream error for ${cleanVid}:`, streamErr);
+      }
+    }
+  }
+
+  // Tier 6: Fallback to YouTube Cloud Player (Foreground-Only IFrame as last resort)
+  if (isYoutubeTrack) {
+    const cleanVid = ytVid || (song.id?.startsWith('online_') ? song.id.replace('online_', '') : null);
+    if (cleanVid) {
+      console.log(`[AudioStreamResolver] Falling back to YouTube Foreground-Only Player for "${song.title}" (${cleanVid})`);
+      return { type: 'cloud', videoId: cleanVid };
+    }
+  }
+
+  // Tier 6: YouTube online search fallback
   try {
     const query = cleanTitle + ' ' + (song.artist || 'Tamil');
     const ytRes = await fetch(buildApiUrl(`/api/online/search?q=${encodeURIComponent(query)}`));

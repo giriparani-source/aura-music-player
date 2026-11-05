@@ -21,6 +21,10 @@ import {
   Download,
   CheckCircle2,
   Loader2,
+  ChevronDown,
+  ListMusic,
+  Speaker,
+  Check,
   Infinity as InfinityIcon
 } from 'lucide-react';
 import { usePlayerStore } from '../../store/usePlayerStore';
@@ -32,18 +36,57 @@ import { EqualizerPanel } from './EqualizerPanel';
 import { LyricsView } from './LyricsView';
 import { AiSongInsights } from './AiSongInsights';
 import { SleepTimerMenu } from './SleepTimerMenu';
-import { NowPlayingTab } from '../../types/music';
-import { getAuraReasonLabel } from '../../services/auraFlowService';
-import { getAuraReasonExplanation } from '../../services/auraProfileExplainer';
+import { NowPlayingTab, Song } from '../../types/music';
+
+const NowPlayingScrubber: React.FC = React.memo(() => {
+  const currentTime = usePlayerStore((s) => s.currentTime);
+  const duration = usePlayerStore((s) => s.duration);
+  const seek = usePlayerStore((s) => s.seek);
+
+  const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
+  const timeRemaining = Math.max(0, duration - currentTime);
+
+  return (
+    <div className="w-full flex flex-col gap-1.5 mb-2.5">
+      <div
+        className="relative w-full py-2 cursor-pointer group"
+        onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          seek(pos * duration);
+        }}
+      >
+        <div className="w-full h-1.5 bg-[#2a2931] rounded-full overflow-hidden relative">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-[#00f1fd] via-[#9d4edd] to-[#e0b6ff] rounded-full transition-all duration-150"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+        <div
+          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-white shadow-[0_0_12px_rgba(0,241,253,0.9),0_0_4px_rgba(255,255,255,1)] group-hover:scale-125 transition-transform pointer-events-none"
+          style={{ left: `${progressPercent}%` }}
+        />
+      </div>
+
+      <div className="w-full flex items-center justify-between text-xs font-mono text-[#998d9e]">
+        <span className="text-[#00f1fd] font-medium">{formatTime(currentTime)}</span>
+        <span>-{formatTime(timeRemaining)}</span>
+      </div>
+    </div>
+  );
+});
+NowPlayingScrubber.displayName = 'NowPlayingScrubber';
+
+const NowPlayingLyricsTab: React.FC<{ song: Song; onSeek: (time: number) => void }> = React.memo(({ song, onSeek }) => {
+  const currentTime = usePlayerStore((s) => s.currentTime);
+  return <LyricsView song={song} currentTime={currentTime} onSeek={onSeek} />;
+});
+NowPlayingLyricsTab.displayName = 'NowPlayingLyricsTab';
 
 export const NowPlayingModal: React.FC = () => {
   const {
     currentSong,
     isPlaying,
-    currentTime,
-    duration,
-    volume,
-    isMuted,
     repeatMode,
     isShuffle,
     isNowPlayingOpen,
@@ -52,8 +95,6 @@ export const NowPlayingModal: React.FC = () => {
     nextSong,
     previousSong,
     seek,
-    setVolume,
-    toggleMute,
     toggleShuffle,
     shuffleMode,
     cycleRepeat,
@@ -63,8 +104,8 @@ export const NowPlayingModal: React.FC = () => {
     karaokeDepth,
     toggleKaraoke,
     spatialPreset,
-    isAuraFlow,
-    toggleAuraFlow
+    queue,
+    setQueueOpen
   } = usePlayerStore();
 
   const {
@@ -72,19 +113,17 @@ export const NowPlayingModal: React.FC = () => {
     downloadedSongIds,
     downloadingStates,
     downloadTrack,
-    deleteDownloadedTrack,
-    isOnline
+    deleteDownloadedTrack
   } = useLibraryStore();
 
   const isDownloaded = currentSong ? (downloadedSongIds.has(currentSong.id) || Boolean(currentSong.isDownloaded)) : false;
   const dlState = currentSong ? downloadingStates[currentSong.id] : undefined;
   const isDownloading = dlState?.status === 'downloading';
-  const [showAuraReasonDetail, setShowAuraReasonDetail] = React.useState(false);
 
   const tabContainerRef = React.useRef<HTMLDivElement>(null);
   const activeTabRef = React.useRef<HTMLButtonElement>(null);
 
-  // Smoothly scroll active tab into view inside the horizontal tab container
+  // Smoothly scroll active tab into view inside horizontal container
   const scrollActiveTabIntoView = React.useCallback((smooth: boolean = true) => {
     requestAnimationFrame(() => {
       const container = tabContainerRef.current;
@@ -108,54 +147,17 @@ export const NowPlayingModal: React.FC = () => {
     });
   }, []);
 
-  // Auto-scroll on tab switch
   useEffect(() => {
     if (!isNowPlayingOpen) return;
     scrollActiveTabIntoView(true);
   }, [activeModalTab, isNowPlayingOpen, scrollActiveTabIntoView]);
 
-  // Initial scroll into view on modal mount/open after layout completes
   useEffect(() => {
     if (!isNowPlayingOpen) return;
     scrollActiveTabIntoView(false);
-    const timer = setTimeout(() => {
-      scrollActiveTabIntoView(false);
-    }, 60);
-    const timer2 = setTimeout(() => {
-      scrollActiveTabIntoView(false);
-    }, 180);
-    return () => {
-      clearTimeout(timer);
-      clearTimeout(timer2);
-    };
+    const timer = setTimeout(() => scrollActiveTabIntoView(false), 80);
+    return () => clearTimeout(timer);
   }, [isNowPlayingOpen, scrollActiveTabIntoView]);
-
-  // Auto-scroll on window resize to ensure active tab remains visible
-  useEffect(() => {
-    if (!isNowPlayingOpen) return;
-    const handleResize = () => {
-      scrollActiveTabIntoView(false);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [isNowPlayingOpen, scrollActiveTabIntoView]);
-
-  // Support horizontal mouse wheel and trackpad scrolling over tab row
-  useEffect(() => {
-    const el = tabContainerRef.current;
-    if (!el || !isNowPlayingOpen) return;
-
-    const handleWheel = (e: WheelEvent) => {
-      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-      if (delta !== 0 && el.scrollWidth > el.clientWidth) {
-        e.preventDefault();
-        el.scrollLeft += delta;
-      }
-    };
-
-    el.addEventListener('wheel', handleWheel, { passive: false });
-    return () => el.removeEventListener('wheel', handleWheel);
-  }, [isNowPlayingOpen]);
 
   // Close modal on Escape key press
   useEffect(() => {
@@ -175,37 +177,59 @@ export const NowPlayingModal: React.FC = () => {
 
   const tabs: { id: NowPlayingTab; label: string; icon: React.ReactNode }[] = [
     { id: 'artwork', label: 'Artwork', icon: <Disc size={15} /> },
-    { id: 'visualizer', label: 'Visualizer', icon: <Activity size={15} /> },
     { id: 'lyrics', label: 'Lyrics', icon: <FileText size={15} /> },
     { id: 'equalizer', label: 'Equalizer & 3D', icon: <Sliders size={15} /> },
+    { id: 'visualizer', label: 'Visualizer', icon: <Activity size={15} /> },
     { id: 'ai-insights', label: 'AI Insights', icon: <Sparkles size={15} /> }
   ];
 
   return (
-    <div className="fixed inset-0 z-[60] bg-[#07090e]/95 backdrop-blur-3xl flex flex-col select-none overflow-hidden animate-in fade-in duration-200">
-      {/* Top Header (shrink-0) */}
+    <div className="fixed inset-0 z-[60] bg-[#0A0910] flex flex-col select-none overflow-hidden animate-in fade-in duration-200">
+      {/* High-Performance Ambient Glow (Zero-lag single pass radial gradient) */}
       <div
-        style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)' }}
-        className="shrink-0 z-50 bg-[#07090e]/90 backdrop-blur-xl border-b border-white/10 px-4 sm:px-6 pb-3"
+        className="absolute inset-0 pointer-events-none -z-10 opacity-75"
+        style={{
+          background: 'radial-gradient(ellipse at 50% 15%, rgba(157, 78, 221, 0.22) 0%, rgba(0, 241, 253, 0.08) 40%, transparent 75%)'
+        }}
+      />
+
+      {/* Top Navigation & Context Bar */}
+      <div
+        style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 10px)' }}
+        className="shrink-0 z-50 bg-[#14121a] border-b border-white/[0.08] px-4 sm:px-6 pb-2.5"
       >
         {/* Mobile drag handle indicator */}
-        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-2 sm:hidden cursor-pointer" onClick={() => setNowPlayingOpen(false)} />
+        <div
+          className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-2 sm:hidden cursor-pointer"
+          onClick={() => setNowPlayingOpen(false)}
+        />
+        
         <div className="flex flex-wrap md:flex-nowrap items-center justify-between gap-3 sm:gap-4 w-full max-w-5xl mx-auto">
-          <div className="min-w-0 shrink-0">
-            <span className="text-[11px] font-bold uppercase tracking-widest text-indigo-400">
-              Now Playing
-            </span>
-            <p className="text-xs text-neutral-400 truncate mt-0.5 max-w-[150px] sm:max-w-xs">
-              {currentSong.folder || 'Personal Library'}
-            </p>
+          {/* Left: Minimize button & context subtitle */}
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => setNowPlayingOpen(false)}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-[#998d9e] hover:text-white active:scale-95 transition-all cursor-pointer bg-white/[0.04]"
+              aria-label="Collapse Player"
+              title="Collapse (Esc)"
+            >
+              <ChevronDown size={22} />
+            </button>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[#998d9e] block">
+                {currentSong.isLiveRadio ? 'Live Broadcast' : 'Playing from Stream'}
+              </span>
+              <p className="text-xs text-[#00f1fd] font-semibold truncate max-w-[150px] sm:max-w-xs">
+                {currentSong.album || currentSong.folder || 'Aura 320k Cloud'}
+              </p>
+            </div>
           </div>
 
-          {/* Tab Segmented Control (Horizontally scrollable, single row, no wrapping, labels fully visible) */}
+          {/* Center: Tabs Segmented Control */}
           <div className="w-full md:w-auto md:flex-1 min-w-0 overflow-x-auto no-scrollbar flex items-center justify-start md:justify-center order-last md:order-none">
             <div
               ref={tabContainerRef}
-              className="flex items-center gap-1 p-1 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md overflow-x-auto no-scrollbar whitespace-nowrap flex-nowrap shrink-0 max-w-full touch-pan-x"
-              style={{ WebkitOverflowScrolling: 'touch' }}
+              className="flex items-center gap-1 p-1 rounded-full bg-[#1c1b22]/90 border border-white/[0.08] backdrop-blur-md overflow-x-auto no-scrollbar whitespace-nowrap flex-nowrap shrink-0 max-w-full touch-pan-x"
             >
               {tabs.map((tab) => {
                 const isActive = activeModalTab === tab.id;
@@ -214,10 +238,10 @@ export const NowPlayingModal: React.FC = () => {
                     key={tab.id}
                     ref={isActive ? activeTabRef : null}
                     onClick={() => setActiveModalTab(tab.id)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap select-none ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap select-none ${
                       isActive
-                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                        : 'text-neutral-400 hover:text-white hover:bg-white/5'
+                        ? 'bg-gradient-to-r from-[#9d4edd] to-[#8433c4] text-white shadow-[0_0_16px_rgba(157,78,221,0.4)]'
+                        : 'text-[#998d9e] hover:text-white hover:bg-white/[0.05]'
                     }`}
                   >
                     <span className="shrink-0">{tab.icon}</span>
@@ -228,88 +252,105 @@ export const NowPlayingModal: React.FC = () => {
             </div>
           </div>
 
+          {/* Right quick tools: 3D Theatre, Karaoke, Sleep Timer */}
           <div className="flex items-center gap-2 shrink-0">
-            {/* 3D Spatial Theatre Quick Indicator / Switch */}
             <button
               onClick={() => setActiveModalTab('equalizer')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border shrink-0 ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer border shrink-0 ${
                 spatialPreset !== 'off'
                   ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-500/20'
-                  : 'bg-white/5 text-neutral-400 hover:text-white border-white/10'
+                  : 'bg-white/[0.04] text-[#998d9e] hover:text-white border-white/[0.08]'
               }`}
               title={spatialPreset !== 'off' ? `3D Spatial Acoustics: ${spatialPreset.toUpperCase()}` : 'Open 3D Spatial Acoustics'}
             >
               <Film size={14} className={spatialPreset !== 'off' ? 'text-amber-400 animate-pulse' : ''} />
               <span className="hidden sm:inline">
-                {spatialPreset !== 'off' ? `Theatre: ${spatialPreset}` : '3D Spatial'}
+                {spatialPreset !== 'off' ? `Theatre: ${spatialPreset}` : '3D'}
               </span>
             </button>
 
-            {/* Karaoke Quick Switch with Depth % */}
             <button
               onClick={toggleKaraoke}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border shrink-0 ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer border shrink-0 ${
                 isKaraoke
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-500/30'
-                  : 'bg-white/5 text-neutral-400 hover:text-white border-white/10'
+                  ? 'bg-[#00f1fd]/20 text-[#00f1fd] border-[#00f1fd]/40 shadow-sm shadow-[#00f1fd]/30'
+                  : 'bg-white/[0.04] text-[#998d9e] hover:text-white border-white/[0.08]'
               }`}
-              title={isKaraoke ? `Karaoke Active: ${Math.round(karaokeDepth * 100)}% Vocal Cut` : 'Enable Karaoke Mode'}
+              title={isKaraoke ? `Karaoke: ${Math.round(karaokeDepth * 100)}% Vocal Cut` : 'Karaoke'}
             >
-              <Mic2 size={14} className={isKaraoke ? 'animate-pulse text-emerald-400' : ''} />
+              <Mic2 size={14} className={isKaraoke ? 'animate-pulse text-[#00f1fd]' : ''} />
               <span className="hidden sm:inline">
-                Karaoke: {isKaraoke ? `${Math.round(karaokeDepth * 100)}%` : 'OFF'}
+                {isKaraoke ? `${Math.round(karaokeDepth * 100)}%` : 'Karaoke'}
               </span>
             </button>
 
-            {/* Smart Sleep Timer Control */}
             <SleepTimerMenu />
 
-            {/* Top Close (Cancel) Button */}
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setNowPlayingOpen(false);
-              }}
-              className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 flex items-center justify-center text-white transition-all shrink-0 cursor-pointer relative z-50 border border-white/15 shadow-xl hover:border-white/30"
+              onClick={() => setNowPlayingOpen(false)}
+              className="w-9 h-9 rounded-full bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 flex items-center justify-center text-white transition-all shrink-0 cursor-pointer border border-white/[0.1]"
               title="Close (Esc)"
               aria-label="Close"
             >
-              <X size={20} />
+              <X size={18} />
             </button>
           </div>
         </div>
       </div>
 
-      {/* Modal content / Equalizer body (flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 sm:p-6) */}
+      {/* Main Tab Content Area */}
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 sm:p-6 w-full custom-scrollbar">
-        <div className="max-w-5xl mx-auto w-full min-h-full flex flex-col items-center justify-center">
+        <div className="max-w-4xl mx-auto w-full min-h-full flex flex-col items-center justify-center">
           {activeModalTab === 'artwork' && (
-            <div className="flex flex-col md:flex-row items-center justify-center gap-8 md:gap-16 w-full max-w-4xl my-auto py-4">
-              {/* Big Artwork */}
-              <div className="relative group shrink-0">
-                <Artwork
-                  src={currentSong.coverArt || currentSong.artwork}
-                  title={currentSong.title}
-                  artist={currentSong.artist}
-                  size="xl"
-                  className="w-64 h-64 sm:w-80 sm:h-80 shadow-2xl rounded-3xl"
-                />
+            <div className="flex flex-col items-center justify-center w-full max-w-md my-auto py-2">
+              {/* Stitch Hero Artwork with ambient glow footprint & vinyl sheen */}
+              <div className="relative w-full max-w-[280px] sm:max-w-[320px] aspect-square rounded-[24px] p-0.5 bg-gradient-to-b from-[#e0b6ff]/30 via-transparent to-[#00f1fd]/20 shadow-[0_20px_50px_rgba(10,9,16,0.9),0_0_40px_rgba(157,78,221,0.22)] group mx-auto">
+                <div className="w-full h-full rounded-[22px] overflow-hidden relative bg-[#201f26]">
+                  <Artwork
+                    src={currentSong.coverArt || currentSong.artwork}
+                    title={currentSong.title}
+                    artist={currentSong.artist}
+                    size="xl"
+                    className="w-full h-full object-cover transform transition-transform duration-700 ease-out group-hover:scale-105"
+                  />
+                  {/* Vinyl Micro Grooves Overlay Hint */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#0e0d14]/70 via-transparent to-white/5 pointer-events-none" />
+                </div>
+                {/* Tactile Vinyl Floating Edge Indicator */}
+                <div className="absolute -bottom-2 right-4 px-2.5 py-1 rounded-full bg-[#201f26]/95 backdrop-blur-md shadow-md flex items-center gap-1.5 border border-white/[0.08]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#00f1fd] animate-ping" />
+                  <span className="text-[10px] text-[#00f1fd] tracking-wider font-extrabold uppercase">
+                    {spatialPreset !== 'off' ? `ATMOS ${spatialPreset}` : 'STUDIO 320K'}
+                  </span>
+                </div>
               </div>
 
-              {/* Track Info & Technical Details */}
-              <div className="flex-1 w-full max-w-md flex flex-col justify-center">
-                <div className="flex items-start justify-between gap-4 mb-4">
-                  <div>
-                    <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-1">
-                      {currentSong.title}
-                    </h2>
-                    <p className="text-base text-neutral-300 font-medium">{currentSong.artist}</p>
-                    {currentSong.album && (
-                      <p className="text-xs text-neutral-500 mt-1">Album: {currentSong.album}</p>
-                    )}
-                  </div>
+              {/* Hi-Res Audio Spec Badge */}
+              <div className="mt-4 flex items-center gap-2 px-3 py-1 rounded-full bg-[#2a2931]/70 backdrop-blur-sm border border-white/[0.06]">
+                <span className="w-2 h-2 rounded-full bg-[#00f1fd] shadow-[0_0_6px_#00f1fd]" />
+                <span className="text-[11px] text-[#d0c2d5] font-medium tracking-wide">
+                  {currentSong.isLiveRadio ? 'Direct FM Feed' : (currentSong.format || 'AAC 320kbps')}
+                  <span className="text-[#998d9e] mx-1">•</span>
+                  24-bit / 96 kHz
+                  <span className="text-[#998d9e] mx-1">•</span>
+                  <span className="text-[#00f1fd] font-bold">Hi-Res Audio</span>
+                </span>
+              </div>
 
-                  <div className="flex items-center gap-2">
+              {/* Track Meta Information & Favorite Action */}
+              <div className="w-full flex items-center justify-between mt-4 mb-2 px-2">
+                <div className="flex flex-col min-w-0 pr-3">
+                  <h2 className="text-xl sm:text-2xl font-extrabold text-[#e5e0eb] tracking-tight truncate">
+                    {currentSong.title}
+                  </h2>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-sm text-[#00f1fd] truncate font-medium">{currentSong.artist}</span>
+                    <CheckCircle2 size={15} className="text-[#00f1fd] shrink-0" />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {!currentSong.isLiveRadio && (
                     <button
                       onClick={() => {
                         if (isDownloading) return;
@@ -320,169 +361,76 @@ export const NowPlayingModal: React.FC = () => {
                         }
                       }}
                       disabled={isDownloading}
-                      className={`p-2.5 rounded-full transition-colors cursor-pointer ${
+                      className={`w-11 h-11 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                         isDownloaded
                           ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                           : isDownloading
-                          ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                          : 'bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/5'
+                          ? 'bg-[#00f1fd]/20 text-[#00f1fd]'
+                          : 'bg-white/[0.04] text-[#998d9e] hover:text-white border border-white/[0.06]'
                       }`}
-                      title={
-                        isDownloaded
-                          ? 'Downloaded for offline playback (Click to remove)'
-                          : isDownloading
-                          ? `Downloading... ${dlState?.progress || 0}%`
-                          : 'Download track for offline playback'
-                      }
+                      title={isDownloaded ? 'Downloaded (Tap to remove)' : 'Download track for offline playback'}
                     >
                       {isDownloading ? (
-                        <Loader2 size={20} className="animate-spin text-indigo-400" />
+                        <Loader2 size={18} className="animate-spin text-[#00f1fd]" />
                       ) : isDownloaded ? (
-                        <CheckCircle2 size={20} className="text-emerald-400" />
+                        <CheckCircle2 size={18} className="text-emerald-400" />
                       ) : (
-                        <Download size={20} />
+                        <Download size={18} />
                       )}
                     </button>
-
-                    <button
-                      onClick={() => toggleFavorite(currentSong.id, currentSong)}
-                      className={`p-2.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors cursor-pointer ${
-                        currentSong.isFavorite ? 'text-rose-500' : 'text-neutral-400'
-                      }`}
-                      title={currentSong.isFavorite ? 'Remove from Favourites' : 'Add to Favourites'}
-                    >
-                      <Heart size={20} className={currentSong.isFavorite ? 'fill-rose-500' : ''} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Technical Metadata pill */}
-                <div className="flex items-center gap-2 mb-6 flex-wrap">
-                  {isDownloaded && (
-                    <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 shadow-sm shadow-emerald-500/20">
-                      <CheckCircle2 size={12} className="text-emerald-400" />
-                      <span>Playing downloaded copy</span>
-                    </span>
                   )}
-                  {!isOnline && (
-                    <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5 animate-pulse">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                      <span>Offline</span>
-                    </span>
-                  )}
-                  {currentSong.isLiveRadio ? (
-                    <>
-                      <span className="px-2.5 py-0.5 text-[10px] font-extrabold rounded-full bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-                        LIVE • ON AIR
-                      </span>
-                      <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-white/5 text-amber-300 border border-amber-500/20">
-                        {currentSong.bitrate || 128} kbps HD Stream
-                      </span>
-                      <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-white/5 text-neutral-400 border border-white/5">
-                        24/7 Digital FM
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="px-2 py-0.5 text-[10px] font-mono uppercase rounded bg-white/5 text-neutral-400 border border-white/5">
-                        {currentSong.format || 'MP3'}
-                      </span>
-
-                      {currentSong.isAuraFlow && (
-                        <div className="relative inline-block">
-                          <button
-                            type="button"
-                            onClick={() => setShowAuraReasonDetail((prev) => !prev)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 hover:border-fuchsia-400/60 transition-colors cursor-pointer"
-                            title={`Aura Flow: ${getAuraReasonLabel(currentSong.auraReason)} (Click for details)`}
-                            aria-label="Aura Flow Recommendation Reason"
-                          >
-                            <Sparkles size={10} />
-                            <span>{getAuraReasonLabel(currentSong.auraReason)}</span>
-                          </button>
-
-                          {showAuraReasonDetail && (
-                            <div
-                              className="absolute bottom-full left-0 mb-2 z-50 w-64 p-3 rounded-2xl bg-neutral-900/95 border border-fuchsia-500/30 shadow-2xl backdrop-blur-xl animate-fade-in text-left"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-white/10">
-                                <div className="flex items-center gap-1.5 text-fuchsia-300 text-xs font-bold">
-                                  <Sparkles size={12} />
-                                  <span>{getAuraReasonLabel(currentSong.auraReason)}</span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => setShowAuraReasonDetail(false)}
-                                  className="text-[10px] text-neutral-400 hover:text-white px-1 cursor-pointer"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                              <p className="text-[11px] text-neutral-200 leading-relaxed">
-                                {getAuraReasonExplanation(currentSong.auraReason)}
-                              </p>
-                              <p className="text-[9px] text-neutral-500 mt-1.5">
-                                Aura Flow continuous smart autoplay
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {currentSong.bitrate && (
-                        <span className={`px-2 py-0.5 text-[10px] font-mono rounded border ${
-                          currentSong.bitrate >= 320
-                            ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 font-semibold'
-                            : 'bg-white/5 text-neutral-400 border-white/5'
-                        }`}>
-                          {currentSong.bitrate} kbps
-                        </span>
-                      )}
-                      {currentSong.fileSize > 0 && (
-                        <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-white/5 text-neutral-400 border border-white/5">
-                          {formatBytes(currentSong.fileSize)}
-                        </span>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                {/* Quick Feature Launchers */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  <button
-                    onClick={() => setActiveModalTab('visualizer')}
-                    className="p-3 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/5 flex flex-col items-center gap-1.5 transition-all text-neutral-300 hover:text-white cursor-pointer"
-                  >
-                    <Activity size={18} className="text-indigo-400" />
-                    <span className="text-[11px] font-semibold">Visualizer</span>
-                  </button>
 
                   <button
-                    onClick={() => setActiveModalTab('lyrics')}
-                    className="p-3 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/5 flex flex-col items-center gap-1.5 transition-all text-neutral-300 hover:text-white cursor-pointer"
+                    onClick={() => toggleFavorite(currentSong.id, currentSong)}
+                    className="relative w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-transform cursor-pointer bg-white/[0.04] border border-white/[0.06]"
+                    title={currentSong.isFavorite ? 'Remove from Favourites' : 'Add to Favourites'}
                   >
-                    <FileText size={18} className="text-purple-400" />
-                    <span className="text-[11px] font-semibold">Lyrics</span>
-                  </button>
-
-                  <button
-                    onClick={() => setActiveModalTab('equalizer')}
-                    className="p-3 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/5 flex flex-col items-center gap-1.5 transition-all text-neutral-300 hover:text-white cursor-pointer"
-                  >
-                    <Sliders size={18} className="text-emerald-400" />
-                    <span className="text-[11px] font-semibold">Equalizer</span>
-                  </button>
-
-                  <button
-                    onClick={() => setActiveModalTab('ai-insights')}
-                    className="p-3 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/5 flex flex-col items-center gap-1.5 transition-all text-neutral-300 hover:text-white cursor-pointer"
-                  >
-                    <Sparkles size={18} className="text-amber-400" />
-                    <span className="text-[11px] font-semibold">AI Insights</span>
+                    {currentSong.isFavorite && (
+                      <div className="absolute inset-0 bg-rose-500/20 rounded-full blur-md" />
+                    )}
+                    <Heart
+                      size={20}
+                      className={currentSong.isFavorite ? 'fill-rose-500 text-rose-500 relative z-10' : 'text-[#998d9e] relative z-10'}
+                    />
                   </button>
                 </div>
               </div>
+
+              {/* Synchronized Lyrics Pill Preview Bar */}
+              <div
+                onClick={() => setActiveModalTab('lyrics')}
+                className="w-full mt-3 p-3 rounded-2xl bg-[#201f26] hover:bg-[#2a2931] border border-white/[0.08] flex items-center justify-between cursor-pointer transition-all active:scale-[0.99] shadow-sm"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-[#9d4edd]/20 flex items-center justify-center text-[#e0b6ff] shrink-0">
+                    <FileText size={16} />
+                  </div>
+                  <div className="flex flex-col min-w-0 text-left">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] uppercase tracking-wider text-[#00f1fd] font-bold">
+                        Synchronized Lyrics
+                      </span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#9d4edd] animate-pulse" />
+                    </div>
+                    <p className="text-xs text-[#d0c2d5] truncate italic mt-0.5">
+                      Tap to open full synchronized lyrics sheet...
+                    </p>
+                  </div>
+                </div>
+                <span className="text-xs text-[#998d9e] font-semibold">View</span>
+              </div>
+            </div>
+          )}
+
+          {activeModalTab === 'lyrics' && (
+            <div className="w-full h-80 sm:h-96 flex flex-col my-auto py-4">
+              <NowPlayingLyricsTab song={currentSong} onSeek={seek} />
+            </div>
+          )}
+
+          {activeModalTab === 'equalizer' && (
+            <div className="w-full flex justify-center py-2 pb-6">
+              <EqualizerPanel />
             </div>
           )}
 
@@ -491,20 +439,8 @@ export const NowPlayingModal: React.FC = () => {
               <AudioVisualizer isPlaying={isPlaying} className="h-80 sm:h-96" />
               <div className="text-center mt-4">
                 <h3 className="text-lg font-bold text-white">{currentSong.title}</h3>
-                <p className="text-xs text-neutral-400">{currentSong.artist}</p>
+                <p className="text-xs text-[#998d9e]">{currentSong.artist}</p>
               </div>
-            </div>
-          )}
-
-          {activeModalTab === 'lyrics' && (
-            <div className="w-full h-80 sm:h-96 flex flex-col my-auto py-4">
-              <LyricsView song={currentSong} currentTime={currentTime} onSeek={seek} />
-            </div>
-          )}
-
-          {activeModalTab === 'equalizer' && (
-            <div className="w-full flex justify-center py-2 pb-6">
-              <EqualizerPanel />
             </div>
           )}
 
@@ -516,144 +452,125 @@ export const NowPlayingModal: React.FC = () => {
         </div>
       </div>
 
-      {/* Bottom Controls Area (shrink-0 mt-auto, pinned cleanly without overlapping) */}
+      {/* Bottom Master Playback Controls Area */}
       <div
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 14px)' }}
-        className="shrink-0 mt-auto z-40 bg-[#07090e]/95 backdrop-blur-xl w-full border-t border-white/10 px-4 sm:px-6 pt-3"
+        className="shrink-0 mt-auto z-40 bg-[#14121a] w-full border-t border-white/[0.08] px-4 sm:px-6 pt-3"
       >
         <div className="w-full max-w-2xl mx-auto">
-          {/* Progress Slider or Live Radio Status */}
+          {/* Audio Timeline Scrubber */}
           {currentSong.isLiveRadio ? (
-            <div className="flex items-center justify-between px-4 py-2 rounded-2xl bg-red-500/10 border border-red-500/20 mb-3 sm:mb-4">
-              <div className="flex items-center gap-2.5">
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
-                </span>
-                <span className="text-xs font-bold text-red-400 uppercase tracking-wider">
+            <div className="flex items-center justify-between px-4 py-2 rounded-full bg-rose-500/10 border border-rose-500/20 mb-3">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                <span className="text-xs font-bold text-rose-400 uppercase tracking-wider">
                   Live Studio Broadcast
                 </span>
               </div>
-              <span className="text-xs font-mono text-neutral-400">
-                Direct Feed • {currentSong.bitrate || 128} kbps
+              <span className="text-xs font-mono text-[#998d9e]">
+                Direct Feed • 24/7
               </span>
             </div>
           ) : (
-            <div className="space-y-1 mb-3 sm:mb-4">
-              <input
-                type="range"
-                min={0}
-                max={duration || 100}
-                value={currentTime}
-                onChange={(e) => seek(Number(e.target.value))}
-                aria-label="Seek track position"
-                className="w-full h-1.5 bg-white/15 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-              />
-              <div className="flex justify-between text-xs font-mono text-neutral-400">
-                <span>{formatTime(currentTime)}</span>
-                <span>{formatTime(duration)}</span>
-              </div>
-            </div>
+            <NowPlayingScrubber />
           )}
 
-          {/* Playback & Volume Row */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1">
-              <button
-                onClick={toggleShuffle}
-                className={`relative p-2 rounded-full transition-all cursor-pointer ${
-                  shuffleMode === 'smart'
-                    ? 'text-emerald-400 bg-emerald-500/20 border border-emerald-500/40 shadow-sm shadow-emerald-500/30'
-                    : isShuffle
-                    ? 'text-indigo-400 bg-indigo-500/15'
-                    : 'text-neutral-400 hover:text-white'
-                }`}
-                title={
-                  shuffleMode === 'smart'
-                    ? 'Smart Shuffle Active ✨ (AI Discovery recommendations active)'
-                    : isShuffle
-                    ? 'True-Fair Shuffle Active 🔀 (Even artist & album spacing)'
-                    : 'Shuffle: OFF (Click to cycle)'
-                }
-              >
-                <Shuffle size={18} />
-                {shuffleMode === 'smart' && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 animate-pulse ring-2 ring-black" />
+          {/* Primary Transport Controls */}
+          <div className="w-full flex items-center justify-between mt-1 mb-2">
+            {/* Shuffle Toggle */}
+            <button
+              onClick={toggleShuffle}
+              className={`w-12 h-12 rounded-full flex flex-col items-center justify-center active:scale-90 transition-transform relative cursor-pointer ${
+                shuffleMode === 'smart'
+                  ? 'text-[#00f1fd]'
+                  : isShuffle
+                  ? 'text-[#e0b6ff]'
+                  : 'text-[#998d9e] hover:text-white'
+              }`}
+              title={shuffleMode === 'smart' ? 'Smart Shuffle (AI active)' : isShuffle ? 'True Shuffle active' : 'Shuffle OFF'}
+            >
+              <Shuffle size={20} />
+              {(isShuffle || shuffleMode === 'smart') && (
+                <span className="w-1 h-1 bg-[#00f1fd] rounded-full mt-0.5 shadow-[0_0_6px_#00f1fd]" />
+              )}
+            </button>
+
+            {/* Previous Track */}
+            <button
+              onClick={previousSong}
+              className="w-12 h-12 rounded-full flex items-center justify-center text-[#e5e0eb] hover:text-[#e0b6ff] active:scale-90 transition-transform cursor-pointer"
+              aria-label="Previous Track"
+            >
+              <SkipBack size={28} className="fill-[#e5e0eb]" />
+            </button>
+
+            {/* Master Kinetic Hero Trigger (72x72) */}
+            <button
+              onClick={togglePlay}
+              className="relative group w-[68px] h-[68px] sm:w-[72px] sm:h-[72px] rounded-full flex items-center justify-center p-0.5 active:scale-95 transition-all shadow-[0_8px_30px_rgba(157,78,221,0.5),0_0_24px_rgba(0,241,253,0.35)] cursor-pointer"
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+            >
+              <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-[#9d4edd] via-[#00f1fd] to-[#8433c4] blur-sm group-hover:blur-md transition-all" />
+              <div className="relative w-full h-full rounded-full bg-gradient-to-tr from-[#9d4edd] to-[#8433c4] flex items-center justify-center text-white">
+                {isPlaying ? (
+                  <Pause size={32} className="fill-white" />
+                ) : (
+                  <Play size={32} className="fill-white ml-1" />
                 )}
-              </button>
-
-              <button
-                onClick={toggleAuraFlow}
-                className={`p-2 rounded-full transition-all cursor-pointer ${
-                  isAuraFlow
-                    ? 'text-fuchsia-400 bg-fuchsia-500/20 border border-fuchsia-500/40 shadow-sm shadow-fuchsia-500/30'
-                    : 'text-neutral-400 hover:text-white'
-                }`}
-                title={`Aura Flow: ${isAuraFlow ? 'ON (Smart continuous autoplay)' : 'OFF'}`}
-              >
-                <InfinityIcon size={18} className={isAuraFlow ? 'animate-pulse text-fuchsia-400' : ''} />
-              </button>
-            </div>
-
-            <div className="flex items-center gap-4 sm:gap-6">
-              <button
-                onClick={previousSong}
-                className="p-2 sm:p-2.5 rounded-full text-neutral-300 hover:text-white transition-colors cursor-pointer"
-                aria-label="Previous Track"
-                title="Previous"
-              >
-                <SkipBack size={22} />
-              </button>
-
-              <button
-                onClick={togglePlay}
-                className="w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl shadow-white/20 cursor-pointer"
-                aria-label={isPlaying ? 'Pause' : 'Play'}
-                title="Play / Pause"
-              >
-                {isPlaying ? <Pause size={24} className="fill-black" /> : <Play size={24} className="fill-black ml-0.5" />}
-              </button>
-
-              <button
-                onClick={nextSong}
-                className="p-2 sm:p-2.5 rounded-full text-neutral-300 hover:text-white transition-colors cursor-pointer"
-                aria-label="Next Track"
-                title="Next"
-              >
-                <SkipForward size={22} />
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2 sm:gap-3">
-              <button
-                onClick={cycleRepeat}
-                className={`p-2 rounded-full transition-colors cursor-pointer ${
-                  repeatMode !== 'off' ? 'text-indigo-400 bg-indigo-500/15' : 'text-neutral-400 hover:text-white'
-                }`}
-                title={`Repeat: ${repeatMode}`}
-              >
-                {repeatMode === 'one' ? <Repeat1 size={18} /> : <Repeat size={18} />}
-              </button>
-
-              <div className="hidden sm:flex items-center gap-1.5 pl-2 border-l border-white/10">
-                <button
-                  onClick={toggleMute}
-                  className="text-neutral-400 hover:text-white transition-colors cursor-pointer"
-                >
-                  {isMuted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
-                </button>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={isMuted ? 0 : volume}
-                  onChange={(e) => setVolume(Number(e.target.value))}
-                  aria-label="Volume level"
-                  className="w-16 h-1 bg-white/15 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                />
               </div>
+            </button>
+
+            {/* Next Track */}
+            <button
+              onClick={nextSong}
+              className="w-12 h-12 rounded-full flex items-center justify-center text-[#e5e0eb] hover:text-[#e0b6ff] active:scale-90 transition-transform cursor-pointer"
+              aria-label="Next Track"
+            >
+              <SkipForward size={28} className="fill-[#e5e0eb]" />
+            </button>
+
+            {/* Repeat Mode */}
+            <button
+              onClick={cycleRepeat}
+              className={`w-12 h-12 rounded-full flex flex-col items-center justify-center active:scale-90 transition-transform relative cursor-pointer ${
+                repeatMode !== 'off' ? 'text-[#e0b6ff]' : 'text-[#998d9e] hover:text-white'
+              }`}
+              title={`Repeat: ${repeatMode}`}
+            >
+              {repeatMode === 'one' ? <Repeat1 size={20} /> : <Repeat size={20} />}
+              {repeatMode !== 'off' && (
+                <span className="w-1 h-1 bg-[#00f1fd] rounded-full mt-0.5 shadow-[0_0_6px_#00f1fd]" />
+              )}
+            </button>
+          </div>
+
+          {/* Bottom Secondary Audio Ecosystem Bar */}
+          <div className="w-full flex items-center justify-between pt-1 text-xs">
+            {/* Active Audio Target */}
+            <div className="flex items-center gap-2 py-1.5 px-3 rounded-full bg-[#1c1b22] border border-white/[0.06] text-[#e5e0eb]">
+              <Speaker size={15} className="text-[#00f1fd]" />
+              <span className="font-medium truncate max-w-[140px]">
+                {currentSong.isDirectAudioStream ? 'Aura 320k Stream' : 'Aura Cloud Master'}
+              </span>
             </div>
+
+            {/* Up Next Queue Trigger with Live Badge */}
+            <button
+              onClick={() => {
+                setNowPlayingOpen(false);
+                setQueueOpen(true);
+              }}
+              className="relative flex items-center gap-1.5 py-1.5 px-3 rounded-full bg-[#1c1b22] hover:bg-[#201f26] border border-white/[0.06] text-[#d0c2d5] hover:text-white transition-all cursor-pointer"
+              aria-label="Up Next Queue"
+            >
+              <ListMusic size={16} className="text-[#e0b6ff]" />
+              <span className="font-semibold text-xs">Queue</span>
+              {queue.length > 0 && (
+                <span className="min-w-[16px] h-4 px-1 rounded-full bg-[#9d4edd] text-white text-[9px] font-extrabold flex items-center justify-center">
+                  {queue.length}
+                </span>
+              )}
+            </button>
           </div>
         </div>
       </div>

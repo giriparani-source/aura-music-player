@@ -62,6 +62,15 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       port: 3000,
       open: false,
+      watch: {
+        ignored: [
+          '**/*.mp4',
+          '**/*.apk',
+          '**/android/**',
+          '**/dist/**',
+          '**/.gemini/**'
+        ]
+      }
     },
     build: {
       chunkSizeWarningLimit: 1200,

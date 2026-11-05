@@ -24,7 +24,7 @@ export const PLAYLIST_ARTWORK_REGISTRY: Record<string, PlaylistArtworkMetadata> 
     title: 'Top 50 – Tamil Blockbusters',
     theme: 'Tamil Cinema Blockbusters • Grand Gold Stage & Celebration',
     description: 'Opulent golden celebration stage with spotlights, sparkling light trails, and festive cinematic awards atmosphere.',
-    artwork: '/assets/playlists/top_50_tamil.jpg',
+    artwork: '/assets/playlists/top_50_tamil.webp',
     accentColor: '#f59e0b'
   },
   mudhal_kaadhal: {
@@ -32,7 +32,7 @@ export const PLAYLIST_ARTWORK_REGISTRY: Record<string, PlaylistArtworkMetadata> 
     title: 'Mudhal Kaadhal',
     theme: 'First Love Romance • Coastal Golden Hour & Rain Walk',
     description: 'Romantic South Indian couple walking hand-in-hand along a scenic rain-washed coastal road under warm sunset rays.',
-    artwork: '/assets/playlists/mudhal_kaadhal.jpg',
+    artwork: '/assets/playlists/mudhal_kaadhal.webp',
     accentColor: '#f43f5e'
   },
   '90s_vibe': {
@@ -40,7 +40,7 @@ export const PLAYLIST_ARTWORK_REGISTRY: Record<string, PlaylistArtworkMetadata> 
     title: '90s Vibe',
     theme: '1990s Tamil Golden Era • Analog Vinyl & Vacuum Tube Warmth',
     description: 'Classic wooden turntable playing a spinning vinyl record alongside glowing warm vacuum tube amplifiers and vintage cassettes.',
-    artwork: '/assets/playlists/90s_vibe.jpg',
+    artwork: '/assets/playlists/90s_vibe.webp',
     accentColor: '#eab308'
   },
   night_drive: {
@@ -48,7 +48,7 @@ export const PLAYLIST_ARTWORK_REGISTRY: Record<string, PlaylistArtworkMetadata> 
     title: 'Night Drive',
     theme: 'Midnight Highway • Neon City Bokeh & Rain Reflections',
     description: 'Inside a sports car cockpit looking out onto an illuminated midnight highway with purple-cyan neon lights reflecting on wet roads.',
-    artwork: '/assets/playlists/night_drive.jpg',
+    artwork: '/assets/playlists/night_drive.webp',
     accentColor: '#a855f7'
   },
   beast_mode_workout: {
@@ -56,7 +56,7 @@ export const PLAYLIST_ARTWORK_REGISTRY: Record<string, PlaylistArtworkMetadata> 
     title: 'Beast Mode Workout',
     theme: 'High BPM Gym Hype • Intense Iron Lifting & Chalk Dust',
     description: 'Muscular athletic silhouette gripping heavy steel dumbbells in a dark gym bathed in fiery orange and red motivation lights.',
-    artwork: '/assets/playlists/beast_mode_workout.jpg',
+    artwork: '/assets/playlists/beast_mode_workout.webp',
     accentColor: '#ea580c'
   },
   kollywood_chillout: {
@@ -64,7 +64,7 @@ export const PLAYLIST_ARTWORK_REGISTRY: Record<string, PlaylistArtworkMetadata> 
     title: 'Kollywood Chillout',
     theme: 'Soulful Acoustics • Balcony Sunset Twilight & Coffee',
     description: 'Acoustic guitar resting on an armchair by an open balcony window overlooking a tranquil twilight sea with warm string lights.',
-    artwork: '/assets/playlists/kollywood_chillout.jpg',
+    artwork: '/assets/playlists/kollywood_chillout.webp',
     accentColor: '#6366f1'
   },
   kuthu_party_blast: {
@@ -72,7 +72,7 @@ export const PLAYLIST_ARTWORK_REGISTRY: Record<string, PlaylistArtworkMetadata> 
     title: 'Kuthu & Party Blast',
     theme: 'Festival Bangers • Thavil/Dholak Drums & Color Explosion',
     description: 'High-energy celebration dance with traditional South Indian percussion drums, bursting festive powders, and golden celebration sparks.',
-    artwork: '/assets/playlists/kuthu_party_blast.jpg',
+    artwork: '/assets/playlists/kuthu_party_blast.webp',
     accentColor: '#f59e0b'
   },
   anirudh_mass: {
@@ -80,7 +80,7 @@ export const PLAYLIST_ARTWORK_REGISTRY: Record<string, PlaylistArtworkMetadata> 
     title: 'Anirudh Mass Anthems',
     theme: 'Rockstar Concert Energy • Cyan & Magenta Arena Lasers',
     description: 'Rockstar jumping on a stadium stage with electric guitar under piercing neon purple and laser light beams before a roaring crowd.',
-    artwork: '/assets/playlists/anirudh_mass.jpg',
+    artwork: '/assets/playlists/anirudh_mass.webp',
     accentColor: '#3b82f6'
   },
   ar_rahman_hits: {
@@ -88,7 +88,7 @@ export const PLAYLIST_ARTWORK_REGISTRY: Record<string, PlaylistArtworkMetadata> 
     title: 'A.R. Rahman • Isai Puyal',
     theme: 'Oscar Maestro Soundtracks • Celestial Concert Grand Piano',
     description: 'Concert grand piano bathed in a celestial golden spotlight in a prestigious hall with floating musical notes and orchestra.',
-    artwork: '/assets/playlists/ar_rahman_hits.jpg',
+    artwork: '/assets/playlists/ar_rahman_hits.webp',
     accentColor: '#14b8a6'
   },
   yuvan_drug_bgm: {
@@ -96,7 +96,7 @@ export const PLAYLIST_ARTWORK_REGISTRY: Record<string, PlaylistArtworkMetadata> 
     title: 'Yuvan Shankar Raja • Drug BGMs',
     theme: 'U1 Cult Melodies • Neon Studio Console & Melancholic Waves',
     description: 'Late-night music production mixing console with illuminated sliders, audio waveforms, and studio headphones in deep magenta-purple glow.',
-    artwork: '/assets/playlists/yuvan_drug_bgm.jpg',
+    artwork: '/assets/playlists/yuvan_drug_bgm.webp',
     accentColor: '#e11d48'
   },
   harris_jayaraj_melodies: {
@@ -104,7 +104,7 @@ export const PLAYLIST_ARTWORK_REGISTRY: Record<string, PlaylistArtworkMetadata> 
     title: 'Harris Jayaraj • Minnal Melodies',
     theme: 'Monsoon Breeze Classics • Raindrop Window & Acoustic Guitar',
     description: 'Acoustic guitar resting beside a rain-streaked window looking out over lush misty green tropical hills during fresh monsoon rain.',
-    artwork: '/assets/playlists/harris_jayaraj_melodies.jpg',
+    artwork: '/assets/playlists/harris_jayaraj_melodies.webp',
     accentColor: '#06b6d4'
   },
   liked_songs: {
@@ -112,7 +112,7 @@ export const PLAYLIST_ARTWORK_REGISTRY: Record<string, PlaylistArtworkMetadata> 
     title: 'Liked Songs',
     theme: 'Personal Favorites • Neon Violet Heart & Vinyl Disc',
     description: 'Minimalist glowing neon violet heart floating over a glossy dark vinyl record with ambient audio ripples.',
-    artwork: '/assets/playlists/liked_songs.jpg',
+    artwork: '/assets/playlists/liked_songs.webp',
     accentColor: '#8b5cf6'
   }
 };
@@ -126,7 +126,7 @@ export function getPlaylistArtwork(playlistId: string): string {
   if (meta?.artwork) {
     return meta.artwork;
   }
-  return '/assets/playlists/top_50_tamil.jpg';
+  return '/assets/playlists/top_50_tamil.webp';
 }
 
 /**

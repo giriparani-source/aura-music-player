@@ -17,12 +17,57 @@ export interface AssistantContext {
 }
 
 const STORAGE_KEY = 'AURA_GEMINI_API_KEY';
+/** Obfuscation version — stored keys are not plaintext since v2 */
+const STORAGE_KEY_V2 = 'AURA_AI_KEY_V2';
+
+/**
+ * SEC-03 FIX: XOR-based obfuscation for API key storage.
+ * Prevents casual extraction via DevTools or localStorage dumps.
+ * Not a cryptographic solution (no native Keystore bridge available),
+ * but raises the bar significantly above plaintext storage.
+ */
+const OBFUSCATION_SALT = 'AuRa_MuSiC_2026_xK9';
+
+function xorObfuscate(input: string, salt: string): string {
+  const result: number[] = [];
+  for (let i = 0; i < input.length; i++) {
+    result.push(input.charCodeAt(i) ^ salt.charCodeAt(i % salt.length));
+  }
+  return btoa(String.fromCharCode(...result));
+}
+
+function xorDeobfuscate(encoded: string, salt: string): string {
+  try {
+    const decoded = atob(encoded);
+    const result: string[] = [];
+    for (let i = 0; i < decoded.length; i++) {
+      result.push(String.fromCharCode(decoded.charCodeAt(i) ^ salt.charCodeAt(i % salt.length)));
+    }
+    return result.join('');
+  } catch {
+    return '';
+  }
+}
 
 class GeminiAiService {
   public getApiKey(): string {
     if (typeof window === 'undefined') return '';
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored && stored.trim()) return stored.trim();
+
+    // Prefer V2 obfuscated storage
+    const storedV2 = localStorage.getItem(STORAGE_KEY_V2);
+    if (storedV2 && storedV2.trim()) {
+      const key = xorDeobfuscate(storedV2.trim(), OBFUSCATION_SALT);
+      if (key) return key;
+    }
+
+    // Migrate V1 plaintext key to V2 obfuscated, then remove plaintext
+    const storedV1 = localStorage.getItem(STORAGE_KEY);
+    if (storedV1 && storedV1.trim()) {
+      const plainKey = storedV1.trim();
+      localStorage.setItem(STORAGE_KEY_V2, xorObfuscate(plainKey, OBFUSCATION_SALT));
+      localStorage.removeItem(STORAGE_KEY);
+      return plainKey;
+    }
 
     // Fallback to environment variable if present
     const envKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
@@ -32,8 +77,11 @@ class GeminiAiService {
   public setApiKey(key: string): void {
     if (typeof window === 'undefined') return;
     if (key.trim()) {
-      localStorage.setItem(STORAGE_KEY, key.trim());
+      localStorage.setItem(STORAGE_KEY_V2, xorObfuscate(key.trim(), OBFUSCATION_SALT));
+      // Remove any leftover plaintext V1 key
+      localStorage.removeItem(STORAGE_KEY);
     } else {
+      localStorage.removeItem(STORAGE_KEY_V2);
       localStorage.removeItem(STORAGE_KEY);
     }
   }

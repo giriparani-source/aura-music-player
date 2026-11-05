@@ -103,18 +103,19 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ isPlaying, cla
       const barWidth = Math.max(3, (width / barsCount) - 3);
       const step = Math.floor(data.length / barsCount);
 
+      // Pre-compute shared bar gradient once per frame (eliminates 64 heap object allocations per frame)
+      const gradient = ctx.createLinearGradient(0, height * 0.2, 0, height);
+      gradient.addColorStop(0, '#818cf8'); // Indigo
+      gradient.addColorStop(0.5, '#c084fc'); // Purple
+      gradient.addColorStop(1, '#06b6d4'); // Cyan
+      ctx.fillStyle = gradient;
+
       for (let i = 0; i < barsCount; i++) {
         const val = data[i * step] || 0;
         const percent = val / 255;
         const barHeight = Math.max(4, percent * (height * 0.78));
         const x = i * (barWidth + 3) + (width - barsCount * (barWidth + 3)) / 2;
         const y = height - barHeight - 12;
-
-        // Gradient for each bar
-        const gradient = ctx.createLinearGradient(0, y, 0, height);
-        gradient.addColorStop(0, '#818cf8'); // Indigo
-        gradient.addColorStop(0.5, '#c084fc'); // Purple
-        gradient.addColorStop(1, '#06b6d4'); // Cyan
 
         ctx.fillStyle = gradient;
         ctx.beginPath();
@@ -132,10 +133,7 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ isPlaying, cla
 
         const peakY = height - peak - 16;
         ctx.fillStyle = '#ffffff';
-        ctx.shadowColor = '#818cf8';
-        ctx.shadowBlur = 8;
         ctx.fillRect(x, peakY, barWidth, 2);
-        ctx.shadowBlur = 0; // reset
       }
     };
 

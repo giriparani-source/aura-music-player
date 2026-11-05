@@ -5,6 +5,7 @@ import { downloadService } from './downloadService';
 import { searchJioSaavn } from './jiosaavnService';
 import { buildApiUrl } from '../utils/apiConfig';
 import { Capacitor } from '@capacitor/core';
+import { androidMediaBridge } from './androidMediaBridge';
 import { audioMediaSession } from './audioMediaSession';
 import { audioWatchdog } from './audioWatchdog';
 import {
@@ -13,9 +14,10 @@ import {
   isDirectAudioStream,
   isLocalTrack,
   resolveLocalAudioSource,
-  tryResolveFastPathYoutubeStream,
   resolvePlaybackFailover
 } from './audioStreamResolver';
+import { matchYouTubeToCatalog } from './catalogMatcher';
+import { resolveYoutubeAudioStream } from './youtubeAudioResolver';
 
 type AudioEventListener = (state: AudioServiceState) => void;
 
@@ -41,8 +43,12 @@ export class AudioService {
   private onSongEndCallback: (() => void) | null = null;
   private onMeaningfulListenCallback: ((song: Song) => void) | null = null;
 
-  // Track active engine: HTML5 Audio (local) vs Cloud Headless Player (Vercel online)
-  private isUsingCloudPlayer: boolean = false;
+  // Track active engine: HTML5 Audio (local) vs Cloud Headless Player (Vercel online) vs Native ExoPlayer
+  public isUsingCloudPlayer: boolean = false;
+  public isUsingNativePlayer: boolean = false;
+  private nativeCurrentPosition: number = 0;
+  private nativeDuration: number = 0;
+  private isNativePlaying: boolean = false;
   private isCloudPlaying: boolean = false;
   private isUserPaused: boolean = false;
   private isFallingBack: boolean = false;
@@ -58,6 +64,9 @@ export class AudioService {
   // Smart Crossfade Engine
   private crossfadeSeconds: number = 3;
   private isFadingOut: boolean = false;
+
+  // Session persistence cue
+  private pendingStartTime: number = 0;
 
   constructor() {
     if (typeof Audio !== 'undefined') {
@@ -86,6 +95,52 @@ export class AudioService {
       this.setupListeners();
       this.setupRadioListeners();
       this.setupCloudListeners();
+
+      if (Capacitor.isNativePlatform()) {
+        let hasDispatchedNativeEnd = false;
+        let lastEndSongId: string | null = null;
+
+        androidMediaBridge.onPlaybackProgress(({ position, duration, isPlaying }) => {
+          if (!this.isUsingNativePlayer) return;
+          this.nativeCurrentPosition = position;
+          if (duration > 0) this.nativeDuration = duration;
+          this.isNativePlaying = isPlaying;
+
+          if (this.currentSong && !this.hasCountedMeaningfulPlay) {
+            const threshold = Math.min(30, (duration || 30) * 0.5);
+            if (position >= threshold) {
+              this.hasCountedMeaningfulPlay = true;
+              if (this.onMeaningfulListenCallback) {
+                this.onMeaningfulListenCallback(this.currentSong);
+              }
+            }
+          }
+
+          // Native ExoPlayer track completion fallback:
+          // If ExoPlayer is not playing, duration is valid, and position has reached near the end
+          const currentId = this.currentSong?.id;
+          if (currentId !== lastEndSongId) {
+            hasDispatchedNativeEnd = false;
+            lastEndSongId = currentId || null;
+          }
+
+          if (
+            !isPlaying &&
+            duration > 1 &&
+            position >= Math.max(0, duration - 0.75) &&
+            !hasDispatchedNativeEnd
+          ) {
+            hasDispatchedNativeEnd = true;
+            if (this.onSongEndCallback) {
+              this.onSongEndCallback();
+            }
+          } else if (isPlaying && position < duration - 1) {
+            hasDispatchedNativeEnd = false;
+          }
+
+          this.notify();
+        });
+      }
     } else {
       this.audio = {
         preload: 'auto',
@@ -278,8 +333,12 @@ export class AudioService {
     let currentTime = 0;
     let duration = (this.currentSong ? this.currentSong.duration : 0) || 0;
 
-    if (this.isUsingCloudPlayer) {
-      currentTime = cloudPlayerService.getCurrentTime();
+    if (this.isUsingNativePlayer) {
+      currentTime = this.nativeCurrentPosition;
+      if (this.nativeDuration > 0) duration = this.nativeDuration;
+      isActuallyPlaying = this.isNativePlaying;
+    } else if (this.isUsingCloudPlayer) {
+      currentTime = cloudPlayerService.getCurrentTime() || this.pendingStartTime || 0;
       const cloudDur = cloudPlayerService.getDuration();
       if (cloudDur > 0) duration = cloudDur;
       isActuallyPlaying = this.isCloudPlaying;
@@ -290,7 +349,7 @@ export class AudioService {
     } else {
       isActuallyPlaying =
         !this.audio.paused && !this.audio.ended && this.audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
-      currentTime = this.audio.currentTime || 0;
+      currentTime = this.audio.currentTime || this.pendingStartTime || 0;
       if (this.audio.duration && !isNaN(this.audio.duration)) {
         duration = this.audio.duration;
       }
@@ -325,6 +384,39 @@ export class AudioService {
     return () => this.listeners.delete(listener);
   }
 
+  /**
+   * Prepares and cues a restored song and position into the player without auto-playing.
+   * Restores mini-player and seek bar state across reopens.
+   */
+  public async restoreSession(song: Song, position: number): Promise<void> {
+    this.currentSong = song;
+    this.isUserPaused = true;
+    this.pendingStartTime = Math.max(0, position);
+    this.lastTimeUpdateSecond = this.pendingStartTime;
+
+    const isDirect = isDirectAudioStream(song);
+    const ytVideoId = !isDirect ? extractYouTubeVideoId(song) : null;
+
+    if (ytVideoId) {
+      this.isUsingCloudPlayer = true;
+      this.isCloudPlaying = false;
+      cloudPlayerService.cueVideo(ytVideoId, this.pendingStartTime);
+    } else if (this.audio) {
+      this.isUsingCloudPlayer = false;
+      const srcUrl = song.filePath || song.path;
+      if (srcUrl && !srcUrl.startsWith('blob:')) {
+        this.audio.src = srcUrl;
+        try {
+          this.audio.currentTime = this.pendingStartTime;
+        } catch {
+          // Ignore if audio readyState not yet loaded
+        }
+      }
+    }
+
+    this.notify();
+  }
+
   public async playSong(song: Song, audioSourceUrl?: string): Promise<void> {
     const thisRequestId = ++this.playRequestId;
 
@@ -339,6 +431,13 @@ export class AudioService {
       this.currentObjectUrl = null;
     }
     downloadService.revokeCachedAudioUrl();
+
+    // Stop native playback if active before switching tracks/engines
+    if (this.isUsingNativePlayer) {
+      this.isUsingNativePlayer = false;
+      this.isNativePlaying = false;
+      androidMediaBridge.stopNative().catch(() => {});
+    }
 
     // 0. Live Radio Direct Playback Path
     if (song.isLiveRadio) {
@@ -368,6 +467,19 @@ export class AudioService {
       try {
         const localSource = resolveLocalAudioSource(song, audioSourceUrl);
         if (localSource) {
+          if (Capacitor.isNativePlatform()) {
+            this.audio.pause();
+            this.isUsingNativePlayer = true;
+            this.currentSong = song;
+            this.nativeCurrentPosition = this.pendingStartTime;
+            this.nativeDuration = song.duration || 0;
+            this.isNativePlaying = true;
+            const nativeUri = localSource.rawNativeSource || (song as any).contentUri || song.path || localSource.source;
+            await androidMediaBridge.playNativeTrack(song, nativeUri, this.pendingStartTime);
+            this.pendingStartTime = 0;
+            this.notify();
+            return;
+          }
           if (localSource.isObjectUrl) {
             this.currentObjectUrl = localSource.source;
           }
@@ -384,23 +496,43 @@ export class AudioService {
 
     // 2. Remote/Online Track: Check Offline Cache Storage First
     try {
-      const cachedAudioUrl = await downloadService.getCachedAudioUrl(song.id);
-      if (cachedAudioUrl) {
-        if (thisRequestId !== this.playRequestId) {
-          downloadService.revokeCachedAudioUrl(song.id);
-          return;
-        }
+      const isDownloaded = await downloadService.isTrackDownloaded(song.id);
+      if (isDownloaded) {
+        if (thisRequestId !== this.playRequestId) return;
         this.isUsingCloudPlayer = false;
         cloudPlayerService.pause();
-        await this.playDirectHtml5Audio(song, cachedAudioUrl, thisRequestId);
-        return;
+        song.isForegroundOnly = false;
+        song.playbackMode = 'direct-catalog';
+        song.isDirectAudioStream = true;
+
+        if (Capacitor.isNativePlatform()) {
+          this.audio.pause();
+          this.isUsingNativePlayer = true;
+          this.currentSong = song;
+          this.nativeCurrentPosition = this.pendingStartTime;
+          this.nativeDuration = song.duration || 0;
+          this.isNativePlaying = true;
+          const nativeUri = await androidMediaBridge.ensureNativeOfflineAudio(song);
+          if (nativeUri) {
+            await androidMediaBridge.playNativeTrack(song, nativeUri, this.pendingStartTime);
+            this.pendingStartTime = 0;
+            this.notify();
+            return;
+          }
+        }
+
+        const cachedAudioUrl = await downloadService.getCachedAudioUrl(song.id);
+        if (cachedAudioUrl) {
+          await this.playDirectHtml5Audio(song, cachedAudioUrl, thisRequestId);
+          return;
+        }
       }
     } catch (cacheErr) {
       console.warn('Error reading offline cached audio:', cacheErr);
     }
 
     // 3. Graceful Offline Detection for un-cached remote tracks
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       this.notify('You are offline. Only downloaded tracks can be played.');
       return;
     }
@@ -413,65 +545,93 @@ export class AudioService {
     }
 
     // 5. Standard Online Track Playback (JioSaavn / Direct Stream / YouTube Cloud)
-    const isDirect = isDirectAudioStream(song);
+    const hasResolvedDirectUrl = Boolean(
+      song.filePath &&
+      (song.filePath.includes('saavncdn.com') ||
+       song.filePath.includes('googlevideo.com') ||
+       song.filePath.includes('.m4a') ||
+       song.filePath.includes('.mp3') ||
+       song.filePath.includes('nadeko.net') ||
+       song.filePath.includes('piped') ||
+       song.filePath.includes('invidious'))
+    );
+    const isDirect = isDirectAudioStream(song) && hasResolvedDirectUrl;
     const ytVideoId = !isDirect ? extractYouTubeVideoId(song) : null;
 
     if (ytVideoId) {
-      // 5.1 FAST PATH: Attempt Direct M4A Audio Stream Resolution
-      const fastPath = await tryResolveFastPathYoutubeStream(ytVideoId);
-      if (fastPath && fastPath.audioUrl) {
-        console.log(`[AudioService] Successfully resolved direct M4A audio stream for YouTube track "${song.title}" (${fastPath.format}, ${fastPath.bitrate}kbps)`);
-        song.filePath = fastPath.audioUrl;
-        song.path = fastPath.audioUrl;
-        song.format = fastPath.format || 'M4A';
-        song.isSaavn = true;
-        (song as any).isDirectAudioStream = true;
-
-        return await this.playSong(song, audioSourceUrl);
-      }
-
-      // 5.2 BACKEND STREAM PROXY ATTEMPT: Stream direct audio via /api/online/stream
-      if (!(song as any)._triedDirectStream) {
-        (song as any)._triedDirectStream = true;
+      // 5.1 HIGH-CONFIDENCE AUTHORIZED CATALOG MATCHING (With Hard Gates)
+      // YouTube URL = metadata/import source ONLY.
+      // Evaluates artist, duration proximity, and version/type.
+      // Rejects substitutes for 33-minute mixtapes, remixes, and live sets.
+      if (!song.isSaavn && !(song as any)._evaluatedCatalog) {
+        (song as any)._evaluatedCatalog = true;
         try {
-          const proxyUrl = buildApiUrl(`/api/online/stream?id=${encodeURIComponent(ytVideoId)}`);
-          console.log(`[AudioService] Connecting direct audio stream for YouTube track "${song.title}" via ${proxyUrl}`);
-          song.filePath = proxyUrl;
-          song.path = proxyUrl;
-          song.format = 'M4A';
-          song.isSaavn = true;
-          (song as any).isDirectAudioStream = true;
-          return await this.playSong(song, proxyUrl);
-        } catch (proxyErr) {
-          console.warn(`[AudioService] Direct stream proxy attempt failed for ${ytVideoId}:`, proxyErr);
+          const matchResult = await matchYouTubeToCatalog(
+            song.title,
+            song.artist !== 'YouTube' ? song.artist : undefined,
+            song.duration,
+            ytVideoId,
+            song.coverArt || song.artwork
+          );
+
+          if (matchResult.status === 'MATCHED') {
+            console.log(`[AudioService] YouTube track "${song.title}" passed hard gates and matched with 320k Studio Master audio (${matchResult.confidence}%): ${matchResult.streamUrl}`);
+            song.filePath = matchResult.streamUrl;
+            song.path = matchResult.streamUrl;
+            song.format = '320k AAC';
+            song.bitrate = 320;
+            song.isSaavn = true;
+            song.isForegroundOnly = false;
+            song.playbackMode = 'direct-catalog';
+            (song as any).isDirectAudioStream = true;
+            if (matchResult.song.artwork && !song.coverArt) {
+              song.coverArt = matchResult.song.artwork;
+              song.artwork = matchResult.song.artwork;
+            }
+            return await this.playSong(song, matchResult.streamUrl);
+          } else {
+            console.log(`[AudioService] YouTube track "${song.title}" unmatched by hard gates: ${matchResult.reason}. Checking direct stream extraction...`);
+          }
+        } catch (matchErr) {
+          console.warn('[AudioService] Catalog match check error for YouTube track:', matchErr);
         }
       }
 
-      // 5.3 Headless Cloud Player with Silent Audio Anchor & Background Watchdog
+      // 5.2 Direct Audio Stream Extraction Attempt (yt-dlp backend or mirror extraction)
+      // If a valid direct M4A/WebM stream can be resolved, route to direct audio (ExoPlayer / HTML5 audio)
+      try {
+        const streamResult = await resolveYoutubeAudioStream(ytVideoId);
+        if (streamResult && streamResult.audioUrl) {
+          console.log(`[AudioService] Successfully resolved direct YouTube audio stream for "${song.title}" (${streamResult.format}): ${streamResult.audioUrl}`);
+          song.filePath = streamResult.audioUrl;
+          song.path = streamResult.audioUrl;
+          song.format = streamResult.format || 'M4A';
+          song.bitrate = streamResult.bitrate || 160;
+          if (streamResult.durationSeconds && (!song.duration || song.duration === 0)) {
+            song.duration = streamResult.durationSeconds;
+          }
+          song.isForegroundOnly = false;
+          song.playbackMode = 'direct-catalog';
+          (song as any).isDirectAudioStream = true;
+          if (streamResult.artwork && !song.coverArt) {
+            song.coverArt = streamResult.artwork;
+            song.artwork = streamResult.artwork;
+          }
+          return await this.playSong(song, streamResult.audioUrl);
+        }
+      } catch (streamErr) {
+        console.warn('[AudioService] Direct YouTube stream resolution error:', streamErr);
+      }
+
+      // 5.3 Foreground-Only YouTube IFrame Player (Transparently foreground only when direct stream is unavailable)
+      song.isForegroundOnly = true;
+      song.playbackMode = 'youtube-foreground';
       this.isUsingCloudPlayer = true;
-      audioWatchdog.startSilentAudioAnchor(this.audio);
       this.isCloudPlaying = false;
-      cloudPlayerService.loadVideo(ytVideoId, 0);
+      const startSec = this.pendingStartTime || 0;
+      this.pendingStartTime = 0;
+      cloudPlayerService.loadVideo(ytVideoId, startSec);
       this.notify();
-
-      audioWatchdog.startPlaybackWatchdog(
-        () => this.isUsingCloudPlayer,
-        () => this.isUserPaused,
-        () => this.isCloudPlaying,
-        () => {
-          cloudPlayerService.play();
-          audioWatchdog.startSilentAudioAnchor(this.audio);
-        }
-      );
-
-      audioWatchdog.armCloudWatchdog(
-        8000,
-        () => this.isUsingCloudPlayer && !this.isCloudPlaying && this.currentSong?.id === song.id,
-        () => {
-          console.warn('YouTube stream watchdog triggered: buffering timeout or embed restriction. Switching to Studio Master audio.');
-          this.handlePlaybackFailure(song);
-        }
-      );
       return;
     }
 
@@ -500,6 +660,22 @@ export class AudioService {
             source = song.filePath;
           }
         }
+      }
+
+      // Native Android ExoPlayer routing for direct audio streams (Screen-off ready)
+      if (Capacitor.isNativePlatform() && source && (source.startsWith('http://') || source.startsWith('https://'))) {
+        if (thisRequestId !== this.playRequestId) return;
+        this.audio.pause();
+        this.isUsingNativePlayer = true;
+        this.currentSong = song;
+        this.nativeCurrentPosition = this.pendingStartTime;
+        this.nativeDuration = song.duration || 0;
+        this.isNativePlaying = true;
+        await androidMediaBridge.playNativeTrack(song, source, this.pendingStartTime);
+        if (thisRequestId !== this.playRequestId) return;
+        this.pendingStartTime = 0;
+        this.notify();
+        return;
       }
 
       await this.playDirectHtml5Audio(song, source, thisRequestId);
@@ -598,6 +774,14 @@ export class AudioService {
 
       await this.audio.play();
 
+      if (this.pendingStartTime > 0) {
+        try {
+          this.audio.currentTime = this.pendingStartTime;
+          this.lastTimeUpdateSecond = this.pendingStartTime;
+        } catch {}
+        this.pendingStartTime = 0;
+      }
+
       if (requestId !== undefined && requestId !== this.playRequestId) return;
 
       if (!isNative) {
@@ -672,10 +856,81 @@ export class AudioService {
     }
   }
 
+  /**
+   * Seamlessly hot-swaps active playback from YouTube IFrame to local cached audio
+   * without interrupting the user's listening experience.
+   */
+  public async hotSwapToCachedAudio(song: Song, cachedAudioUrl: string, atTimeSec?: number): Promise<void> {
+    try {
+      const position = atTimeSec !== undefined ? atTimeSec : (this.getCurrentTime() || 0);
+      const wasPlaying = this.isUsingCloudPlayer ? this.isCloudPlaying : (!this.audio.paused && !this.audio.ended);
+
+      // 1. Shut down YouTube Cloud IFrame
+      this.isUsingCloudPlayer = false;
+      this.isCloudPlaying = false;
+      audioWatchdog.clearCloudWatchdog();
+      cloudPlayerService.pause();
+
+      // 2. Configure track metadata
+      song.isDownloaded = true;
+      song.isForegroundOnly = false;
+      song.playbackMode = 'direct-catalog';
+      song.isDirectAudioStream = true;
+      this.currentSong = song;
+
+      // 3. Switch audio engine
+      const isNative = Capacitor.isNativePlatform();
+      this.audio.pause();
+
+      if (isNative) {
+        const nativeUri = await androidMediaBridge.ensureNativeOfflineAudio(song);
+        if (nativeUri) {
+          this.isUsingNativePlayer = true;
+          this.nativeCurrentPosition = position;
+          this.nativeDuration = song.duration || 0;
+          this.isNativePlaying = wasPlaying;
+          await androidMediaBridge.playNativeTrack(song, nativeUri, position);
+          if (!wasPlaying) {
+            await androidMediaBridge.pauseNative();
+          }
+          this.notify();
+          console.log(`⚡ Seamlessly hot-swapped "${song.title}" to native ExoPlayer at ${position.toFixed(1)}s`);
+          return;
+        }
+      }
+
+      if (isNative) {
+        this.audio.removeAttribute('crossorigin');
+      }
+      this.audio.src = cachedAudioUrl;
+      this.audio.load();
+
+      if (position > 0) {
+        try {
+          this.audio.currentTime = position;
+          this.lastTimeUpdateSecond = position;
+        } catch {}
+      }
+
+      if (wasPlaying) {
+        await this.audio.play();
+      }
+
+      this.notify();
+      console.log(`⚡ Seamlessly hot-swapped "${song.title}" from YouTube iframe to offline cached audio at ${position.toFixed(1)}s`);
+    } catch (err) {
+      console.warn('Hot-swap to cached audio notice:', err);
+    }
+  }
+
   public pause(): void {
     this.isUserPaused = true;
     audioWatchdog.stopPlaybackWatchdog();
-    if (this.isUsingCloudPlayer) {
+    audioEffectsService.suspend();
+    if (this.isUsingNativePlayer) {
+      this.isNativePlaying = false;
+      androidMediaBridge.pauseNative().catch(() => {});
+    } else if (this.isUsingCloudPlayer) {
       cloudPlayerService.pause();
       this.isCloudPlaying = false;
       audioWatchdog.pauseSilentAudioAnchor(this.audio);
@@ -689,7 +944,24 @@ export class AudioService {
 
   public async resume(): Promise<void> {
     this.isUserPaused = false;
+    audioEffectsService.resume();
+    if (this.isUsingNativePlayer) {
+      this.isNativePlaying = true;
+      await androidMediaBridge.resumeNative();
+      this.notify();
+      return;
+    }
+
     if (this.isUsingCloudPlayer) {
+      // Check if song has been downloaded to offline cache
+      if (this.currentSong) {
+        const cachedUrl = await downloadService.getCachedAudioUrl(this.currentSong.id);
+        if (cachedUrl) {
+          const currentTime = cloudPlayerService.getCurrentTime() || 0;
+          await this.hotSwapToCachedAudio(this.currentSong, cachedUrl, currentTime);
+          return;
+        }
+      }
       audioWatchdog.startSilentAudioAnchor(this.audio);
       cloudPlayerService.play();
       this.isCloudPlaying = true;
@@ -725,6 +997,13 @@ export class AudioService {
           }
         }
         await this.audio.play();
+        if (this.pendingStartTime > 0) {
+          try {
+            this.audio.currentTime = this.pendingStartTime;
+            this.lastTimeUpdateSecond = this.pendingStartTime;
+          } catch {}
+          this.pendingStartTime = 0;
+        }
         this.notify();
       } catch (err: any) {
         if (err.name !== 'AbortError') {
@@ -739,7 +1018,25 @@ export class AudioService {
   }
 
   public async togglePlay(fallbackSong?: Song | null): Promise<void> {
+    if (this.isUsingNativePlayer) {
+      if (this.isNativePlaying) {
+        this.pause();
+      } else {
+        await this.resume();
+      }
+      return;
+    }
+
     if (this.isUsingCloudPlayer) {
+      // Check if song has been downloaded to offline cache
+      if (this.currentSong) {
+        const cachedUrl = await downloadService.getCachedAudioUrl(this.currentSong.id);
+        if (cachedUrl) {
+          const currentTime = cloudPlayerService.getCurrentTime() || 0;
+          await this.hotSwapToCachedAudio(this.currentSong, cachedUrl, currentTime);
+          return;
+        }
+      }
       if (this.isCloudPlaying) {
         this.pause();
       } else {
@@ -768,9 +1065,25 @@ export class AudioService {
     }
   }
 
+  public getCurrentTime(): number {
+    if (this.isUsingNativePlayer) {
+      return this.nativeCurrentPosition;
+    }
+    if (this.isUsingCloudPlayer) {
+      return cloudPlayerService.getCurrentTime() || this.pendingStartTime || 0;
+    }
+    if (this.currentSong?.isLiveRadio) {
+      return this.radioAudio.currentTime || 0;
+    }
+    return this.audio.currentTime || this.pendingStartTime || 0;
+  }
+
   public seek(seconds: number): void {
     if (isFinite(seconds)) {
-      if (this.isUsingCloudPlayer) {
+      if (this.isUsingNativePlayer) {
+        this.nativeCurrentPosition = seconds;
+        androidMediaBridge.seekNative(seconds).catch(() => {});
+      } else if (this.isUsingCloudPlayer) {
         cloudPlayerService.seek(seconds);
       } else {
         this.audio.currentTime = Math.max(0, Math.min(seconds, this.audio.duration || seconds));
@@ -857,6 +1170,9 @@ export class AudioService {
   }
 
   public isCurrentlyPlaying(): boolean {
+    if (this.isUsingNativePlayer) {
+      return this.isNativePlaying;
+    }
     if (this.isUsingCloudPlayer) {
       return this.isCloudPlaying;
     }
@@ -867,6 +1183,9 @@ export class AudioService {
   }
 
   public getCurrentPlaybackTime(): number {
+    if (this.isUsingNativePlayer) {
+      return this.nativeCurrentPosition;
+    }
     if (this.isUsingCloudPlayer) {
       return cloudPlayerService.getCurrentTime();
     }
@@ -877,6 +1196,9 @@ export class AudioService {
   }
 
   public getPlaybackDuration(): number {
+    if (this.isUsingNativePlayer && this.nativeDuration > 0) {
+      return this.nativeDuration;
+    }
     if (this.isUsingCloudPlayer) {
       return cloudPlayerService.getDuration() || this.currentSong?.duration || 0;
     }

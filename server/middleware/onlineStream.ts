@@ -142,51 +142,74 @@ export async function onlineStreamHandler(req: any, res: any) {
       return;
     }
 
-    // 4. Stream Proxy with HTTP Range request support
-    const targetUrl = new URL(resolvedUrl);
-    const client = targetUrl.protocol === 'http:' ? http : https;
-    const headers: Record<string, string> = {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-    };
-    if (req.headers.range) {
-      headers['Range'] = req.headers.range;
+    // 4. Stream Proxy with HTTP Range request support and redirect handling
+    function pipeStream(targetUrlStr: string, depth = 0) {
+      if (depth > 5) {
+        if (!res.headersSent) {
+          res.statusCode = 502;
+          res.end('Too many redirects while proxying audio stream');
+        }
+        return;
+      }
+
+      const targetUrl = new URL(targetUrlStr);
+      const client = targetUrl.protocol === 'http:' ? http : https;
+      const headers: Record<string, string> = {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+      };
+      if (req.headers.range) {
+        headers['Range'] = req.headers.range;
+      }
+
+      const proxyReq = client.request(
+        targetUrl,
+        {
+          headers,
+          method: req.method === 'HEAD' ? 'HEAD' : 'GET'
+        },
+        (proxyRes) => {
+          // Follow HTTP redirects (e.g. googlevideo 302 redirects to regional edge servers)
+          if (
+            proxyRes.statusCode &&
+            proxyRes.statusCode >= 300 &&
+            proxyRes.statusCode < 400 &&
+            proxyRes.headers.location
+          ) {
+            proxyRes.resume(); // Discard redirect body
+            return pipeStream(proxyRes.headers.location, depth + 1);
+          }
+
+          res.statusCode = proxyRes.statusCode || 200;
+          res.setHeader('Accept-Ranges', 'bytes');
+          res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'audio/mp4');
+
+          if (proxyRes.headers['content-range']) {
+            res.setHeader('Content-Range', proxyRes.headers['content-range']);
+          }
+          if (proxyRes.headers['content-length']) {
+            res.setHeader('Content-Length', proxyRes.headers['content-length']);
+          }
+
+          proxyRes.pipe(res);
+        }
+      );
+
+      proxyReq.on('error', (err) => {
+        if (!res.headersSent) {
+          res.statusCode = 502;
+          res.end('Proxy streaming error: ' + err.message);
+        }
+      });
+
+      req.on('close', () => {
+        proxyReq.destroy();
+      });
+
+      proxyReq.end();
     }
 
-    const proxyReq = client.request(
-      targetUrl,
-      {
-        headers,
-        method: req.method === 'HEAD' ? 'HEAD' : 'GET'
-      },
-      (proxyRes) => {
-        res.statusCode = proxyRes.statusCode || 200;
-        res.setHeader('Accept-Ranges', 'bytes');
-        res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'audio/mp4');
-
-        if (proxyRes.headers['content-range']) {
-          res.setHeader('Content-Range', proxyRes.headers['content-range']);
-        }
-        if (proxyRes.headers['content-length']) {
-          res.setHeader('Content-Length', proxyRes.headers['content-length']);
-        }
-
-        proxyRes.pipe(res);
-      }
-    );
-
-    proxyReq.on('error', (err) => {
-      if (!res.headersSent) {
-        res.statusCode = 502;
-        res.end('Proxy streaming error: ' + err.message);
-      }
-    });
-
-    req.on('close', () => {
-      proxyReq.destroy();
-    });
-
-    proxyReq.end();
+    pipeStream(resolvedUrl);
   } catch (err: any) {
     if (!res.headersSent) {
       res.statusCode = 500;

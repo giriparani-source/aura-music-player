@@ -2,6 +2,10 @@ export interface Song {
   id: string;
   /** Canonical audio file URI or path */
   path: string;
+  /** Android MediaStore content:// URI (e.g. content://media/external/audio/media/123) */
+  contentUri?: string;
+  /** Physical underlying file system path when provided by MediaStore / native layer */
+  rawFileSystemPath?: string;
   /** @deprecated Legacy alias for `path`. Synchronized via `normalizeSong()`. */
   filePath: string;
   fileName: string;
@@ -42,6 +46,9 @@ export interface Song {
   isAuraFlow?: boolean;
   isSmartShuffle?: boolean;
   auraReason?: AuraRecommendationReason;
+  isForegroundOnly?: boolean;
+  playbackMode?: 'direct-catalog' | 'youtube-foreground' | 'local' | 'radio';
+  isDirectAudioStream?: boolean;
 }
 
 export type ShuffleMode = 'off' | 'fair' | 'smart';
@@ -74,13 +81,30 @@ export interface Artist {
   coverArt?: string;
 }
 
+export type PlaylistEntryStatus = 'available' | 'unavailable';
+
+export interface PlaylistEntry {
+  entryId: string;
+  songId: string | null; // null if track is unavailable
+  position: number;
+  status: PlaylistEntryStatus;
+  title: string;
+  artist: string;
+  duration?: number;
+  coverArt?: string;
+  sourceTrackId?: string;
+  unavailableReason?: string;
+  addedAt: number;
+}
+
 export interface Playlist {
   id: string;
   name: string;
   description?: string;
   isSmart?: boolean;
   coverArt?: string;
-  songIds: string[];
+  songIds: string[];         // BACKWARD COMPATIBILITY
+  entries?: PlaylistEntry[]; // NEW: Ordered entries preserving duplicates & status
   createdAt: number;
   updatedAt: number;
 }
@@ -106,10 +130,17 @@ export interface ScanProgress {
   errorMessage?: string;
 }
 
+export type DuplicateMatchKind = 'exact' | 'possible' | 'version_remix';
+export type DuplicateConfidence = 'high' | 'medium' | 'low';
+
 export interface DuplicateGroup {
   id: string;
   canonicalTitle: string;
   similarityScore: number; // 0 - 100
+  confidence: DuplicateConfidence;
+  matchKind: DuplicateMatchKind;
+  recommendedKeepSongId: string;
+  recommendationReason: string;
   reasons: string[];
   songs: Song[];
 }
@@ -139,7 +170,7 @@ export interface LibraryStats {
   possibleDuplicates: number;
 }
 
-export type NavigationTab = 'home' | 'library' | 'radio' | 'search' | 'playlists' | 'ai-studio' | 'settings';
+export type NavigationTab = 'home' | 'local' | 'library' | 'radio' | 'search' | 'playlists' | 'ai-studio' | 'settings';
 export type LibrarySubTab = 'songs' | 'albums' | 'artists' | 'playlists' | 'folders' | 'downloads';
 export type SortOption = 'recent' | 'title' | 'artist' | 'album' | 'duration' | 'mostPlayed' | 'bitrate' | 'fileSize';
 export type ViewMode = 'grid' | 'list';
@@ -256,4 +287,25 @@ export interface BackupImportResult {
   favoritesUpdated: number;
   playCountsUpdated: number;
   errors: string[];
+}
+
+// Playback Session Persistence (Spotify-grade session restore)
+export type PlaybackSourceProvider = 'local' | 'saavn' | 'youtube' | 'radio' | 'inbuilt' | 'stream';
+
+export interface PlaybackSession {
+  songId: string;
+  provider: PlaybackSourceProvider;
+  sourceIdentifier: string;
+  position: number;
+  duration: number;
+  queueTrackIds: string[];
+  queueTracks?: Song[];
+  queueIndex: number;
+  shuffleState: {
+    isShuffle: boolean;
+    shuffleMode: ShuffleMode;
+    shuffledQueueOrder?: number[];
+  };
+  repeatState: RepeatMode;
+  updatedAt: number;
 }

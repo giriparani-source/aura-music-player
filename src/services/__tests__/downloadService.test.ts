@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { downloadService, OFFLINE_AUDIO_CACHE } from '../downloadService';
 import { musicDB } from '../db';
 import { Song } from '../../types/music';
+import * as ytResolver from '../youtubeAudioResolver';
 
 describe('downloadService', () => {
   let mockCacheStorage: Map<string, Response>;
@@ -265,5 +266,78 @@ describe('downloadService', () => {
     const usage = await downloadService.getOfflineStorageUsage();
     expect(usage.songCount).toBe(2);
     expect(usage.totalBytes).toBe(1024 * 1024 * 7);
+  });
+
+  describe('YouTube Track Download & Screen-Off Caching', () => {
+    const ytSong: Song = {
+      id: 'online_dQw4w9WgXcQ',
+      title: 'Yuvan Drugs 33m Mixtape',
+      artist: 'Yuvan Shankar Raja',
+      album: 'YouTube Video',
+      duration: 1980,
+      filePath: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      path: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      fileName: 'yuvan_drugs.mp3',
+      format: 'STREAM',
+      fileSize: 0,
+      dateAdded: Date.now(),
+      playCount: 0,
+      isFavorite: false,
+      isOnline: true,
+      isForegroundOnly: true,
+      playbackMode: 'youtube-foreground',
+      sourceId: 'dQw4w9WgXcQ'
+    };
+
+    it('identifies YouTube tracks and extracts videoId correctly', () => {
+      expect(downloadService.isYouTubeSong(ytSong)).toBe(true);
+      expect(downloadService.extractYouTubeVideoId(ytSong)).toBe('dQw4w9WgXcQ');
+
+      const watchUrlOnlySong: Song = {
+        ...sampleSong,
+        filePath: 'https://youtube.com/watch?v=abc123xyz89',
+        isForegroundOnly: false
+      };
+      expect(downloadService.isYouTubeSong(watchUrlOnlySong)).toBe(true);
+      expect(downloadService.extractYouTubeVideoId(watchUrlOnlySong)).toBe('abc123xyz89');
+    });
+
+    it('downloads YouTube track audio stream and sets screen-off playback readiness', async () => {
+      const mockStreamUrl = 'https://mock-stream.example.com/dQw4w9WgXcQ.m4a';
+      vi.spyOn(ytResolver, 'resolveYoutubeAudioStream').mockResolvedValue({
+        videoId: 'dQw4w9WgXcQ',
+        audioUrl: mockStreamUrl,
+        format: 'M4A',
+        mimeType: 'audio/mp4',
+        bitrate: 160,
+        durationSeconds: 1980
+      });
+
+      // Mock global fetch to return stream blob
+      globalThis.fetch = vi.fn(async () => {
+        return new Response(new Blob(['mock-m4a-audio-data'], { type: 'audio/mp4' }), {
+          status: 200,
+          headers: { 'Content-Type': 'audio/mp4', 'Content-Length': '18' }
+        });
+      }) as any;
+
+      const success = await downloadService.downloadTrack(ytSong);
+      expect(success).toBe(true);
+
+      // Verify cached in Cache Storage
+      const key = `https://aura.local/offline-audio/online_dQw4w9WgXcQ`;
+      expect(mockCache.put).toHaveBeenCalledWith(key, expect.any(Response));
+
+      // Verify saved to IndexedDB with isForegroundOnly = false and direct-catalog mode
+      expect(musicDB.saveSong).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'online_dQw4w9WgXcQ',
+          isDownloaded: true,
+          isForegroundOnly: false,
+          playbackMode: 'direct-catalog',
+          isDirectAudioStream: true
+        })
+      );
+    });
   });
 });

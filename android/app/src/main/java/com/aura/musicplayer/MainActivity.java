@@ -24,6 +24,11 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AuraMediaPlugin.class);
         super.onCreate(savedInstanceState);
 
+        // SEC-01 FIX: Only enable WebView debugging in debug builds.
+        // In release builds, Chrome DevTools cannot attach to inspect app data.
+        boolean isDebug = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        WebView.setWebContentsDebuggingEnabled(isDebug);
+
         configureSystemBars();
         configureWebView();
         requestAppPermissionsIfNeeded();
@@ -87,15 +92,41 @@ public class MainActivity extends BridgeActivity {
             WebView webView = bridge.getWebView();
             WebSettings settings = webView.getSettings();
 
+            // Enforce hardware acceleration layer on budget chipsets (MediaTek/Unisoc/Snapdragon)
+            webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+
             // Crucial for seamless background audio and auto-play
             settings.setMediaPlaybackRequiresUserGesture(false);
             settings.setDomStorageEnabled(true);
             settings.setDatabaseEnabled(true);
             settings.setAllowFileAccess(true);
             settings.setAllowContentAccess(true);
+            settings.setCacheMode(WebSettings.LOAD_DEFAULT);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                // SEC-02 FIX: Tightened from ALWAYS_ALLOW to COMPATIBILITY_MODE.
+                // COMPATIBILITY_MODE still permits the localhost loopback server for offline
+                // audio transfer but blocks arbitrary HTTP resources in HTTPS pages.
+                settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
             }
+        }
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (bridge != null && bridge.getWebView() != null) {
+            if (level >= TRIM_MEMORY_MODERATE) {
+                // Free in-memory web caches without purging persistent IndexedDB/localStorage
+                bridge.getWebView().clearCache(false);
+            }
+        }
+    }
+
+    @Override
+    public void onLowMemory() {
+        super.onLowMemory();
+        if (bridge != null && bridge.getWebView() != null) {
+            bridge.getWebView().clearCache(false);
         }
     }
 

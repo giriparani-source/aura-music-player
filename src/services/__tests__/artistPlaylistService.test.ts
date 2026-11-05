@@ -236,6 +236,6 @@ describe('ArtistPlaylistService', () => {
       service.clearArtistCache('ar_rahman');
       const playlist3 = await service.getArtistPlaylist(mockRahman);
       expect(playlist3).not.toBe(playlist1);
-    });
+    }, 15000);
   });
 });

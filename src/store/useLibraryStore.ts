@@ -4,6 +4,7 @@ import {
   Album,
   Artist,
   Playlist,
+  PlaylistEntry,
   LibraryStats,
   LibraryHealth,
   DuplicateGroup,
@@ -19,16 +20,17 @@ import { musicDB } from '../services/db';
 import { calculateLibraryHealth, healthToLegacyStats } from '../services/healthService';
 import { detectDuplicates } from '../services/duplicateService';
 import { buildApiUrl } from '../utils/apiConfig';
-import { PRESET_SAAVN_320K_HITS } from '../services/jiosaavnService';
 import {
   collectFilesFromDirectoryHandle,
   collectFilesFromFileList,
   runDifferentialScan
 } from '../services/scannerService';
 import { downloadService } from '../services/downloadService';
+import { audioService } from '../services/audioService';
 import { auraAffinityService } from '../services/auraAffinityService';
 import { auraSkipService } from '../services/auraSkipService';
 import { extractIndividualArtists } from '../utils/artistImageHelper';
+import { isLocalDeviceSong, isStreamingPreset } from '../utils/songUtils';
 
 interface LibraryStoreState {
   songs: Song[];
@@ -56,6 +58,7 @@ interface LibraryStoreState {
 
   // Offline Download State
   downloadedSongIds: Set<string>;
+  favoriteSongIds: Set<string>;
   downloadingStates: Record<string, { progress: number; status: DownloadState }>;
   offlineStorage: { songCount: number; totalBytes: number };
   isOnline: boolean;
@@ -78,11 +81,12 @@ interface LibraryStoreState {
   toggleFavorite: (songId: string, fallbackSong?: Song) => Promise<void>;
   batchToggleFavorite: (songIds: string[], targetFavorite: boolean) => Promise<void>;
   createPlaylist: (name: string, description?: string) => Promise<Playlist>;
-  createPlaylistWithSongs: (name: string, description?: string, songs?: Song[], coverArt?: string) => Promise<Playlist>;
+  createPlaylistWithSongs: (name: string, description?: string, songs?: Song[], coverArt?: string, entries?: PlaylistEntry[]) => Promise<Playlist>;
   deletePlaylist: (id: string) => Promise<void>;
   addSongToPlaylist: (playlistId: string, songId: string) => Promise<void>;
   batchAddToPlaylist: (playlistId: string, songIds: string[]) => Promise<void>;
-  removeSongFromPlaylist: (playlistId: string, songId: string) => Promise<void>;
+  removeSongFromPlaylist: (playlistId: string, songId: string, entryId?: string) => Promise<void>;
+  removeEntryFromPlaylist: (playlistId: string, entryId: string) => Promise<void>;
   registerOnlineSong: (song: Song) => Promise<void>;
   downloadTrack: (song: Song) => Promise<boolean>;
   deleteDownloadedTrack: (songId: string) => Promise<void>;
@@ -106,6 +110,10 @@ let songLookupFallback: ((id: string) => Song | undefined) | null = null;
 export const registerSongLookup = (fn: (id: string) => Song | undefined) => {
   songLookupFallback = fn;
 };
+
+// In-memory registry for online streaming tracks (kept separate from local IndexedDB)
+export const onlineSongRegistry = new Map<string, Song>();
+export const getOnlineSong = (id: string): Song | undefined => onlineSongRegistry.get(id);
 
 export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   songs: [],
@@ -156,6 +164,7 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   favoritesOnly: false,
 
   downloadedSongIds: new Set(),
+  favoriteSongIds: new Set(),
   downloadingStates: {},
   offlineStorage: { songCount: 0, totalBytes: 0 },
   isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
@@ -165,37 +174,39 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     try {
       let songs = await musicDB.getAllSongs();
 
-      // Cloud Metadata Auto-Hydration:
-      // When a user opens the app with 0 local songs, immediately seed with offline preset hits,
-      // then attempt fast cloud catalog fetch with a 3.5s timeout so startup NEVER hangs!
-      if (songs.length === 0) {
-        try {
-          if (PRESET_SAAVN_320K_HITS && PRESET_SAAVN_320K_HITS.length > 0) {
-            await musicDB.saveSongsBatch(PRESET_SAAVN_320K_HITS);
-            songs = await musicDB.getAllSongs();
-          }
-        } catch {
-          // Ignore local seed error
-        }
+      let playlists = await musicDB.getAllPlaylists();
 
+      // Safe, Reversible Migration Strategy:
+      // Clean up stale un-downloaded, un-favorited, zero-play, non-playlist streaming presets
+      // that were mistakenly auto-saved into local IndexedDB in older versions, while strictly preserving:
+      // 1. Any track marked as favorite
+      // 2. Any track with play count > 0 or lastPlayed timestamps
+      // 3. Any track referenced in any user playlist
+      // 4. Any track downloaded or stored on the local device
+      const playlistSongIdSet = new Set<string>();
+      playlists.forEach((pl) => pl.songIds?.forEach((id) => playlistSongIdSet.add(id)));
+
+      const staleStreamingPresets = songs.filter((s) => {
+        if (s.isDownloaded) return false;
+        if (s.isFavorite) return false;
+        if ((s.playCount || 0) > 0 || s.lastPlayedAt || s.lastPlayed) return false;
+        if (playlistSongIdSet.has(s.id)) return false;
+        if (isLocalDeviceSong(s)) return false;
+        return isStreamingPreset(s) || (s.path && (s.path.startsWith('http://') || s.path.startsWith('https://')));
+      });
+
+      if (staleStreamingPresets.length > 0) {
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 3500);
-          const cloudRes = await fetch(buildApiUrl('/api/library/cloud-songs'), { signal: controller.signal });
-          clearTimeout(timeoutId);
-          if (cloudRes.ok) {
-            const data = await cloudRes.json();
-            if (data.tracks && Array.isArray(data.tracks) && data.tracks.length > 0) {
-              await musicDB.saveSongsBatch(data.tracks);
-              songs = await musicDB.getAllSongs();
-            }
-          }
-        } catch {
-          // Offline or slow mobile connection fallback
+          await musicDB.saveSetting('migration_backup_unseeded_presets', {
+            timestamp: Date.now(),
+            backedUpSongs: staleStreamingPresets
+          });
+          await musicDB.deleteSongsBatch(staleStreamingPresets.map((s) => s.id));
+          songs = await musicDB.getAllSongs();
+        } catch (migErr) {
+          console.warn('Migration cleanup error:', migErr);
         }
       }
-
-      let playlists = await musicDB.getAllPlaylists();
 
       // Ensure Core Smart Playlists exist
       const defaultPlaylists: Array<{ id: string; name: string; description: string }> = [
@@ -226,8 +237,8 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       const artistMap = new Map<string, { songCount: number; albumSet: Set<string>; coverArt?: string }>();
 
       for (const s of songs) {
-        const rawArtist = s.artist && s.artist !== 'Not set' ? s.artist : 'Local Artist';
-        const albumName = s.album && s.album !== 'Not set' ? s.album : 'Local Collection';
+        const rawArtist = s.artist && s.artist !== 'Not set' ? s.artist : 'Streaming Artist';
+        const albumName = s.album && s.album !== 'Not set' ? s.album : 'Streaming Collection';
         const primaryArtist = rawArtist.includes('•') ? rawArtist.split('•')[0].trim() : rawArtist;
 
         const albumKey = `${albumName} - ${primaryArtist}`;
@@ -282,10 +293,16 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         }))
         .sort((a, b) => b.songCount - a.songCount);
 
-      // Calculate health & duplicates
-      const health = calculateLibraryHealth(songs);
-      const stats = healthToLegacyStats(health, artists.length, albums.length, playlists.length);
+      // Calculate duplicates once and pass to health to prevent double computation
       const duplicates = detectDuplicates(songs);
+      const health = calculateLibraryHealth(songs, duplicates);
+      const stats = healthToLegacyStats(health, artists.length, albums.length, playlists.length);
+
+      // Fast O(1) Favorite Song IDs Set
+      const favoriteSet = new Set<string>();
+      for (const s of songs) {
+        if (s.isFavorite) favoriteSet.add(s.id);
+      }
 
       // Refresh downloads
       let downloadedSet = new Set<string>();
@@ -307,6 +324,7 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         health,
         duplicates,
         downloadedSongIds: downloadedSet,
+        favoriteSongIds: favoriteSet,
         offlineStorage,
         isLoading: false
       });
@@ -359,6 +377,9 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     if (!song && songLookupFallback) {
       song = songLookupFallback(songId);
     }
+    if (!song) {
+      song = onlineSongRegistry.get(songId);
+    }
     if (song) {
       const newFav = !song.isFavorite;
       const existsInDb = await musicDB.getSongById(songId);
@@ -368,13 +389,23 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         await musicDB.saveSong({ ...song, isFavorite: newFav });
       }
 
+      const { favoriteSongIds } = get();
+      const nextFavSet = new Set(favoriteSongIds);
+      if (newFav) {
+        nextFavSet.add(songId);
+      } else {
+        nextFavSet.delete(songId);
+      }
+
       if (songs.some((s) => s.id === songId)) {
         set({
-          songs: songs.map((s) => (s.id === songId ? { ...s, isFavorite: newFav } : s))
+          songs: songs.map((s) => (s.id === songId ? { ...s, isFavorite: newFav } : s)),
+          favoriteSongIds: nextFavSet
         });
       } else {
         set({
-          songs: [{ ...song, isFavorite: newFav }, ...songs]
+          songs: [{ ...song, isFavorite: newFav }, ...songs],
+          favoriteSongIds: nextFavSet
         });
       }
 
@@ -402,8 +433,15 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
 
     if (updatedSongs.length > 0) {
       await musicDB.saveSongsBatch(updatedSongs);
+      const { favoriteSongIds } = get();
+      const nextFavSet = new Set(favoriteSongIds);
+      for (const s of updatedSongs) {
+        if (targetFavorite) nextFavSet.add(s.id);
+        else nextFavSet.delete(s.id);
+      }
       set({
-        songs: songs.map((s) => (idSet.has(s.id) ? { ...s, isFavorite: targetFavorite } : s))
+        songs: songs.map((s) => (idSet.has(s.id) ? { ...s, isFavorite: targetFavorite } : s)),
+        favoriteSongIds: nextFavSet
       });
 
       // BUG-10 fix: Notify favorite listeners so usePlayerStore updates currentSong & queue!
@@ -434,13 +472,21 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     return newPlaylist;
   },
 
-  createPlaylistWithSongs: async (name: string, description?: string, songs: Song[] = [], coverArt?: string) => {
+  createPlaylistWithSongs: async (
+    name: string,
+    description?: string,
+    songs: Song[] = [],
+    coverArt?: string,
+    entries?: PlaylistEntry[]
+  ) => {
     // 1. Save all songs into IndexedDB batch if any
     if (songs.length > 0) {
       await musicDB.saveSongsBatch(songs);
     }
 
-    const songIds = songs.map((s) => s.id);
+    const songIds = entries && entries.length > 0
+      ? entries.filter((e) => e.songId).map((e) => e.songId!)
+      : songs.map((s) => s.id);
     const resolvedCover = coverArt || (songs.length > 0 ? (songs[0].artwork || songs[0].coverArt) : undefined);
 
     const newPlaylist: Playlist = {
@@ -450,6 +496,7 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       isSmart: false,
       coverArt: resolvedCover,
       songIds,
+      entries: entries && entries.length > 0 ? entries : undefined,
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
@@ -479,12 +526,29 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   },
 
   addSongToPlaylist: async (playlistId: string, songId: string) => {
-    const { playlists } = get();
+    const { playlists, songs } = get();
     const pl = playlists.find((p) => p.id === playlistId);
-    if (pl && !pl.songIds.includes(songId)) {
+    if (pl) {
+      let newEntries = pl.entries;
+      if (newEntries && newEntries.length > 0) {
+        const songObj = songs.find((s) => s.id === songId);
+        const newEntry: PlaylistEntry = {
+          entryId: `entry-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          position: newEntries.length,
+          status: 'available',
+          songId: songId,
+          title: songObj?.title || 'Unknown Title',
+          artist: songObj?.artist || 'Unknown Artist',
+          duration: songObj?.duration,
+          coverArt: songObj?.coverArt || songObj?.artwork,
+          addedAt: Date.now()
+        };
+        newEntries = [...newEntries, newEntry];
+      }
       const updated: Playlist = {
         ...pl,
-        songIds: [...pl.songIds, songId],
+        songIds: pl.songIds.includes(songId) ? pl.songIds : [...pl.songIds, songId],
+        entries: newEntries,
         updatedAt: Date.now()
       };
       await musicDB.savePlaylist(updated);
@@ -495,13 +559,33 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   },
 
   batchAddToPlaylist: async (playlistId: string, songIds: string[]) => {
-    const { playlists } = get();
+    const { playlists, songs } = get();
     const pl = playlists.find((p) => p.id === playlistId);
     if (pl) {
       const mergedIds = Array.from(new Set([...pl.songIds, ...songIds]));
+      let newEntries = pl.entries;
+      if (newEntries && newEntries.length > 0) {
+        const songMap = new Map(songs.map((s) => [s.id, s]));
+        const addedEntries: PlaylistEntry[] = songIds.map((sid, idx) => {
+          const s = songMap.get(sid);
+          return {
+            entryId: `entry-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 7)}`,
+            position: (newEntries?.length || 0) + idx,
+            status: 'available' as const,
+            songId: sid,
+            title: s?.title || 'Unknown Title',
+            artist: s?.artist || 'Unknown Artist',
+            duration: s?.duration,
+            coverArt: s?.coverArt || s?.artwork,
+            addedAt: Date.now()
+          };
+        });
+        newEntries = [...newEntries, ...addedEntries];
+      }
       const updated: Playlist = {
         ...pl,
         songIds: mergedIds,
+        entries: newEntries,
         updatedAt: Date.now()
       };
       await musicDB.savePlaylist(updated);
@@ -511,13 +595,73 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     }
   },
 
-  removeSongFromPlaylist: async (playlistId: string, songId: string) => {
+  removeSongFromPlaylist: async (playlistId: string, songId: string, entryId?: string) => {
     const { playlists } = get();
     const pl = playlists.find((p) => p.id === playlistId);
     if (pl) {
+      let newEntries = pl.entries;
+      let newSongIds: string[];
+
+      if (newEntries && newEntries.length > 0) {
+        if (entryId) {
+          newEntries = newEntries.filter((e) => e.entryId !== entryId);
+        } else {
+          const idx = newEntries.findIndex((e) => e.songId === songId);
+          if (idx !== -1) {
+            newEntries = newEntries.filter((_, i) => i !== idx);
+          }
+        }
+        newEntries = newEntries.map((e, index) => ({
+          ...e,
+          position: index
+        }));
+        // Derive newSongIds directly from remaining entries to ensure 100% duplicate and order alignment
+        newSongIds = newEntries.filter((e) => e.songId !== null).map((e) => e.songId!);
+      } else {
+        // Legacy playlist without pl.entries (preserves duplicates & exact occurrence index if entryId supplied)
+        newSongIds = [...pl.songIds];
+        if (entryId && entryId.startsWith(`${playlistId}_`)) {
+          const parts = entryId.split('_');
+          const legacyIdx = parseInt(parts[1], 10);
+          if (!isNaN(legacyIdx) && legacyIdx >= 0 && legacyIdx < newSongIds.length && newSongIds[legacyIdx] === songId) {
+            newSongIds.splice(legacyIdx, 1);
+          } else {
+            const sIdx = newSongIds.indexOf(songId);
+            if (sIdx !== -1) newSongIds.splice(sIdx, 1);
+          }
+        } else {
+          const sIdx = newSongIds.indexOf(songId);
+          if (sIdx !== -1) newSongIds.splice(sIdx, 1);
+        }
+      }
+
       const updated: Playlist = {
         ...pl,
-        songIds: pl.songIds.filter((id) => id !== songId),
+        songIds: newSongIds,
+        entries: newEntries,
+        updatedAt: Date.now()
+      };
+      await musicDB.savePlaylist(updated);
+      set({
+        playlists: playlists.map((p) => (p.id === playlistId ? updated : p))
+      });
+    }
+  },
+
+  removeEntryFromPlaylist: async (playlistId: string, entryId: string) => {
+    const { playlists } = get();
+    const pl = playlists.find((p) => p.id === playlistId);
+    if (pl && pl.entries) {
+      const newEntries = pl.entries
+        .filter((e) => e.entryId !== entryId)
+        .map((e, index) => ({ ...e, position: index }));
+
+      const newSongIds = newEntries.filter((e) => e.songId !== null).map((e) => e.songId!);
+
+      const updated: Playlist = {
+        ...pl,
+        songIds: newSongIds,
+        entries: newEntries,
         updatedAt: Date.now()
       };
       await musicDB.savePlaylist(updated);
@@ -528,12 +672,8 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   },
 
   registerOnlineSong: async (song: Song) => {
-    const { songs } = get();
-    if (!songs.some((s) => s.id === song.id)) {
-      await musicDB.saveSong(song);
-      set({
-        songs: [song, ...songs]
-      });
+    if (song && song.id) {
+      onlineSongRegistry.set(song.id, song);
     }
   },
 
@@ -556,6 +696,29 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
 
     if (success) {
       await get().refreshDownloads();
+
+      // If the downloaded track is currently playing or loaded in playerStore:
+      const { usePlayerStore } = await import('./usePlayerStore');
+      const playerStore = usePlayerStore.getState();
+      if (playerStore.currentSong?.id === song.id) {
+        const updatedSong: Song = {
+          ...playerStore.currentSong,
+          isDownloaded: true,
+          isForegroundOnly: false,
+          playbackMode: 'direct-catalog',
+          isDirectAudioStream: true
+        };
+        usePlayerStore.setState({ currentSong: updatedSong });
+
+        // If audioService is currently using YouTube iframe, seamlessly hot-swap to cached audio NOW!
+        if (audioService.isUsingCloudPlayer) {
+          const cachedUrl = await downloadService.getCachedAudioUrl(song.id);
+          if (cachedUrl) {
+            const currentTime = audioService.getCurrentTime() || 0;
+            await audioService.hotSwapToCachedAudio(updatedSong, cachedUrl, currentTime);
+          }
+        }
+      }
     } else {
       set((state) => ({
         downloadingStates: {
@@ -674,19 +837,7 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   },
 
   syncCloudCatalog: async () => {
-    try {
-      const res = await fetch(buildApiUrl('/api/library/cloud-songs'));
-      if (!res.ok) return 0;
-      const data = await res.json();
-      if (data.tracks && Array.isArray(data.tracks) && data.tracks.length > 0) {
-        await musicDB.saveSongsBatch(data.tracks);
-        await get().loadLibrary();
-        return data.tracks.length;
-      }
-      return 0;
-    } catch {
-      return 0;
-    }
+    return 0;
   }
 }));
 
@@ -702,5 +853,7 @@ if (typeof window !== 'undefined') {
   downloadService.subscribe(() => {
     useLibraryStore.getState().refreshDownloads();
   });
+
+  (window as any).__libraryStore = useLibraryStore;
 }
 

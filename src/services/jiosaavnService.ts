@@ -1,4 +1,5 @@
 import { Song } from '../types/music';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 
 // Verified Pre-Curated Studio Master 320kbps Hits
 export const PRESET_SAAVN_320K_HITS: Song[] = [
@@ -294,61 +295,116 @@ class JioSaavnService {
     }));
   }
 
+  private inFlight = new Map<string, Promise<Song[]>>();
+
   /**
-   * Fetch from a single mirror with AbortController timeout.
+   * Fetch from a single mirror with AbortController timeout, retry with backoff on 429, and native HTTP support.
    */
-  private async fetchFromMirror(mirror: InternalMirrorState, query: string, limit?: number, page?: number): Promise<any[] | null> {
+  private async fetchFromMirror(
+    mirror: InternalMirrorState,
+    query: string,
+    limit?: number,
+    page?: number,
+    parentSignal?: AbortSignal
+  ): Promise<any[] | null> {
+    if (parentSignal?.aborted) return null;
+
     const limitParam = limit ? `&limit=${limit}` : '';
     const pageParam = page && page > 1 ? `&page=${page}` : '';
     const baseUrl = mirror.url.replace(/\/+$/, '');
     const apiPath = baseUrl.endsWith('/api') ? '/search/songs' : '/api/search/songs';
     const endpoint = `${baseUrl}${apiPath}?query=${encodeURIComponent(query)}${limitParam}${pageParam}`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-    try {
-      const res = await fetch(endpoint, {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        signal: controller.signal
-      });
+    const maxAttempts = 2;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (parentSignal?.aborted) return null;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      const onAbort = () => controller.abort();
+      if (parentSignal) parentSignal.addEventListener('abort', onAbort, { once: true });
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+      try {
+        if (Capacitor.isNativePlatform()) {
+          try {
+            const res = await CapacitorHttp.get({
+              url: endpoint,
+              connectTimeout: REQUEST_TIMEOUT_MS,
+              readTimeout: REQUEST_TIMEOUT_MS
+            });
+            clearTimeout(timer);
+            if (parentSignal) parentSignal.removeEventListener('abort', onAbort);
+
+            const parsed = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+            const results = parsed?.data?.results || parsed?.results;
+            if (Array.isArray(results)) {
+              mirror.failureCount = 0;
+              mirror.cooldownUntil = 0;
+              mirror.totalSuccesses++;
+              return results;
+            }
+            if (res.status === 429 && attempt < maxAttempts) {
+              await new Promise((r) => setTimeout(r, 500 + Math.random() * 300));
+              continue;
+            }
+          } catch (_) {}
+        }
+
+        const res = await fetch(endpoint, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          signal: controller.signal
+        });
+        clearTimeout(timer);
+        if (parentSignal) parentSignal.removeEventListener('abort', onAbort);
+
+        if (!res.ok) {
+          if (res.status === 429 && attempt < maxAttempts) {
+            await new Promise((r) => setTimeout(r, 500 + Math.random() * 300));
+            continue;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        const results = data?.data?.results || data?.results;
+
+        if (Array.isArray(results)) {
+          mirror.failureCount = 0;
+          mirror.cooldownUntil = 0;
+          mirror.totalSuccesses++;
+          return results;
+        }
+        return null;
+      } catch (err: any) {
+        clearTimeout(timer);
+        if (parentSignal) parentSignal.removeEventListener('abort', onAbort);
+
+        if (attempt < maxAttempts && !parentSignal?.aborted) {
+          await new Promise((r) => setTimeout(r, 400 + Math.random() * 200));
+          continue;
+        }
+
+        mirror.failureCount++;
+        mirror.totalFailures++;
+        mirror.lastFailureTime = Date.now();
+
+        const cooldownMs =
+          mirror.failureCount === 1
+            ? 3000
+            : Math.min(180000, 10000 * Math.pow(2, mirror.failureCount - 2));
+
+        mirror.cooldownUntil = Date.now() + cooldownMs;
+
+        const reason = err.name === 'AbortError' ? `Timeout (${REQUEST_TIMEOUT_MS}ms)` : err.message || 'Request error';
+        console.warn(
+          `[JioSaavn] Mirror '${mirror.name}' failed: ${reason}. Failure count: ${mirror.failureCount}, cooldown for ${Math.round(cooldownMs / 1000)}s`
+        );
+        return null;
       }
-
-      const data = await res.json();
-      const results = data?.data?.results || data?.results;
-
-      if (Array.isArray(results)) {
-        mirror.failureCount = 0;
-        mirror.cooldownUntil = 0;
-        mirror.totalSuccesses++;
-        return results;
-      }
-      return null;
-    } catch (err: any) {
-      mirror.failureCount++;
-      mirror.totalFailures++;
-      mirror.lastFailureTime = Date.now();
-
-      const cooldownMs =
-        mirror.failureCount === 1
-          ? 5000
-          : Math.min(300000, 30000 * Math.pow(2, mirror.failureCount - 2));
-
-      mirror.cooldownUntil = Date.now() + cooldownMs;
-
-      const reason = err.name === 'AbortError' ? `Timeout (${REQUEST_TIMEOUT_MS}ms)` : err.message || 'Request error';
-      console.warn(
-        `[JioSaavn] Mirror '${mirror.name}' failed: ${reason}. Failure count: ${mirror.failureCount}, cooldown for ${Math.round(cooldownMs / 1000)}s`
-      );
-      return null;
-    } finally {
-      clearTimeout(timer);
     }
+    return null;
   }
 
-  public async searchJioSaavn(query: string, limit?: number, page: number = 1): Promise<Song[]> {
+  public async searchJioSaavn(query: string, limit?: number, page: number = 1, signal?: AbortSignal): Promise<Song[]> {
     const q = query.trim();
     if (!q) return [];
 
@@ -357,57 +413,69 @@ class JioSaavnService {
       return this.cache.get(cacheKey)!;
     }
 
-    try {
-      const now = Date.now();
-      const sortedMirrors = [...this.mirrors].sort((a, b) => {
-        const aActive = now >= a.cooldownUntil;
-        const bActive = now >= b.cooldownUntil;
-        if (aActive && !bActive) return -1;
-        if (!aActive && bActive) return 1;
-        return a.cooldownUntil - b.cooldownUntil;
-      });
-
-      let rawResults: any[] = [];
-
-      for (const mirror of sortedMirrors) {
-        const results = await this.fetchFromMirror(mirror, q, limit, page);
-        if (results && results.length > 0) {
-          rawResults = results;
-          break;
-        }
-      }
-
-      if (rawResults.length > 0) {
-        const formatted: Song[] = rawResults.map((item: any) => formatSaavnItemToSong(item));
-        this.setCache(cacheKey, formatted);
-        return formatted;
-      }
-
-      // If page 1 and mirrors yielded 0 results, query high-reliability fallback streaming sources
-      if (page === 1) {
-        const fallbackResults = await this.fetchFallbackAudioSources(q, limit);
-        if (fallbackResults.length > 0) {
-          this.setCache(cacheKey, fallbackResults);
-          return fallbackResults;
-        }
-      }
-    } catch (err) {
-      console.warn('[JioSaavn] Search exception:', err);
+    if (this.inFlight.has(cacheKey)) {
+      return this.inFlight.get(cacheKey)!;
     }
 
-    if (page === 1) {
-      // Fallback to matching preset hits
-      const lower = q.toLowerCase();
-      const matchingPresets = PRESET_SAAVN_320K_HITS.filter(
-        (s) =>
-          s.title.toLowerCase().includes(lower) ||
-          s.artist.toLowerCase().includes(lower) ||
-          s.album.toLowerCase().includes(lower)
-      );
-      return matchingPresets;
-    }
+    const fetchPromise = (async () => {
+      try {
+        const now = Date.now();
+        const sortedMirrors = [...this.mirrors].sort((a, b) => {
+          const aActive = now >= a.cooldownUntil;
+          const bActive = now >= b.cooldownUntil;
+          if (aActive && !bActive) return -1;
+          if (!aActive && bActive) return 1;
+          return a.cooldownUntil - b.cooldownUntil;
+        });
 
-    return [];
+        let rawResults: any[] = [];
+
+        for (const mirror of sortedMirrors) {
+          if (signal?.aborted) break;
+          const results = await this.fetchFromMirror(mirror, q, limit, page, signal);
+          if (results && results.length > 0) {
+            rawResults = results;
+            break;
+          }
+        }
+
+        if (rawResults.length > 0) {
+          const formatted: Song[] = rawResults.map((item: any) => formatSaavnItemToSong(item));
+          this.setCache(cacheKey, formatted);
+          return formatted;
+        }
+
+        // If page 1 and mirrors yielded 0 results, query high-reliability fallback streaming sources
+        if (page === 1 && !signal?.aborted) {
+          const fallbackResults = await this.fetchFallbackAudioSources(q, limit);
+          if (fallbackResults.length > 0) {
+            this.setCache(cacheKey, fallbackResults);
+            return fallbackResults;
+          }
+
+          // Fallback to matching preset hits
+          const lower = q.toLowerCase();
+          const matchingPresets = PRESET_SAAVN_320K_HITS.filter(
+            (s) =>
+              s.title.toLowerCase().includes(lower) ||
+              s.artist.toLowerCase().includes(lower) ||
+              s.album.toLowerCase().includes(lower)
+          );
+          if (matchingPresets.length > 0) {
+            return matchingPresets;
+          }
+        }
+        return [];
+      } catch (err) {
+        console.warn('[JioSaavn] Search exception:', err);
+        return [];
+      } finally {
+        this.inFlight.delete(cacheKey);
+      }
+    })();
+
+    this.inFlight.set(cacheKey, fetchPromise);
+    return fetchPromise;
   }
 
   /**
@@ -569,8 +637,8 @@ class JioSaavnService {
 }
 
 export const jiosaavnService = new JioSaavnService();
-export const searchJioSaavn = (query: string, limit?: number, page?: number): Promise<Song[]> =>
-  jiosaavnService.searchJioSaavn(query, limit, page);
+export const searchJioSaavn = (query: string, limit?: number, page?: number, signal?: AbortSignal): Promise<Song[]> =>
+  jiosaavnService.searchJioSaavn(query, limit, page, signal);
 export const fetchJioSaavnPlaylist = (idOrUrl: string, limit?: number): Promise<JioSaavnPlaylistResult | null> =>
   jiosaavnService.fetchJioSaavnPlaylist(idOrUrl, limit);
 export const searchJioSaavnPlaylists = (query: string, limit?: number): Promise<JioSaavnPlaylistSearchResult[]> =>
