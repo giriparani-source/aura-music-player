@@ -5,6 +5,7 @@ import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { MobileBottomNav } from './MobileBottomNav';
 import { BottomPlayer } from '../player/BottomPlayer';
+import { QueueToast } from '../common/QueueToast';
 import { PwaInstallBanner } from '../common/PwaInstallBanner';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
@@ -24,7 +25,7 @@ const SettingsView = lazy(() => import('../views/SettingsView').then((m) => ({ d
 const RadioView = lazy(() => import('../views/RadioView').then((m) => ({ default: m.RadioView })));
 
 const NowPlayingModal = lazy(() => import('../player/NowPlayingModal').then((m) => ({ default: m.NowPlayingModal })));
-const QueueDrawer = lazy(() => import('../player/QueueDrawer').then((m) => ({ default: m.QueueDrawer })));
+const QueueSheet = lazy(() => import('../player/QueueSheet').then((m) => ({ default: m.QueueSheet })));
 const JamModal = lazy(() => import('../jam/JamModal').then((m) => ({ default: m.JamModal })));
 const ProfileModal = lazy(() => import('../profile/ProfileModal').then((m) => ({ default: m.ProfileModal })));
 
@@ -286,8 +287,11 @@ export const MainLayout: React.FC = () => {
           }
           break;
         case 'Escape':
-          if (isNowPlayingOpen) setNowPlayingOpen(false);
-          if (isQueueOpen) setQueueOpen(false);
+          if (isQueueOpen) {
+            setQueueOpen(false);
+          } else if (isNowPlayingOpen) {
+            setNowPlayingOpen(false);
+          }
           break;
       }
     };
@@ -336,10 +340,13 @@ export const MainLayout: React.FC = () => {
         {/* Mobile Bottom Navigation */}
         <MobileBottomNav />
 
+        {/* Floating Queue Toast */}
+        <QueueToast />
+
         {/* Code-split Modals in Suspense */}
         <Suspense fallback={null}>
           {isNowPlayingOpen && <NowPlayingModal />}
-          {isQueueOpen && <QueueDrawer />}
+          {isQueueOpen && <QueueSheet />}
           <JamModal />
           <ProfileModal />
         </Suspense>

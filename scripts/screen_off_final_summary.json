@@ -1,0 +1,88 @@
+{
+  "samples": [
+    {
+      "elapsedSec": 0,
+      "state": "PLAYING(3)",
+      "positionSec": "65.8",
+      "track": "Pottakaatil Poovasam, Santhosh Narayanan, Yogi Sekar, Fareedha, Vivek, Pariyerum Perumal (Original Motion Picture Soundtrack)",
+      "wakefulness": "mWakefulness=Asleep"
+    },
+    {
+      "elapsedSec": 61,
+      "state": "PLAYING(3)",
+      "positionSec": "127.3",
+      "track": "Pottakaatil Poovasam, Santhosh Narayanan, Yogi Sekar, Fareedha, Vivek, Pariyerum Perumal (Original Motion Picture Soundtrack)",
+      "wakefulness": "mWakefulness=Asleep"
+    },
+    {
+      "elapsedSec": 124,
+      "state": "PLAYING(3)",
+      "positionSec": "189.4",
+      "track": "Pottakaatil Poovasam, Santhosh Narayanan, Yogi Sekar, Fareedha, Vivek, Pariyerum Perumal (Original Motion Picture Soundtrack)",
+      "wakefulness": "mWakefulness=Asleep"
+    },
+    {
+      "elapsedSec": 185,
+      "state": "PLAYING(3)",
+      "positionSec": "250.1",
+      "track": "Pottakaatil Poovasam, Santhosh Narayanan, Yogi Sekar, Fareedha, Vivek, Pariyerum Perumal (Original Motion Picture Soundtrack)",
+      "wakefulness": "mWakefulness=Asleep"
+    },
+    {
+      "elapsedSec": 245,
+      "state": "PLAYING(3)",
+      "positionSec": "311.4",
+      "track": "Pottakaatil Poovasam, Santhosh Narayanan, Yogi Sekar, Fareedha, Vivek, Pariyerum Perumal (Original Motion Picture Soundtrack)",
+      "wakefulness": "mWakefulness=Asleep"
+    },
+    {
+      "elapsedSec": 307,
+      "state": "PLAYING(3)",
+      "positionSec": "372.8",
+      "track": "Pottakaatil Poovasam, Santhosh Narayanan, Yogi Sekar, Fareedha, Vivek, Pariyerum Perumal (Original Motion Picture Soundtrack)",
+      "wakefulness": "mWakefulness=Asleep"
+    },
+    {
+      "elapsedSec": 368,
+      "state": "PAUSED(2)",
+      "positionSec": "399.1",
+      "track": "Pottakaatil Poovasam, Santhosh Narayanan, Yogi Sekar, Fareedha, Vivek, Pariyerum Perumal (Original Motion Picture Soundtrack)",
+      "wakefulness": "mWakefulness=Asleep"
+    },
+    {
+      "elapsedSec": 429,
+      "state": "PAUSED(2)",
+      "positionSec": "399.1",
+      "track": "Pottakaatil Poovasam, Santhosh Narayanan, Yogi Sekar, Fareedha, Vivek, Pariyerum Perumal (Original Motion Picture Soundtrack)",
+      "wakefulness": "mWakefulness=Asleep"
+    },
+    {
+      "elapsedSec": 492,
+      "state": "PAUSED(2)",
+      "positionSec": "399.1",
+      "track": "Pottakaatil Poovasam, Santhosh Narayanan, Yogi Sekar, Fareedha, Vivek, Pariyerum Perumal (Original Motion Picture Soundtrack)",
+      "wakefulness": "mWakefulness=Asleep"
+    },
+    {
+      "elapsedSec": 555,
+      "state": "PAUSED(2)",
+      "positionSec": "399.1",
+      "track": "Pottakaatil Poovasam, Santhosh Narayanan, Yogi Sekar, Fareedha, Vivek, Pariyerum Perumal (Original Motion Picture Soundtrack)",
+      "wakefulness": "mWakefulness=Asleep"
+    },
+    {
+      "elapsedSec": 616,
+      "state": "PAUSED(2)",
+      "positionSec": "399.1",
+      "track": "Pottakaatil Poovasam, Santhosh Narayanan, Yogi Sekar, Fareedha, Vivek, Pariyerum Perumal (Original Motion Picture Soundtrack)",
+      "wakefulness": "mWakefulness=Asleep"
+    }
+  ],
+  "finalSample": {
+    "state": "PAUSED(2)",
+    "positionSec": "399.1",
+    "track": "Pottakaatil Poovasam, Santhosh Narayanan, Yogi Sekar, Fareedha, Vivek, Pariyerum Perumal (Original Motion Picture Soundtrack)",
+    "wakefulness": "mWakefulness=Asleep"
+  },
+  "logcat": ""
+}
