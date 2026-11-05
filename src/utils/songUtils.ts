@@ -8,6 +8,7 @@ import { Song } from '../types/music';
 export function normalizeSong(raw: Partial<Song>): Song {
   const path = raw.path || raw.filePath || '';
   const filePath = raw.filePath || raw.path || '';
+  const contentUri = raw.contentUri || (path.startsWith('content://') ? path : undefined);
 
   const artwork = raw.artwork || raw.coverArt || undefined;
   const coverArt = raw.coverArt || raw.artwork || undefined;
@@ -32,6 +33,7 @@ export function normalizeSong(raw: Partial<Song>): Song {
     id,
     path,
     filePath,
+    contentUri,
     fileName,
     title,
     artist,
@@ -68,4 +70,57 @@ export function getSongArtwork(song: Pick<Song, 'artwork' | 'coverArt'>): string
  */
 export function getSongLastPlayed(song: Pick<Song, 'lastPlayedAt' | 'lastPlayed'>): number | undefined {
   return song.lastPlayedAt !== undefined ? song.lastPlayedAt : song.lastPlayed;
+}
+
+/**
+ * Determines whether a song is stored on the local device:
+ * 1. Physical Android MediaStore content URI (`content://`)
+ * 2. Local device storage file (`file://` or `/storage/` or absolute/relative device path)
+ * 3. Offline downloaded track (`isDownloaded === true`)
+ * 4. Local non-online track whose path is not a remote HTTP/HTTPS stream
+ */
+export function isLocalDeviceSong(song: Partial<Song>): boolean {
+  if (!song) return false;
+  if (song.isDownloaded) return true;
+
+  const path = song.path || song.filePath || '';
+  const uri = song.contentUri || '';
+
+  if (uri.startsWith('content://') || path.startsWith('content://')) return true;
+  if (path.startsWith('file://') || path.startsWith('/storage/') || path.startsWith('/data/')) return true;
+
+  // If path is a remote network stream, it is NOT local unless downloaded
+  if (path.startsWith('http://') || path.startsWith('https://')) return false;
+
+  // Android device scan IDs
+  if (song.id?.startsWith('device_')) return true;
+
+  // Local filesystem or relative audio path from folder picker
+  if (song.isOnline === false && path.length > 0) return true;
+
+  return false;
+}
+
+/**
+ * Checks if a song is an inbuilt streaming preset (e.g. from TOP_50, MUDHAL, VIBE, etc.)
+ */
+export function isStreamingPreset(song: Partial<Song>): boolean {
+  if (!song || !song.id) return false;
+  const id = song.id;
+  const path = song.path || song.filePath || '';
+  const isRemote = path.startsWith('http://') || path.startsWith('https://');
+  if (!isRemote && !song.isOnline) return false;
+
+  return (
+    id.startsWith('cloud_track_') ||
+    id.startsWith('t50_') ||
+    id.startsWith('mudhal_') ||
+    id.startsWith('vibe_') ||
+    id.startsWith('night_') ||
+    id.startsWith('workout_') ||
+    id.startsWith('dev_') ||
+    id.startsWith('drive_') ||
+    id.startsWith('saavn_') ||
+    Boolean(song.isSaavn)
+  );
 }

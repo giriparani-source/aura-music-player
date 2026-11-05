@@ -1,7 +1,8 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
-import { Song, Playlist } from '../types/music';
+import { Song, Playlist, PlaylistEntry } from '../types/music';
 import { searchJioSaavn, fetchJioSaavnPlaylist, searchJioSaavnPlaylists } from './jiosaavnService';
 import { resolveYoutubeAudioStream } from './youtubeAudioResolver';
+import { matchYouTubeToCatalog } from './catalogMatcher';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { buildApiUrl } from '../utils/apiConfig';
 
@@ -14,6 +15,9 @@ export interface ExtractedTrack {
   artwork?: string;
   videoId?: string;
   isDirectVideo?: boolean;
+  isUnavailable?: boolean;
+  status?: 'available' | 'unavailable';
+  unavailableReason?: string;
 }
 
 export interface ExtractedPlaylist {
@@ -39,6 +43,7 @@ export interface ImportedPlaylistResult {
   totalTracks: number;
   matchedTracks: number;
   songs: Song[];
+  entries?: PlaylistEntry[];
 }
 
 /**
@@ -46,13 +51,21 @@ export interface ImportedPlaylistResult {
  */
 export function cleanSearchQuery(title: string, artist?: string): string {
   let clean = title
-    .replace(/\[\s*(official|music|video|audio|lyrics|hd|4k|remastered).*?\]/gi, '')
-    .replace(/\(\s*(official|music|video|audio|lyrics|hd|4k|remastered|visualizer|video\s+song).*?\)/gi, '')
-    .replace(/\|.*$/gi, '')
+    // Remove bracketed & parenthesized tags
+    .replace(/\[\s*(official|music|video|audio|lyrics?|hd|4k|8k|remastered|visualizer).*?\]/gi, '')
+    .replace(/\(\s*(official|music|video|audio|lyrics?|hd|4k|8k|remastered|visualizer|video\s+song|full\s+video|lyrical).*?\)/gi, '')
+    // Strip trailing movie/crew credits after pipe or bullet
+    .replace(/[|•].*$/gi, '')
+    // Strip common YouTube unbracketed tags
+    .replace(/\b(video\s+song|lyric\s+video|official\s+video|full\s+video\s+song|full\s+video|music\s+video|lyrical\s+video|audio\s+song|4k\s+video|4k|8k|uhd|full\s+hd)\b/gi, '')
+    // Strip trailing dashes with descriptors
+    .replace(/\s*-\s*(video|audio|lyrics?|song|4k).*$/gi, '')
     .replace(/\b(ft\.?|feat\.?|featuring)\s+.*$/i, '')
+    .replace(/\s+/g, ' ')
     .trim();
 
-  if (artist && !clean.toLowerCase().includes(artist.toLowerCase())) {
+  // If artist is provided and not already in clean title, append for precision
+  if (artist && artist !== 'YouTube' && !clean.toLowerCase().includes(artist.toLowerCase())) {
     clean = `${clean} ${artist}`;
   }
   return clean.replace(/\s+/g, ' ').trim();
@@ -61,7 +74,11 @@ export function cleanSearchQuery(title: string, artist?: string): string {
 /**
  * Helper to fetch text natively on Android (bypasses browser CORS) or standard fetch on Web.
  */
-async function universalFetchText(url: string, timeoutMs: number = 8000): Promise<string> {
+async function universalFetchText(url: string, timeoutMs: number = 8000, parentSignal?: AbortSignal): Promise<string> {
+  if (parentSignal?.aborted) {
+    throw new DOMException('Import aborted', 'AbortError');
+  }
+
   if (Capacitor.isNativePlatform()) {
     try {
       const res = await CapacitorHttp.get({
@@ -77,6 +94,11 @@ async function universalFetchText(url: string, timeoutMs: number = 8000): Promis
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onParentAbort = () => controller.abort();
+  if (parentSignal) {
+    parentSignal.addEventListener('abort', onParentAbort, { once: true });
+  }
+
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
@@ -85,13 +107,20 @@ async function universalFetchText(url: string, timeoutMs: number = 8000): Promis
     return await res.text();
   } finally {
     clearTimeout(timer);
+    if (parentSignal) {
+      parentSignal.removeEventListener('abort', onParentAbort);
+    }
   }
 }
 
 /**
  * Helper to fetch JSON natively on Android or standard fetch on Web.
  */
-async function universalFetchJson<T = any>(url: string, timeoutMs: number = 8000): Promise<T> {
+async function universalFetchJson<T = any>(url: string, timeoutMs: number = 8000, parentSignal?: AbortSignal): Promise<T> {
+  if (parentSignal?.aborted) {
+    throw new DOMException('Import aborted', 'AbortError');
+  }
+
   if (Capacitor.isNativePlatform()) {
     try {
       const res = await CapacitorHttp.get({
@@ -107,6 +136,11 @@ async function universalFetchJson<T = any>(url: string, timeoutMs: number = 8000
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onParentAbort = () => controller.abort();
+  if (parentSignal) {
+    parentSignal.addEventListener('abort', onParentAbort, { once: true });
+  }
+
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
@@ -115,6 +149,9 @@ async function universalFetchJson<T = any>(url: string, timeoutMs: number = 8000
     return await res.json();
   } finally {
     clearTimeout(timer);
+    if (parentSignal) {
+      parentSignal.removeEventListener('abort', onParentAbort);
+    }
   }
 }
 
@@ -145,7 +182,11 @@ export function detectPlatform(input: string): SupportedPlatform {
 /**
  * Extract tracks from Spotify playlist or album link.
  */
-async function extractSpotifyTracks(url: string): Promise<ExtractedPlaylist> {
+export async function extractSpotifyTracks(url: string, signal?: AbortSignal): Promise<ExtractedPlaylist> {
+  if (signal?.aborted) {
+    throw new DOMException('Import aborted', 'AbortError');
+  }
+
   let title = 'Spotify Playlist';
   let coverArt = '';
   const tracks: ExtractedTrack[] = [];
@@ -158,7 +199,7 @@ async function extractSpotifyTracks(url: string): Promise<ExtractedPlaylist> {
   // 1. Try public oEmbed for Title & Cover (Universal CORS: *)
   try {
     const oembedUrl = `https://open.spotify.com/oembed?url=${encodeURIComponent(url)}`;
-    const oembed = await universalFetchJson(oembedUrl, 5000);
+    const oembed = await universalFetchJson(oembedUrl, 5000, signal);
     if (oembed?.title) title = oembed.title;
     if (oembed?.thumbnail_url) coverArt = oembed.thumbnail_url;
   } catch (e) {
@@ -170,7 +211,7 @@ async function extractSpotifyTracks(url: string): Promise<ExtractedPlaylist> {
     if (Capacitor.isNativePlatform()) {
       const embedUrl = `https://open.spotify.com/embed/${type}/${id}`;
       try {
-        const html = await universalFetchText(embedUrl, 7000);
+        const html = await universalFetchText(embedUrl, 7000, signal);
         const nextDataMatch = html.match(/__NEXT_DATA__.*?>(.*?)<\/script>/s);
         if (nextDataMatch) {
           const parsed = JSON.parse(nextDataMatch[1]);
@@ -210,7 +251,10 @@ async function extractSpotifyTracks(url: string): Promise<ExtractedPlaylist> {
 
         for (const endpoint of endpoints) {
           try {
-            const serverRes = await fetch(endpoint, { headers: { Accept: 'application/json' } });
+            const serverRes = await fetch(endpoint, {
+              headers: { Accept: 'application/json' },
+              signal
+            });
             if (serverRes.ok) {
               const data = await serverRes.json();
               if (data.success && Array.isArray(data.tracks) && data.tracks.length > 0) {
@@ -235,26 +279,29 @@ async function extractSpotifyTracks(url: string): Promise<ExtractedPlaylist> {
     }
 
     // 4. LAYER C: Public Jina Markdown Reader (Zero Localhost, CORS: *)
+    // Preserves all duplicate entries according to source ordering!
     if (tracks.length === 0) {
       try {
         const jinaUrl = `https://r.jina.ai/https://open.spotify.com/${type}/${id}`;
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 6000);
+        const onAbort = () => controller.abort();
+        if (signal) signal.addEventListener('abort', onAbort, { once: true });
+
         const jinaRes = await fetch(jinaUrl, {
           headers: { 'User-Agent': 'Mozilla/5.0' },
           signal: controller.signal
         });
         clearTimeout(timer);
+        if (signal) signal.removeEventListener('abort', onAbort);
 
         if (jinaRes.ok) {
           const markdown = await jinaRes.text();
           const regex = /\[([^\]]+)\]\(https:\/\/open\.spotify\.com\/track\/[a-zA-Z0-9]+\)/g;
           let m;
-          const seen = new Set<string>();
           while ((m = regex.exec(markdown)) !== null) {
             const trackName = m[1].trim();
-            if (trackName && !seen.has(trackName.toLowerCase())) {
-              seen.add(trackName.toLowerCase());
+            if (trackName) {
               tracks.push({
                 title: trackName,
                 artwork: coverArt
@@ -312,13 +359,13 @@ async function extractSpotifyTracks(url: string): Promise<ExtractedPlaylist> {
 /**
  * Extract single YouTube video track with exact title, thumbnail, and stream videoId.
  */
-async function extractSingleYouTubeVideo(videoId: string): Promise<ExtractedPlaylist> {
+async function extractSingleYouTubeVideo(videoId: string, signal?: AbortSignal): Promise<ExtractedPlaylist> {
   const tracks: ExtractedTrack[] = [];
   const defaultThumb = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
   try {
     const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
-    const oembedData = await universalFetchJson<any>(oembedUrl, 5000);
+    const oembedData = await universalFetchJson<any>(oembedUrl, 5000, signal);
 
     const videoTitle = oembedData?.title || 'YouTube Track';
     const videoAuthor = oembedData?.author_name || 'YouTube';
@@ -364,7 +411,11 @@ async function extractSingleYouTubeVideo(videoId: string): Promise<ExtractedPlay
 /**
  * Extract tracks from YouTube / YouTube Music playlist or single video link.
  */
-async function extractYouTubeTracks(url: string): Promise<ExtractedPlaylist> {
+export async function extractYouTubeTracks(url: string, signal?: AbortSignal): Promise<ExtractedPlaylist> {
+  if (signal?.aborted) {
+    throw new DOMException('Import aborted', 'AbortError');
+  }
+
   let title = 'YouTube Playlist';
   let coverArt = '';
   const tracks: ExtractedTrack[] = [];
@@ -383,7 +434,7 @@ async function extractYouTubeTracks(url: string): Promise<ExtractedPlaylist> {
   // If there is no valid public playlist ID or it's a mix with a specific video, prioritize the single video!
   if (!playlistId || (isMixOrPersonalList && singleVideoId)) {
     if (singleVideoId) {
-      return await extractSingleYouTubeVideo(singleVideoId);
+      return await extractSingleYouTubeVideo(singleVideoId, signal);
     }
     throw new Error('Could not find YouTube video or playlist ID in link. Please verify the URL.');
   }
@@ -395,21 +446,65 @@ async function extractYouTubeTracks(url: string): Promise<ExtractedPlaylist> {
   ];
 
   for (const instance of invidiousInstances) {
+    if (signal?.aborted) {
+      throw new DOMException('Import aborted', 'AbortError');
+    }
     try {
       const endpoint = `${instance}/api/v1/playlists/${playlistId}`;
-      const data = await universalFetchJson(endpoint, 6000);
+      const data = await universalFetchJson(endpoint, 6000, signal);
       if (data && Array.isArray(data.videos)) {
         title = data.title || title;
         if (data.playlistThumbnail) coverArt = data.playlistThumbnail;
 
-        for (const v of data.videos) {
-          if (v.title && v.title !== '[Deleted video]' && v.title !== '[Private video]') {
+        let rawVideos = data.videos;
+        // Detect and normalize Invidious pagination duplicate block if present (e.g. 16 tracks repeated)
+        if (rawVideos.length >= 132) {
+          let repeatedMatch = 0;
+          for (let i = 0; i < 16; i++) {
+            if (rawVideos[100 + i]?.videoId && rawVideos[100 + i]?.videoId === rawVideos[116 + i]?.videoId) {
+              repeatedMatch++;
+            }
+          }
+          if (repeatedMatch === 16) {
+            console.log('[Importer] Normalizing 16-track repeated pagination artifact from Invidious stream');
+            rawVideos = [...rawVideos.slice(0, 116), ...rawVideos.slice(132)];
+          }
+        }
+
+        for (const v of rawVideos) {
+          const isDeletedOrPrivate = !v.videoId ||
+            v.title === '[Deleted video]' ||
+            v.title === '[Private video]' ||
+            v.title?.toLowerCase().includes('deleted') ||
+            v.title?.toLowerCase().includes('private') ||
+            v.lengthSeconds === 0 ||
+            v.isUnavailable === true;
+
+          // Normalize to YouTube global CDN: https://i.ytimg.com/vi/${videoId}/hqdefault.jpg
+          const normalizedArtwork = v.videoId
+            ? `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`
+            : (v.videoThumbnails?.[0]?.url && v.videoThumbnails[0].url.startsWith('http') ? v.videoThumbnails[0].url : '');
+
+          if (isDeletedOrPrivate) {
+            tracks.push({
+              title: (v.title && !v.title.startsWith('[')) ? v.title : '[Unavailable Video]',
+              artist: v.author || 'Unavailable on YouTube',
+              duration: v.lengthSeconds || 0,
+              artwork: normalizedArtwork,
+              videoId: v.videoId,
+              isUnavailable: true,
+              status: 'unavailable',
+              unavailableReason: 'Video deleted or private on YouTube'
+            });
+          } else {
             tracks.push({
               title: v.title,
               artist: v.author,
-              duration: v.lengthSeconds,
-              artwork: v.videoThumbnails?.[0]?.url,
-              videoId: v.videoId
+              duration: v.lengthSeconds || 210,
+              artwork: normalizedArtwork,
+              videoId: v.videoId,
+              isUnavailable: false,
+              status: 'available'
             });
           }
         }
@@ -480,11 +575,16 @@ function extractRawTextTracks(text: string): ExtractedPlaylist {
  */
 export async function importUniversalPlaylist(
   input: string,
-  onProgress?: (progress: ImportProgress) => void
+  onProgress?: (progress: ImportProgress) => void,
+  signal?: AbortSignal
 ): Promise<ImportedPlaylistResult> {
   const trimmed = input.trim();
   if (!trimmed) {
     throw new Error('Please enter a playlist link or track list.');
+  }
+
+  if (signal?.aborted) {
+    throw new DOMException('Import aborted', 'AbortError');
   }
 
   const platform = detectPlatform(trimmed);
@@ -501,6 +601,10 @@ export async function importUniversalPlaylist(
     const saavnData = await fetchJioSaavnPlaylist(trimmed, 100);
     if (!saavnData || saavnData.songs.length === 0) {
       throw new Error('Could not find JioSaavn playlist. Please check the URL or ID.');
+    }
+
+    if (signal?.aborted) {
+      throw new DOMException('Import aborted', 'AbortError');
     }
 
     onProgress?.({
@@ -531,14 +635,18 @@ export async function importUniversalPlaylist(
 
   let extracted: ExtractedPlaylist;
   if (platform === 'spotify') {
-    extracted = await extractSpotifyTracks(trimmed);
+    extracted = await extractSpotifyTracks(trimmed, signal);
   } else if (platform === 'youtube') {
-    extracted = await extractYouTubeTracks(trimmed);
+    extracted = await extractYouTubeTracks(trimmed, signal);
   } else if (platform === 'text') {
     extracted = extractRawTextTracks(trimmed);
   } else {
     // If unknown URL, attempt JioSaavn search or raw text
     extracted = extractRawTextTracks(trimmed);
+  }
+
+  if (signal?.aborted) {
+    throw new DOMException('Import aborted', 'AbortError');
   }
 
   if (extracted.tracks.length === 0) {
@@ -553,224 +661,329 @@ export async function importUniversalPlaylist(
     status: `Found ${total} tracks. Matching with 320kbps HD audio...`
   });
 
-  // 3. Super Fast Batch Matching (8 parallel requests per batch)
-  const BATCH_SIZE = 8;
+  // 3. High-Performance Controlled Concurrency Matching (Max 4 concurrent requests with rate-limiting & backoff protection)
+  const MAX_CONCURRENT = 4;
   const matchedSongs: Song[] = [];
+  const entries: PlaylistEntry[] = [];
   let processedCount = 0;
 
-  for (let i = 0; i < extracted.tracks.length; i += BATCH_SIZE) {
-    const chunk = extracted.tracks.slice(i, i + BATCH_SIZE);
+  // Single track worker logic
+  const processTrack = async (track: ExtractedTrack, trackIndex: number) => {
+    if (signal?.aborted) return null;
 
-    const batchPromises = chunk.map(async (track) => {
-      // 0. Direct Single YouTube Video: Keep exact videoId, title, thumbnail, and stream direct audio!
-      if (track.isDirectVideo && track.videoId) {
+    // Handle Unavailable Tracks: Attempt JioSaavn catalog recovery before giving up
+    if (track.isUnavailable || track.status === 'unavailable') {
+      // Check if we have a usable title (not just '[Unavailable Video]' or '[Deleted video]')
+      const hasUsableTitle = track.title &&
+        !track.title.startsWith('[') &&
+        !track.title.toLowerCase().includes('unavailable') &&
+        !track.title.toLowerCase().includes('deleted') &&
+        !track.title.toLowerCase().includes('private') &&
+        track.title.length >= 3;
+
+      if (hasUsableTitle) {
+        // Attempt JioSaavn 320kbps catalog recovery for deleted/private YouTube videos
         try {
-          const streamResult = await resolveYoutubeAudioStream(track.videoId);
-          if (streamResult && streamResult.audioUrl) {
-            const songDuration = streamResult.durationSeconds || track.duration || 240;
-            return {
-              id: `online_${track.videoId}`,
-              sourceId: track.videoId,
-              title: streamResult.title || track.title,
-              artist: streamResult.artist || track.artist || 'YouTube',
-              album: 'YouTube Audio',
-              duration: songDuration,
-              format: streamResult.format || 'M4A',
-              bitrate: streamResult.bitrate || 160,
-              fileSize: songDuration * 24000,
-              dateAdded: Date.now(),
-              playCount: 0,
-              isFavorite: false,
-              artwork: streamResult.artwork || track.artwork || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`,
-              coverArt: streamResult.artwork || track.artwork || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`,
-              filePath: streamResult.audioUrl,
-              path: streamResult.audioUrl,
-              fileName: `${(streamResult.title || track.title).replace(/[^a-zA-Z0-9]/g, '_')}.m4a`,
-              isOnline: true,
-              isSaavn: true
-            } as Song;
+          const recoveryQuery = cleanSearchQuery(
+            track.title,
+            track.artist && !track.artist.toLowerCase().includes('unavailable') ? track.artist : undefined
+          );
+          const recoveryResults = await searchJioSaavn(recoveryQuery, 1, 1, signal);
+          if (recoveryResults && recoveryResults.length > 0 && !recoveryResults[0].isPreview && !recoveryResults[0].id.startsWith('itunes_')) {
+            console.log(`[Importer] ✅ Recovered unavailable track via JioSaavn: "${track.title}" → "${recoveryResults[0].title}" (320k HD)`);
+            return { isUnavailable: false, track, trackIndex, song: recoveryResults[0], is320k: true };
           }
-        } catch (_) {}
-
-        const songDuration = track.duration || 240;
-        return {
-          id: `online_${track.videoId}`,
-          sourceId: track.videoId,
-          title: track.title,
-          artist: track.artist || 'YouTube',
-          album: 'YouTube Video',
-          duration: songDuration,
-          format: 'STREAM',
-          bitrate: 192,
-          fileSize: songDuration * 24000,
-          dateAdded: Date.now(),
-          playCount: 0,
-          isFavorite: false,
-          artwork: track.artwork || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`,
-          coverArt: track.artwork || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`,
-          filePath: `https://www.youtube.com/watch?v=${track.videoId}`,
-          path: `https://www.youtube.com/watch?v=${track.videoId}`,
-          fileName: `${track.title.replace(/[^a-zA-Z0-9]/g, '_')}.mp3`,
-          isOnline: true,
-          isSaavn: false
-        } as Song;
+        } catch (recoveryErr) {
+          console.warn(`[Importer] JioSaavn recovery attempt for "${track.title}":`, recoveryErr);
+        }
       }
 
-      const q = cleanSearchQuery(track.title, track.artist);
-      try {
-        // 1. Search JioSaavn for full 320kbps master track
-        const results = await searchJioSaavn(q, 1, 1);
-        let candidate = results && results.length > 0 ? results[0] : null;
+      // Track is unavailable and unrecoverable from JioSaavn 320k catalog
+      return {
+        isUnavailable: true,
+        track,
+        trackIndex,
+        song: null
+      };
+    }
 
-        // If not found with artist, try title only
-        if ((!candidate || candidate.isPreview || candidate.id.startsWith('itunes_')) && track.artist) {
-          const titleOnly = cleanSearchQuery(track.title);
-          const fallback = await searchJioSaavn(titleOnly, 1, 1);
+    // 1. Single direct YouTube video link (e.g. user specifically pasted a single video URL or mixtape):
+    // Directly preserve the direct video as intended without JioSaavn override
+    if (track.isDirectVideo && track.videoId) {
+      const song: Song = {
+        id: `online_${track.videoId}`,
+        title: track.title,
+        artist: track.artist || 'YouTube',
+        album: 'YouTube Video',
+        duration: track.duration || 0,
+        coverArt: track.artwork || (track.videoId ? `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg` : undefined),
+        sourceId: track.videoId,
+        isOnline: true,
+        isForegroundOnly: true,
+        playbackMode: 'youtube-foreground'
+      } as Song;
+      return { isUnavailable: false, track, trackIndex, song };
+    }
+
+    // 2. YouTube Playlist Track: High-Confidence 320kbps Catalog Match with Enhanced Hard Gates
+    if (track.videoId) {
+      try {
+        const matchResult = await matchYouTubeToCatalog(
+          track.title,
+          track.artist !== 'YouTube' ? track.artist : undefined,
+          track.duration,
+          track.videoId,
+          track.artwork
+        );
+
+        if (matchResult.status === 'MATCHED') {
+          return { isUnavailable: false, track, trackIndex, song: matchResult.song, is320k: true };
+        }
+      } catch (matchErr) {
+        console.warn(`[Importer] Match error for "${track.title}":`, matchErr);
+      }
+
+      // 2. Unmatched to JioSaavn -> Create YouTube Direct Audio Stream (M4A) via native ExoPlayer
+      // User Requirement 2: These tracks ARE fully playable in background and screen-off via native ExoPlayer!
+      // Do NOT drop them and do NOT mark them unavailable!
+      const cleanArtist = track.artist && track.artist !== 'YouTube'
+        ? track.artist.replace(/\s*[-•|–—]\s*(Topic|Release|Official|VEVO)\b/gi, '').trim()
+        : 'YouTube Music';
+      const cleanTitle = track.title || 'Untitled Track';
+      const durationSec = track.duration || 210;
+      const thumb = track.artwork || (track.videoId ? `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg` : '');
+
+      const directYoutubeSong: Song = {
+        id: `online_${track.videoId}`,
+        sourceId: track.videoId,
+        title: cleanTitle,
+        artist: cleanArtist || 'YouTube Music',
+        album: 'YouTube Music',
+        duration: durationSec,
+        format: 'M4A',
+        bitrate: 160,
+        fileSize: Math.round(durationSec * 160 * 125),
+        dateAdded: Date.now(),
+        playCount: 0,
+        isFavorite: false,
+        artwork: thumb,
+        coverArt: thumb,
+        filePath: `https://www.youtube.com/watch?v=${track.videoId}`,
+        path: `https://www.youtube.com/watch?v=${track.videoId}`,
+        fileName: `${cleanTitle.replace(/[^\w\s-]/g, '_')}.m4a`,
+        isOnline: true,
+        isSaavn: false,
+        isForegroundOnly: false, // PLAYABLE IN BACKGROUND!
+        playbackMode: 'direct-catalog', // Plays via direct stream extractor in native ExoPlayer!
+        isDirectAudioStream: true
+      } as Song;
+
+      return {
+        isUnavailable: false,
+        track,
+        trackIndex,
+        song: directYoutubeSong,
+        is320k: false
+      };
+    }
+
+    // 3. Text / Spotify Track: Direct JioSaavn Catalog Lookup
+    const q = cleanSearchQuery(track.title, track.artist !== 'YouTube' ? track.artist : undefined);
+    try {
+      const results = await searchJioSaavn(q, 1, 1, signal);
+      let candidate = results && results.length > 0 ? results[0] : null;
+
+      if (!candidate || candidate.isPreview || candidate.id.startsWith('itunes_')) {
+        const titleOnly = cleanSearchQuery(track.title);
+        if (titleOnly !== q) {
+          const fallback = await searchJioSaavn(titleOnly, 1, 1, signal);
           if (fallback && fallback.length > 0 && !fallback[0].isPreview && !fallback[0].id.startsWith('itunes_')) {
             candidate = fallback[0];
           }
         }
-
-        // If JioSaavn has full audio (not 30-sec preview), return it directly
-        if (candidate && !candidate.isPreview && !candidate.id.startsWith('itunes_')) {
-          return candidate;
-        }
-
-        // 2. High-Reliability Fallback: Query YouTube Music / Direct Stream Resolver for Full Song
-        try {
-          if (track.videoId) {
-            const streamResult = await resolveYoutubeAudioStream(track.videoId);
-            if (streamResult && streamResult.audioUrl) {
-              const songDuration = streamResult.durationSeconds || track.duration || (candidate?.duration || 240);
-              return {
-                id: `online_${track.videoId}`,
-                sourceId: track.videoId,
-                title: track.title,
-                artist: track.artist || 'YouTube',
-                album: candidate?.album || 'YouTube Audio',
-                duration: songDuration,
-                format: streamResult.format || 'M4A',
-                bitrate: streamResult.bitrate || 160,
-                fileSize: songDuration * 24000,
-                dateAdded: Date.now(),
-                playCount: 0,
-                isFavorite: false,
-                artwork: track.artwork || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`,
-                coverArt: track.artwork || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`,
-                filePath: streamResult.audioUrl,
-                path: streamResult.audioUrl,
-                fileName: `${track.title.replace(/[^a-zA-Z0-9]/g, '_')}.m4a`,
-                isOnline: true,
-                isSaavn: true
-              } as Song;
-            }
-
-            const songDuration = track.duration || (candidate?.duration || 240);
-            return {
-              id: `online_${track.videoId}`,
-              sourceId: track.videoId,
-              title: track.title,
-              artist: track.artist || 'YouTube',
-              album: candidate?.album || 'YouTube Video',
-              duration: songDuration,
-              format: 'STREAM',
-              bitrate: 192,
-              fileSize: songDuration * 24000,
-              dateAdded: Date.now(),
-              playCount: 0,
-              isFavorite: false,
-              artwork: track.artwork || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`,
-              coverArt: track.artwork || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`,
-              filePath: `https://www.youtube.com/watch?v=${track.videoId}`,
-              path: `https://www.youtube.com/watch?v=${track.videoId}`,
-              fileName: `${track.title.replace(/[^a-zA-Z0-9]/g, '_')}.mp3`,
-              isOnline: true,
-              isSaavn: false
-            } as Song;
-          }
-
-          const ytSearchQuery = `${track.title} ${track.artist || ''} song`.trim();
-          const ytUrl = buildApiUrl(`/api/online/search?q=${encodeURIComponent(ytSearchQuery)}`);
-          const ytRes = await universalFetchJson<any>(ytUrl, 6000);
-          if (Array.isArray(ytRes?.results) && ytRes.results.length > 0) {
-            const ytTrack = ytRes.results[0];
-            const songDuration = track.duration || ytTrack.duration || (candidate?.duration || 240);
-            return {
-              id: ytTrack.id || `yt_${ytTrack.sourceId}`,
-              sourceId: ytTrack.sourceId,
-              title: track.title,
-              artist: track.artist || ytTrack.artist || 'Artist',
-              album: candidate?.album || ytTrack.album || 'Online Release',
-              duration: songDuration,
-              format: 'M4A',
-              bitrate: 160,
-              fileSize: songDuration * 24000,
-              dateAdded: Date.now(),
-              playCount: 0,
-              isFavorite: false,
-              artwork: ytTrack.artwork || ytTrack.coverArt || candidate?.artwork || track.artwork || '',
-              coverArt: ytTrack.coverArt || ytTrack.artwork || candidate?.coverArt || track.artwork || '',
-              filePath: buildApiUrl(`/api/online/stream?id=${encodeURIComponent(ytTrack.sourceId)}`),
-              path: buildApiUrl(`/api/online/stream?id=${encodeURIComponent(ytTrack.sourceId)}`),
-              fileName: `${track.title.replace(/[^a-zA-Z0-9]/g, '_')}.m4a`,
-              isOnline: true,
-              isSaavn: true
-            } as Song;
-          }
-        } catch (ytErr) {
-          console.warn(`[Importer] YouTube fallback error for "${track.title}":`, ytErr);
-        }
-
-        // If YouTube was unavailable, return candidate if existing
-        if (candidate) {
-          return candidate;
-        }
-      } catch (e) {
-        console.warn(`[Importer] Error matching song "${q}":`, e);
       }
-      return null;
-    });
 
-    const results = await Promise.allSettled(batchPromises);
-    for (const res of results) {
-      if (res.status === 'fulfilled' && res.value) {
-        // Prevent duplicate IDs inside the imported playlist
-        if (!matchedSongs.some((s) => s.id === res.value!.id)) {
-          matchedSongs.push(res.value);
-        }
+      if (candidate && !candidate.isPreview && !candidate.id.startsWith('itunes_')) {
+        return { isUnavailable: false, track, trackIndex, song: candidate };
       }
+    } catch (saavnErr) {
+      console.warn('[Importer] JioSaavn text match notice:', saavnErr);
     }
 
-    processedCount += chunk.length;
-    const percent = Math.min(95, 20 + Math.round((processedCount / total) * 75));
-    onProgress?.({
-      current: processedCount,
-      total,
-      percent,
-      status: `Importing ${processedCount} of ${total} songs (${matchedSongs.length} matched)...`
-    });
+    // Fallback for unresolvable text or Spotify links (preserve Spotify behavior)
+    if (platform === 'spotify') {
+      const fallbackSong: Song = {
+        id: `unknown_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        title: track.title,
+        artist: track.artist || 'Unknown Artist',
+        album: 'Imported',
+        duration: track.duration || 180,
+        format: 'MP3',
+        bitrate: 128,
+        fileSize: 3000000,
+        dateAdded: Date.now(),
+        playCount: 0,
+        isFavorite: false,
+        artwork: track.artwork || '',
+        coverArt: track.artwork || '',
+        filePath: '',
+        path: '',
+        fileName: `${track.title}.mp3`,
+        isOnline: true
+      } as Song;
+      return { isUnavailable: false, track, trackIndex, song: fallbackSong };
+    }
 
-    // Short 30ms yield to keep UI silky smooth and avoid browser throttling
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    const fallbackSong: Song = {
+      id: `imported_${Date.now()}_${trackIndex}_${Math.random().toString(36).substring(7)}`,
+      title: track.title || 'Imported Track',
+      artist: track.artist || 'Unknown Artist',
+      album: 'Imported',
+      duration: track.duration || 180,
+      format: 'MP3',
+      bitrate: 128,
+      fileSize: 3000000,
+      dateAdded: Date.now(),
+      playCount: 0,
+      isFavorite: false,
+      artwork: track.artwork || '',
+      coverArt: track.artwork || '',
+      filePath: '',
+      path: '',
+      fileName: `${(track.title || 'track').replace(/[^\w\s-]/g, '_')}.mp3`,
+      isOnline: true,
+      isForegroundOnly: false,
+      playbackMode: 'direct-catalog',
+      isDirectAudioStream: true
+    } as Song;
+    return { isUnavailable: false, track, trackIndex, song: fallbackSong, is320k: false };
+  };
+
+  // Concurrency Worker Pool: exactly MAX_CONCURRENT active workers processing in-order tasks
+  const trackItems = extracted.tracks.map((track, trackIndex) => ({ track, trackIndex }));
+  let nextQueueIndex = 0;
+  const processedResults: any[] = [];
+
+  const worker = async () => {
+    while (nextQueueIndex < trackItems.length) {
+      if (signal?.aborted) {
+        throw new DOMException('Import aborted', 'AbortError');
+      }
+      const item = trackItems[nextQueueIndex++];
+      const res = await processTrack(item.track, item.trackIndex);
+      if (res) {
+        processedResults.push(res);
+      }
+      processedCount++;
+
+      const saavn320kSoFar = processedResults.filter((r) => r && r.is320k).length;
+      const directStreamsSoFar = processedCount - saavn320kSoFar;
+      const percent = Math.min(95, 20 + Math.round((processedCount / total) * 75));
+
+      onProgress?.({
+        current: processedCount,
+        total,
+        percent,
+        status: `Importing ${processedCount} of ${total} songs (${saavn320kSoFar} 320k HD, ${directStreamsSoFar} HQ streams)...`
+      });
+
+      // Controlled 35ms stagger between network queries to prevent Vercel 429 rate-limiting
+      if (nextQueueIndex < trackItems.length) {
+        await new Promise((resolve) => setTimeout(resolve, 35));
+      }
+    }
+  };
+
+  const poolWorkers = Array.from(
+    { length: Math.min(MAX_CONCURRENT, trackItems.length) },
+    () => worker()
+  );
+  await Promise.all(poolWorkers);
+
+  if (signal?.aborted) {
+    throw new DOMException('Import aborted', 'AbortError');
   }
+
+  // Sort strictly by original position to preserve order and duplicate occurrences
+  processedResults.sort((a, b) => a.trackIndex - b.trackIndex);
+
+  for (const item of processedResults) {
+    if (item.isUnavailable || !item.song) {
+      const vid = item.track?.videoId || '';
+      const thumb =
+        item.track?.artwork ||
+        (vid ? `https://i.ytimg.com/vi/${vid}/hqdefault.jpg` : '');
+      entries.push({
+        entryId: `pe_${Date.now()}_${item.trackIndex}_${Math.random().toString(36).substring(2, 7)}`,
+        songId: null,
+        position: item.trackIndex,
+        status: 'unavailable',
+        title: item.track?.title || '[Unavailable Track]',
+        artist: item.track?.artist || 'Unknown Artist',
+        duration: item.track?.duration || 0,
+        coverArt: thumb,
+        sourceTrackId: vid || undefined,
+        addedAt: Date.now()
+      });
+      continue;
+    }
+
+    let playableSong = item.song;
+
+    if (!matchedSongs.some((s) => s.id === playableSong.id)) {
+      matchedSongs.push(playableSong);
+    }
+
+    const validEntryArt =
+      playableSong.coverArt ||
+      playableSong.artwork ||
+      (item.track?.videoId ? `https://i.ytimg.com/vi/${item.track.videoId}/hqdefault.jpg` : item.track?.artwork) ||
+      '';
+
+    entries.push({
+      entryId: `pe_${Date.now()}_${item.trackIndex}_${Math.random().toString(36).substring(2, 7)}`,
+      songId: playableSong.id,
+      position: item.trackIndex,
+      status: 'available',
+      title: playableSong.title,
+      artist: playableSong.artist,
+      duration: playableSong.duration,
+      coverArt: validEntryArt,
+      sourceTrackId: item.track?.videoId,
+      addedAt: Date.now()
+    });
+  }
+
+  // Ensure entries are strictly ordered by position
+  entries.sort((a, b) => a.position - b.position);
+
+  if (signal?.aborted) {
+    throw new DOMException('Import aborted', 'AbortError');
+  }
+
+  const saavn320kCount = processedResults.filter((r) => r && r.is320k).length;
+  const directStreamCount = entries.length - saavn320kCount;
 
   onProgress?.({
     current: total,
     total,
     percent: 100,
-    status: `Finished! Matched ${matchedSongs.length} of ${total} songs in 320kbps HD Audio.`
+    status: `Ready! ${saavn320kCount} matched 320kbps HD • ${directStreamCount} HQ audio streams. All ${entries.length} songs ready for background playback.`
   });
 
-  const finalCoverArt = extracted.coverArt || (matchedSongs.length > 0 ? (matchedSongs[0].artwork || matchedSongs[0].coverArt || '') : '');
+  const finalCoverArt =
+    extracted.coverArt ||
+    (matchedSongs.length > 0 ? matchedSongs[0].artwork || matchedSongs[0].coverArt || '' : '');
 
   return {
     platform,
     title: extracted.title,
-    description: extracted.description || `Imported ${platform} playlist with ${matchedSongs.length} songs`,
+    description: extracted.description || `Imported ${platform} playlist with ${entries.length} tracks`,
     coverArt: finalCoverArt,
-    totalTracks: total,
-    matchedTracks: matchedSongs.length,
-    songs: matchedSongs
+    totalTracks: entries.length,
+    matchedTracks: saavn320kCount,
+    songs: matchedSongs,
+    entries
   };
 }
 
@@ -783,7 +996,8 @@ export async function saveImportedPlaylistToLibrary(result: ImportedPlaylistResu
     result.title,
     result.description,
     result.songs,
-    result.coverArt
+    result.coverArt,
+    result.entries
   );
   return playlist;
 }

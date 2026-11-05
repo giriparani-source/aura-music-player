@@ -1,10 +1,10 @@
-import { Song, LibraryHealth, LibraryStats } from '../types/music';
+import { Song, LibraryHealth, LibraryStats, DuplicateGroup } from '../types/music';
 import { detectDuplicates } from './duplicateService';
 
 /**
  * Calculates real, dynamic Library Health metrics directly from the library dataset
  */
-export function calculateLibraryHealth(songs: Song[]): LibraryHealth {
+export function calculateLibraryHealth(songs: Song[], precomputedDuplicates?: DuplicateGroup[]): LibraryHealth {
   const totalSongs = songs.length;
   let totalStorageBytes = 0;
   const formats: Record<string, number> = {};
@@ -41,8 +41,8 @@ export function calculateLibraryHealth(songs: Song[]): LibraryHealth {
     }
   }
 
-  // Detect real duplicate candidates
-  const duplicates = detectDuplicates(songs);
+  // Detect real duplicate candidates (reuse precomputed when available to save CPU)
+  const duplicates = precomputedDuplicates ?? detectDuplicates(songs);
   const possibleDuplicatesCount = duplicates.reduce((acc, g) => acc + (g.songs.length - 1), 0);
 
   // Calculate health score (0 - 100%)

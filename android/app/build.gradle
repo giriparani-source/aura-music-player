@@ -3,6 +3,9 @@ apply plugin: 'com.android.application'
 android {
     namespace = "com.aura.musicplayer"
     compileSdk = rootProject.ext.compileSdkVersion
+    buildFeatures {
+        buildConfig = true
+    }
     defaultConfig {
         applicationId "com.aura.musicplayer"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -40,6 +43,9 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     implementation project(':capacitor-cordova-android-plugins')
     implementation "androidx.media:media:1.7.0"
+    implementation "androidx.media3:media3-exoplayer:1.5.1"
+    implementation "androidx.media3:media3-session:1.5.1"
+    implementation "androidx.media3:media3-common:1.5.1"
     implementation "com.github.bumptech.glide:glide:4.16.0"
     annotationProcessor "com.github.bumptech.glide:compiler:4.16.0"
 }

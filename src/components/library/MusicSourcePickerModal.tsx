@@ -89,7 +89,11 @@ export const MusicSourcePickerModal: React.FC<MusicSourcePickerModalProps> = ({
           album: t.album,
           duration: t.duration,
           path: t.contentUri || t.path,
-          filePath: t.path,
+          filePath: t.contentUri || t.path,
+          contentUri: t.contentUri || t.path,
+          artwork: t.artwork || t.coverArt || '',
+          coverArt: t.coverArt || t.artwork || '',
+          folder: t.folder || 'Phone Audio',
           fileName: t.title,
           format: 'audio',
           bitrate: 320,
@@ -100,9 +104,9 @@ export const MusicSourcePickerModal: React.FC<MusicSourcePickerModalProps> = ({
           isOnline: false
         }));
 
-        await musicDB.saveSongsBatch(formattedSongs);
+        const summary = await musicDB.syncDeviceSongs(formattedSongs);
         await loadLibrary();
-        setDeviceScanResult(`Successfully scanned and added ${formattedSongs.length} songs from phone storage!`);
+        setDeviceScanResult(`Sync complete! ${summary.total} local songs available (+${summary.added} new).`);
       } else {
         // Not native Android or no songs found via MediaStore; trigger standard file picker
         fileInputRef.current?.click();

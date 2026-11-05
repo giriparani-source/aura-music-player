@@ -195,6 +195,26 @@ class CloudPlayerService {
     }
   }
 
+  public cueVideo(videoId: string, startTime: number = 0) {
+    this.currentVideoId = videoId;
+    if (!this.isReady || !this.player) {
+      this.pendingVideoId = videoId;
+      this.pendingStartTime = startTime;
+      return;
+    }
+    try {
+      if (typeof this.player.cueVideoById === 'function') {
+        this.player.cueVideoById({
+          videoId,
+          startSeconds: startTime,
+          suggestedQuality: 'hd1080'
+        });
+      }
+    } catch (err) {
+      console.error('Error cueing cloud video:', err);
+    }
+  }
+
   public play() {
     if (this.player && typeof this.player.playVideo === 'function') {
       try {

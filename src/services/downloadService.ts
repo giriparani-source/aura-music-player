@@ -12,6 +12,9 @@
 import { Song, DownloadState } from '../types/music';
 import { musicDB } from './db';
 import { searchJioSaavn } from './jiosaavnService';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { resolveYoutubeAudioStream } from './youtubeAudioResolver';
+import { androidMediaBridge } from './androidMediaBridge';
 
 export const OFFLINE_AUDIO_CACHE = 'aura-offline-audio-v1';
 
@@ -82,17 +85,69 @@ class DownloadService {
   }
 
   /**
+   * Identifies whether a song is a YouTube track
+   */
+  public isYouTubeSong(song: Song): boolean {
+    const isYtUrl = (u?: string) => Boolean(u && (u.includes('youtube.com') || u.includes('youtu.be')));
+    return Boolean(
+      song.playbackMode === 'youtube-foreground' ||
+      song.isForegroundOnly ||
+      (song.sourceId && song.sourceId.length === 11) ||
+      (song.id && (song.id.startsWith('online_') || song.id.startsWith('yt_'))) ||
+      isYtUrl(song.filePath) ||
+      isYtUrl(song.path)
+    );
+  }
+
+  /**
+   * Extracts the 11-char YouTube video ID from a song
+   */
+  public extractYouTubeVideoId(song: Song): string | null {
+    if (song.sourceId && /^[a-zA-Z0-9_-]{11}$/.test(song.sourceId)) {
+      return song.sourceId;
+    }
+    if (song.id && song.id.startsWith('online_')) {
+      const vid = song.id.replace('online_', '').trim();
+      if (/^[a-zA-Z0-9_-]{11}$/.test(vid)) {
+        return vid;
+      }
+    }
+    const combined = `${song.filePath || ''} ${song.path || ''}`;
+    const match = combined.match(/(?:v=|\/embed\/|\/watch\?v=|youtu\.be\/|\/v\/)([a-zA-Z0-9_-]{11})/);
+    if (match) return match[1];
+    return null;
+  }
+
+  /**
    * Resolves the download stream URL for a given track
    */
   private async resolveDownloadUrl(song: Song): Promise<string | null> {
-    if (song.filePath && (song.filePath.startsWith('http://') || song.filePath.startsWith('https://') || song.filePath.startsWith('/api/'))) {
+    const isYtUrl = (u?: string) => Boolean(u && (u.includes('youtube.com') || u.includes('youtu.be')));
+
+    // 1. YouTube Track: Resolve direct M4A / WebM stream URL
+    if (this.isYouTubeSong(song)) {
+      const videoId = this.extractYouTubeVideoId(song);
+      if (videoId) {
+        try {
+          const stream = await resolveYoutubeAudioStream(videoId);
+          if (stream?.audioUrl) {
+            return stream.audioUrl;
+          }
+        } catch (ytErr) {
+          console.warn(`[DownloadService] Failed to resolve direct YouTube stream for "${song.title}":`, ytErr);
+        }
+      }
+    }
+
+    // 2. Direct HTTP Audio URL (ignoring YouTube watch URLs which are web pages)
+    if (song.filePath && (song.filePath.startsWith('http://') || song.filePath.startsWith('https://') || song.filePath.startsWith('/api/')) && !isYtUrl(song.filePath)) {
       return song.filePath;
     }
-    if (song.path && (song.path.startsWith('http://') || song.path.startsWith('https://') || song.path.startsWith('/api/'))) {
+    if (song.path && (song.path.startsWith('http://') || song.path.startsWith('https://') || song.path.startsWith('/api/')) && !isYtUrl(song.path)) {
       return song.path;
     }
 
-    // Try dynamic search resolution for online track
+    // 3. Try dynamic search resolution for online track
     if (song.title) {
       try {
         const results = await searchJioSaavn(song.title);
@@ -157,48 +212,71 @@ class DownloadService {
     this.notify();
 
     try {
-      const response = await fetch(downloadUrl, {
-        signal: abortController.signal,
-        headers: {
-          Accept: 'audio/*,*/*'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
-      }
-
-      const contentLengthHeader = response.headers.get('content-length');
-      const totalBytes = contentLengthHeader ? parseInt(contentLengthHeader, 10) : 0;
-
       let blob: Blob;
 
-      if (response.body && totalBytes > 0 && typeof ReadableStream !== 'undefined') {
-        const reader = response.body.getReader();
-        const chunks: Uint8Array[] = [];
-        let receivedBytes = 0;
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) {
-            chunks.push(value);
-            receivedBytes += value.length;
-            const pct = Math.min(100, Math.round((receivedBytes / totalBytes) * 100));
-            this.downloadingProgress.set(song.id, pct);
-            if (onProgress) onProgress(pct);
-            this.notify();
+      try {
+        const response = await fetch(downloadUrl, {
+          signal: abortController.signal,
+          headers: {
+            Accept: 'audio/*,*/*'
           }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
         }
 
-        const mimeType = response.headers.get('content-type') || 'audio/mpeg';
-        blob = new Blob(chunks as any, { type: mimeType });
-      } else {
-        // Fallback for browsers or proxies without streaming headers
-        blob = await response.blob();
-        this.downloadingProgress.set(song.id, 100);
-        if (onProgress) onProgress(100);
-        this.notify();
+        const contentLengthHeader = response.headers.get('content-length');
+        const totalBytes = contentLengthHeader ? parseInt(contentLengthHeader, 10) : 0;
+
+        if (response.body && totalBytes > 0 && typeof ReadableStream !== 'undefined') {
+          const reader = response.body.getReader();
+          const chunks: Uint8Array[] = [];
+          let receivedBytes = 0;
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) {
+              chunks.push(value);
+              receivedBytes += value.length;
+              const pct = Math.min(100, Math.round((receivedBytes / totalBytes) * 100));
+              this.downloadingProgress.set(song.id, pct);
+              if (onProgress) onProgress(pct);
+              this.notify();
+            }
+          }
+
+          const mimeType = response.headers.get('content-type') || 'audio/mp4';
+          blob = new Blob(chunks as any, { type: mimeType });
+        } else {
+          // Fallback for browsers or proxies without streaming headers
+          blob = await response.blob();
+          this.downloadingProgress.set(song.id, 100);
+          if (onProgress) onProgress(100);
+          this.notify();
+        }
+      } catch (fetchErr: any) {
+        // Fallback for native Capacitor if fetch blocked by CORS or network
+        if (Capacitor.isNativePlatform() && !abortController.signal.aborted) {
+          console.log(`[DownloadService] Falling back to CapacitorHttp for track "${song.title}"`);
+          const nativeRes = await CapacitorHttp.get({
+            url: downloadUrl,
+            responseType: 'blob'
+          });
+          if (nativeRes.status >= 200 && nativeRes.status < 300 && nativeRes.data) {
+            blob = typeof nativeRes.data === 'string'
+              ? new Blob([nativeRes.data], { type: 'audio/mp4' })
+              : (nativeRes.data as Blob);
+            this.downloadingProgress.set(song.id, 100);
+            if (onProgress) onProgress(100);
+            this.notify();
+          } else {
+            throw fetchErr;
+          }
+        } else {
+          throw fetchErr;
+        }
       }
 
       if (blob.size === 0) {
@@ -216,7 +294,7 @@ class DownloadService {
         status: 200,
         statusText: 'OK',
         headers: {
-          'Content-Type': blob.type || 'audio/mpeg',
+          'Content-Type': blob.type || 'audio/mp4',
           'Content-Length': blob.size.toString(),
           'X-Aura-Downloaded-At': Date.now().toString(),
           'X-Aura-Track-Id': song.id
@@ -225,14 +303,21 @@ class DownloadService {
 
       await cache.put(cacheKey, cacheResponse);
 
-      // Persist metadata into IndexedDB
+      // Persist metadata into IndexedDB - remove foreground-only restriction now that audio is cached locally!
       const updatedSong: Song = {
         ...song,
         isDownloaded: true,
         downloadedAt: Date.now(),
-        fileSize: blob.size > 0 ? blob.size : song.fileSize
+        fileSize: blob.size > 0 ? blob.size : song.fileSize,
+        isForegroundOnly: false,
+        playbackMode: 'direct-catalog',
+        isDirectAudioStream: true
       };
       await musicDB.saveSong(updatedSong);
+
+      if (Capacitor.isNativePlatform()) {
+        androidMediaBridge.ensureNativeOfflineAudio(updatedSong).catch(() => {});
+      }
 
       this.activeDownloads.delete(song.id);
       this.downloadingProgress.delete(song.id);

@@ -185,7 +185,7 @@ export const AuraChatDrawer: React.FC = () => {
     } catch (err: any) {
       const errMsg = createChatMessage(
         'aura',
-        `Vanakkam nanba! Request process panradhula chinna thadangal: ${err.message || 'Unknown error'}. Local mode ready-a iruku!`
+        `Vanakkam nanba! Request process panradhula chinna thadangal: ${err.message || 'Unknown error'}. Offline fallback ready-a iruku!`
       );
       setMessages((prev) => [...prev, errMsg]);
     } finally {

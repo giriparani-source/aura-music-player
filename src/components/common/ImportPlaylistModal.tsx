@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X,
   UploadCloud,
@@ -20,6 +20,8 @@ import {
 } from '../../services/universalPlaylistImporter';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
+import { PrototypeTestModal } from '../dev/PrototypeTestModal';
+import { Zap } from 'lucide-react';
 
 interface ImportPlaylistModalProps {
   isOpen: boolean;
@@ -39,6 +41,8 @@ export const ImportPlaylistModal: React.FC<ImportPlaylistModalProps> = ({
   const [playlistTitle, setPlaylistTitle] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(false);
+  const [isPrototypeOpen, setIsPrototypeOpen] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const { playSong } = usePlayerStore();
   const { setActivePlaylistId, setActiveTab, setLibrarySubTab } = useLibraryStore();
@@ -47,7 +51,7 @@ export const ImportPlaylistModal: React.FC<ImportPlaylistModalProps> = ({
     return inputText.trim() ? detectPlatform(inputText) : 'unknown';
   }, [inputText]);
 
-  // Reset state when modal opens
+  // Reset state when modal opens, abort any pending import on close
   useEffect(() => {
     if (isOpen) {
       setInputText('');
@@ -57,9 +61,25 @@ export const ImportPlaylistModal: React.FC<ImportPlaylistModalProps> = ({
       setError(null);
       setIsSaved(false);
     }
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  const handleCancelOrClose = () => {
+    if (isImporting && abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsImporting(false);
+      setProgress(null);
+    }
+    onClose();
+  };
 
   const handlePasteClipboard = async () => {
     try {
@@ -87,19 +107,34 @@ export const ImportPlaylistModal: React.FC<ImportPlaylistModalProps> = ({
       status: 'Analyzing link and connecting to 320kbps streams...'
     });
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
-      const res = await importUniversalPlaylist(inputText, (prog) => {
-        setProgress(prog);
-      });
+      const res = await importUniversalPlaylist(
+        inputText,
+        (prog) => {
+          setProgress(prog);
+        },
+        controller.signal
+      );
 
       setResult(res);
       setPlaylistTitle(res.title);
       setIsImporting(false);
     } catch (err: any) {
+      if (err?.name === 'AbortError' || err?.message === 'Import aborted') {
+        // User cancelled import cleanly
+        setIsImporting(false);
+        setProgress(null);
+        return;
+      }
       console.error('Import failed:', err);
       setError(err?.message || 'Failed to import playlist. Please check your link or paste song names.');
       setIsImporting(false);
       setProgress(null);
+    } finally {
+      abortControllerRef.current = null;
     }
   };
 
@@ -162,9 +197,9 @@ export const ImportPlaylistModal: React.FC<ImportPlaylistModalProps> = ({
             </div>
           </div>
           <button
-            onClick={onClose}
-            disabled={isImporting}
-            className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
+            onClick={handleCancelOrClose}
+            className="p-2 rounded-xl text-neutral-400 hover:text-white hover:bg-white/5 transition-colors"
+            title={isImporting ? 'Cancel import' : 'Close'}
           >
             <X size={18} />
           </button>
@@ -352,7 +387,9 @@ export const ImportPlaylistModal: React.FC<ImportPlaylistModalProps> = ({
                     className="w-full bg-transparent text-white font-bold text-base border-b border-transparent hover:border-white/20 focus:border-cyan-400 focus:outline-none py-0.5 truncate"
                   />
                   <p className="text-xs text-neutral-400 mt-0.5">
-                    {result.matchedTracks} of {result.totalTracks} tracks ready • {result.songs[0]?.id?.startsWith('online_') ? 'YouTube Audio' : '320kbps HD'}
+                    {result.matchedTracks} of {result.totalTracks} tracks matched (320kbps HD)
+                    {result.totalTracks > result.matchedTracks ? ` • ${result.totalTracks - result.matchedTracks} HQ audio streams` : ''}
+                    {' • All ready for background playback'}
                   </p>
                 </div>
               </div>
@@ -361,84 +398,150 @@ export const ImportPlaylistModal: React.FC<ImportPlaylistModalProps> = ({
               <div className="space-y-1 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
                 <div className="text-[11px] text-neutral-400 font-medium px-2 py-1 flex items-center justify-between">
                   <span>TRACK PREVIEW</span>
-                  <span>SOURCE</span>
+                  <span>AUDIO QUALITY</span>
                 </div>
-                {result.songs.map((song, idx) => (
-                  <div
-                    key={song.id || idx}
-                    className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-neutral-900/50 hover:bg-neutral-800/60 border border-white/5 transition-colors text-xs"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                      <span className="text-neutral-500 text-[11px] w-4 text-right">{idx + 1}</span>
-                      <img
-                        src={song.artwork || song.coverArt}
-                        alt={song.title}
-                        className="w-8 h-8 rounded-md object-cover shrink-0"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-white font-medium truncate text-xs">{song.title}</p>
-                        <p className="text-neutral-400 truncate text-[11px]">{song.artist}</p>
+                {result.entries && result.entries.length > 0 ? (
+                  result.entries.map((entry, idx) => {
+                    const matchedSong = result.songs.find((s) => s.id === entry.songId);
+                    const is320k = Boolean(matchedSong?.isSaavn || matchedSong?.bitrate === 320 || matchedSong?.format?.includes('320'));
+                    return (
+                      <div
+                        key={entry.entryId || idx}
+                        className="flex items-center justify-between px-2.5 py-1.5 rounded-lg border transition-colors text-xs bg-neutral-900/50 hover:bg-neutral-800/60 border-white/5"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <span className="text-neutral-500 text-[11px] w-4 text-right">{idx + 1}</span>
+                          {entry.coverArt ? (
+                            <img
+                              src={entry.coverArt}
+                              alt={entry.title}
+                              className="w-8 h-8 rounded-md object-cover shrink-0"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-md bg-white/5 flex items-center justify-center text-neutral-500 shrink-0">
+                              <Music2 size={14} />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-white font-medium truncate text-xs">{entry.title}</p>
+                            <p className="text-neutral-400 truncate text-[11px]">{entry.artist}</p>
+                          </div>
+                        </div>
+                        {is320k ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0 ml-2">
+                            320k
+                          </span>
+                        ) : (
+                          <span
+                            title="Direct YouTube Audio Stream via native ExoPlayer (Screen-off playback supported)"
+                            className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shrink-0 ml-2"
+                          >
+                            HQ Audio
+                          </span>
+                        )}
                       </div>
+                    );
+                  })
+                ) : (
+                  result.songs.map((song, idx) => (
+                    <div
+                      key={song.id || idx}
+                      className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-neutral-900/50 hover:bg-neutral-800/60 border border-white/5 transition-colors text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <span className="text-neutral-500 text-[11px] w-4 text-right">{idx + 1}</span>
+                        <img
+                          src={song.artwork || song.coverArt}
+                          alt={song.title}
+                          className="w-8 h-8 rounded-md object-cover shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-white font-medium truncate text-xs">{song.title}</p>
+                          <p className="text-neutral-400 truncate text-[11px]">{song.artist}</p>
+                        </div>
+                      </div>
+                      {song.bitrate === 320 || song.isSaavn ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0 ml-2">
+                          320k
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shrink-0 ml-2">
+                          HQ Audio
+                        </span>
+                      )}
                     </div>
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shrink-0 ml-2">
-                      {song.id?.startsWith('online_') ? 'YouTube' : '320k'}
-                    </span>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           )}
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-4 border-t border-white/5 bg-black/40 flex items-center justify-end gap-2.5">
+        <div className="px-6 py-4 border-t border-white/5 bg-black/40 flex items-center justify-between gap-2.5">
           <button
-            onClick={onClose}
-            disabled={isImporting}
-            className="px-4 py-2 rounded-xl text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
+            type="button"
+            onClick={() => setIsPrototypeOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 transition-colors"
           >
-            Cancel
+            <Zap size={13} />
+            <span>🧪 Architecture Prototype</span>
           </button>
 
-          {!result ? (
+          <div className="flex items-center gap-2.5">
             <button
-              onClick={handleStartImport}
-              disabled={isImporting || !inputText.trim()}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 shadow-lg shadow-cyan-500/20 active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none"
+              onClick={handleCancelOrClose}
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/5 transition-colors"
             >
-              <Sparkles size={14} />
-              {isImporting ? 'Importing...' : 'Fetch & Convert Playlist'}
+              Cancel
             </button>
-          ) : (
-            <div className="flex items-center gap-2">
+
+            {!result ? (
               <button
-                onClick={handlePlayNow}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-neutral-200 bg-white/10 hover:bg-white/15 border border-white/10 transition-colors"
+                onClick={handleStartImport}
+                disabled={isImporting || !inputText.trim()}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 shadow-lg shadow-cyan-500/20 active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none"
               >
-                <Play size={14} fill="currentColor" />
-                Play Now
+                <Sparkles size={14} />
+                {isImporting ? 'Importing...' : 'Fetch & Convert Playlist'}
               </button>
-              <button
-                onClick={handleSaveToLibrary}
-                disabled={isSaved}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 shadow-lg shadow-cyan-500/20 active:scale-95 transition-all disabled:opacity-75"
-              >
-                {isSaved ? (
-                  <>
-                    <Check size={14} />
-                    Saved!
-                  </>
-                ) : (
-                  <>
-                    <Library size={14} />
-                    Save to My Library
-                  </>
-                )}
-              </button>
-            </div>
-          )}
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handlePlayNow}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-neutral-200 bg-white/10 hover:bg-white/15 border border-white/10 transition-colors"
+                >
+                  <Play size={14} fill="currentColor" />
+                  Play Now
+                </button>
+                <button
+                  onClick={handleSaveToLibrary}
+                  disabled={isSaved}
+                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 shadow-lg shadow-cyan-500/20 active:scale-95 transition-all disabled:opacity-75"
+                >
+                  {isSaved ? (
+                    <>
+                      <Check size={14} />
+                      Saved!
+                    </>
+                  ) : (
+                    <>
+                      <Library size={14} />
+                      Save to My Library
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Background Playback Prototype Diagnostic Modal */}
+      <PrototypeTestModal
+        isOpen={isPrototypeOpen}
+        onClose={() => setIsPrototypeOpen(false)}
+      />
     </div>
   );
 };

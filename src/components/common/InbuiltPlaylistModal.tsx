@@ -228,7 +228,7 @@ export const InbuiltPlaylistModal: React.FC<InbuiltPlaylistModalProps> = ({
           {!isOnline && (
             <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-semibold">
               <WifiOff size={13} />
-              <span>Offline Mode: Playing cached or local audio</span>
+              <span>Offline Mode: Playing cached offline audio</span>
             </div>
           )}
         </div>

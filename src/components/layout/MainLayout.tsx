@@ -12,9 +12,9 @@ import { useJamStore } from '../../store/useJamStore';
 import { useProfileStore } from '../../store/useProfileStore';
 import {
   androidMediaBridge,
-  registerMediaActionHandler,
   registerBackButtonHandler
 } from '../../services/androidMediaBridge';
+import { audioService } from '../../services/audioService';
 
 // Code-split heavy views and modals with React.lazy() for fast initial load
 const HomeView = lazy(() => import('../views/HomeView').then((m) => ({ default: m.HomeView })));
@@ -51,6 +51,7 @@ const ViewSkeleton: React.FC = () => (
  */
 const TAB_ROUTES: Record<NavigationTab, string> = {
   home: '/',
+  local: '/library',
   library: '/library',
   search: '/search',
   radio: '/radio',
@@ -61,6 +62,7 @@ const TAB_ROUTES: Record<NavigationTab, string> = {
 
 const PATH_TO_TAB: Record<string, NavigationTab> = {
   '/': 'home',
+  '/local': 'library',
   '/library': 'library',
   '/search': 'search',
   '/radio': 'radio',
@@ -123,37 +125,6 @@ export const MainLayout: React.FC = () => {
 
   // Load library and initialize native media bridge on startup
   useEffect(() => {
-    registerMediaActionHandler((action, position) => {
-      const store = usePlayerStore.getState();
-      switch (action) {
-        case 'play':
-        case 'resume':
-          if (!store.isPlaying) store.togglePlay();
-          break;
-        case 'pause':
-          if (store.isPlaying) store.togglePlay();
-          break;
-        case 'toggle':
-          store.togglePlay();
-          break;
-        case 'next':
-          store.nextSong();
-          break;
-        case 'previous':
-          store.previousSong();
-          break;
-        case 'seek':
-          if (typeof position === 'number') store.seek(position);
-          break;
-        case 'seekbackward':
-          store.seek(Math.max(0, (store.currentTime || 0) - (position || 10)));
-          break;
-        case 'seekforward':
-          store.seek((store.currentTime || 0) + (position || 10));
-          break;
-      }
-    });
-
     registerBackButtonHandler(() => {
       // 1. If any browser history modal entry is present (e.g. InbuiltPlaylistModal pushState)
       if (window.history.state && window.history.state.modal) {
@@ -223,8 +194,40 @@ export const MainLayout: React.FC = () => {
       return false;
     });
 
-    loadLibrary();
+    const initApp = async () => {
+      await loadLibrary();
+      // Restore previous Spotify-style playback session (last song, exact position, queue)
+      await usePlayerStore.getState().restorePlaybackSession();
+    };
+    initApp();
     androidMediaBridge.init();
+
+    const handleSaveSession = () => {
+      usePlayerStore.getState().persistSessionImmediate();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        handleSaveSession();
+        const currentSong = usePlayerStore.getState().currentSong;
+        const isDownloaded = Boolean(
+          currentSong?.isDownloaded ||
+          (currentSong && useLibraryStore.getState().downloadedSongIds.has(currentSong.id))
+        );
+        if (
+          currentSong?.isForegroundOnly &&
+          !isDownloaded &&
+          audioService.isUsingCloudPlayer &&
+          usePlayerStore.getState().isPlaying
+        ) {
+          usePlayerStore.getState().togglePlay();
+        }
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handleSaveSession);
+    window.addEventListener('beforeunload', handleSaveSession);
 
     // This app-boundary subscription avoids circular dependencies while syncing native media.
     // Only sync track metadata on actual track change or play/pause state change.
@@ -244,7 +247,12 @@ export const MainLayout: React.FC = () => {
       }
     });
 
-    return unsubscribe;
+    return () => {
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handleSaveSession);
+      window.removeEventListener('beforeunload', handleSaveSession);
+      unsubscribe();
+    };
   }, [loadLibrary]);
 
   // Global Keyboard Navigation
@@ -304,7 +312,7 @@ export const MainLayout: React.FC = () => {
   useRouteSync();
 
   return (
-    <div className="flex h-screen w-screen bg-[#090b10] text-[#e2e8f0] overflow-hidden">
+    <div className="flex h-screen w-screen bg-[#0A0910] text-[#e5e0eb] overflow-hidden">
       {/* Desktop Sidebar */}
       <Sidebar />
 
@@ -316,13 +324,14 @@ export const MainLayout: React.FC = () => {
         <main className="flex-1 overflow-y-auto pb-[calc(9.5rem+env(safe-area-inset-bottom,0px))] md:pb-24">
           {isLoading ? (
             <div className="flex flex-col items-center justify-center h-64 text-neutral-500">
-              <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin mb-3" />
+              <div className="w-8 h-8 rounded-full border-2 border-[#9d4edd] border-t-transparent animate-spin mb-3" />
               <p className="text-xs font-medium">Loading library...</p>
             </div>
           ) : (
             <Suspense fallback={<ViewSkeleton />}>
               <Routes>
                 <Route path="/" element={<HomeView />} />
+                <Route path="/local" element={<Navigate to="/library" replace />} />
                 <Route path="/library" element={<LibraryView />} />
                 <Route path="/search" element={<SearchView />} />
                 <Route path="/radio" element={<RadioView />} />

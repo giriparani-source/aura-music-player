@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Aura Music Player — Network Security Configuration
+  
+  Security hardening: Cleartext HTTP is blocked by default.
+  Only the local loopback (127.0.0.1) is permitted cleartext
+  for the embedded offline audio transfer server used by
+  ensureNativeOfflineAudio() in androidMediaBridge.ts.
+-->
+<network-security-config>
+    <!-- Block cleartext traffic globally -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Allow cleartext ONLY to localhost (127.0.0.1) for the embedded offline audio loopback server -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

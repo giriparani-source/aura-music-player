@@ -44,6 +44,7 @@ export const PlaylistsView: React.FC = () => {
     setActivePlaylistId,
     createPlaylist,
     deletePlaylist,
+    removeSongFromPlaylist,
     downloadTrack,
     downloadedSongIds,
     downloadingStates
@@ -78,7 +79,7 @@ export const PlaylistsView: React.FC = () => {
     setActivePlaylistId(pl.id);
   };
 
-  const getPlaylistSongs = (pl: any): Song[] => {
+  const getPlaylistSongs = (pl: any): (Song & { playlistEntryId?: string; isUnavailableEntry?: boolean; unavailableReason?: string })[] => {
     if (pl.id === 'smart-favorites') return songs.filter((s) => s.isFavorite);
     if (pl.id === 'smart-recent')
       return [...songs].filter((s) => s.lastPlayed).sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0)).slice(0, 50);
@@ -86,14 +87,91 @@ export const PlaylistsView: React.FC = () => {
       return [...songs].filter((s) => s.playCount > 0).sort((a, b) => b.playCount - a.playCount).slice(0, 50);
     if (pl.id === 'smart-recent-added')
       return [...songs].sort((a, b) => b.dateAdded - a.dateAdded).slice(0, 50);
-    return songs.filter((s) => pl.songIds.includes(s.id));
+
+    const songMap = new Map(songs.map((s) => [s.id, s]));
+
+    if (pl.entries && Array.isArray(pl.entries) && pl.entries.length > 0) {
+      return pl.entries.map((entry: any, index: number) => {
+        if (entry.status === 'unavailable' || !entry.songId) {
+          if (entry.sourceTrackId) {
+            const vid = entry.sourceTrackId;
+            const thumb = entry.coverArt || `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`;
+            return {
+              id: `online_${vid}`,
+              playlistEntryId: entry.entryId || `entry_${index}`,
+              title: entry.title && !entry.title.startsWith('[') ? entry.title : 'YouTube Track',
+              artist: entry.artist && !entry.artist.toLowerCase().includes('unavailable') ? entry.artist : 'YouTube Music',
+              album: 'YouTube Music',
+              duration: entry.duration || 210,
+              coverArt: thumb,
+              artwork: thumb,
+              sourceId: vid,
+              isOnline: true,
+              isForegroundOnly: false,
+              playbackMode: 'direct-catalog',
+              isDirectAudioStream: true,
+              format: 'M4A',
+              bitrate: 160,
+              fileSize: 0,
+              dateAdded: entry.addedAt || pl.createdAt,
+              playCount: 0,
+              isFavorite: false,
+              filePath: `https://www.youtube.com/watch?v=${vid}`,
+              path: `https://www.youtube.com/watch?v=${vid}`,
+              fileName: `${(entry.title || 'track').replace(/[^\w\s-]/g, '_')}.m4a`
+            } as any;
+          }
+          return null;
+        }
+
+        const matched = songMap.get(entry.songId);
+        if (matched) {
+          return {
+            ...matched,
+            playlistEntryId: entry.entryId
+          };
+        }
+
+        return {
+          id: entry.songId,
+          playlistEntryId: entry.entryId,
+          title: entry.title || 'Online Track',
+          artist: entry.artist || 'Unknown Artist',
+          album: 'Online Track',
+          duration: entry.duration || 0,
+          coverArt: entry.coverArt,
+          artwork: entry.coverArt,
+          isOnline: true,
+          dateAdded: entry.addedAt || pl.createdAt,
+          playCount: 0,
+          isFavorite: false,
+          filePath: '',
+          path: '',
+          fileName: ''
+        } as any;
+      }).filter(Boolean);
+    }
+
+    // Legacy fallback for playlists with songIds only (preserves ordering & duplicates)
+    if (Array.isArray(pl.songIds)) {
+      return pl.songIds
+        .map((id: string, idx: number) => {
+          const s = songMap.get(id);
+          return s ? { ...s, playlistEntryId: `${pl.id}_${idx}_${id}` } : null;
+        })
+        .filter(Boolean) as any[];
+    }
+
+    return [];
   };
 
   // If inside a specific playlist view:
   if (activePlaylist) {
     const rawPlaylistSongs = getPlaylistSongs(activePlaylist);
+    // Playable songs only (exclude unavailable placeholder entries from playback queue)
+    const playableSongs = rawPlaylistSongs.filter((s) => !(s as any).isUnavailableEntry && !(s as any).isUnavailable);
 
-    // Live search filter inside playlist
+    // Live search filter inside playlist (keeps all songs including unavailable for visual display)
     const playlistSongs = playlistSearch.trim()
       ? rawPlaylistSongs.filter((s) => {
           const q = playlistSearch.toLowerCase();
@@ -110,42 +188,42 @@ export const PlaylistsView: React.FC = () => {
     const durationText = formatPlaylistDuration(totalDurationSec);
 
     // Playback state relative to this playlist
-    const isThisPlaylistPlaying = isPlaying && rawPlaylistSongs.some((s) => s.id === currentSong?.id);
-    const isThisPlaylistCurrent = Boolean(currentSong && rawPlaylistSongs.some((s) => s.id === currentSong.id));
+    const isThisPlaylistPlaying = isPlaying && playableSongs.some((s) => s.id === currentSong?.id);
+    const isThisPlaylistCurrent = Boolean(currentSong && playableSongs.some((s) => s.id === currentSong.id));
 
-    // Offline download state
-    const downloadedCount = rawPlaylistSongs.filter((s) => downloadedSongIds.has(s.id) || s.isDownloaded).length;
-    const isAllDownloaded = rawPlaylistSongs.length > 0 && downloadedCount === rawPlaylistSongs.length;
-    const isDownloadingAny = rawPlaylistSongs.some((s) => downloadingStates[s.id]?.status === 'downloading');
+    // Offline download state (evaluated on playable songs only)
+    const downloadedCount = playableSongs.filter((s) => downloadedSongIds.has(s.id) || s.isDownloaded).length;
+    const isAllDownloaded = playableSongs.length > 0 && downloadedCount === playableSongs.length;
+    const isDownloadingAny = playableSongs.some((s) => downloadingStates[s.id]?.status === 'downloading');
 
-    // Action Handlers (All 100% Functional!)
+    // Action Handlers (All 100% Functional & Protected against unavailable items!)
     const handleMainPlayToggle = () => {
-      if (rawPlaylistSongs.length === 0) return;
+      if (playableSongs.length === 0) return;
       if (isThisPlaylistCurrent) {
         togglePlay();
       } else {
-        playSong(rawPlaylistSongs[0], rawPlaylistSongs);
+        playSong(playableSongs[0], playableSongs);
       }
     };
 
     const handleShufflePlay = () => {
-      if (rawPlaylistSongs.length === 0) return;
+      if (playableSongs.length === 0) return;
       if (!isShuffle) {
         toggleShuffle();
       }
-      const randomIndex = Math.floor(Math.random() * rawPlaylistSongs.length);
-      playSong(rawPlaylistSongs[randomIndex], rawPlaylistSongs);
+      const randomIndex = Math.floor(Math.random() * playableSongs.length);
+      playSong(playableSongs[randomIndex], playableSongs);
     };
 
     const handleDownloadAll = () => {
       if (isAllDownloaded) return;
-      const unDownloaded = rawPlaylistSongs.filter((s) => !downloadedSongIds.has(s.id) && !s.isDownloaded);
+      const unDownloaded = playableSongs.filter((s) => !downloadedSongIds.has(s.id) && !s.isDownloaded);
       unDownloaded.forEach((s) => downloadTrack(s));
     };
 
     const handleAddAllToQueue = () => {
-      if (rawPlaylistSongs.length > 0) {
-        addMultipleToQueue(rawPlaylistSongs);
+      if (playableSongs.length > 0) {
+        addMultipleToQueue(playableSongs);
         setShowOptionsMenu(false);
       }
     };
@@ -231,7 +309,7 @@ export const PlaylistsView: React.FC = () => {
             {/* Big Round Play / Pause Button */}
             <button
               onClick={handleMainPlayToggle}
-              disabled={rawPlaylistSongs.length === 0}
+              disabled={playableSongs.length === 0}
               className="w-14 h-14 rounded-full bg-[#1ed760] hover:bg-[#1fdf64] hover:scale-105 active:scale-95 text-black flex items-center justify-center shadow-xl shadow-black/50 transition-all cursor-pointer disabled:opacity-50"
               title={isThisPlaylistPlaying ? 'Pause Playlist' : 'Play Playlist'}
             >
@@ -245,7 +323,7 @@ export const PlaylistsView: React.FC = () => {
             {/* Shuffle Toggle Button */}
             <button
               onClick={handleShufflePlay}
-              disabled={rawPlaylistSongs.length === 0}
+              disabled={playableSongs.length === 0}
               className={`p-2 rounded-full transition-all cursor-pointer relative ${
                 isShuffle ? 'text-[#1ed760]' : 'text-neutral-400 hover:text-white'
               }`}
@@ -271,7 +349,7 @@ export const PlaylistsView: React.FC = () => {
             {/* Download Entire Playlist Offline Button */}
             <button
               onClick={handleDownloadAll}
-              disabled={rawPlaylistSongs.length === 0 || isAllDownloaded || isDownloadingAny}
+              disabled={playableSongs.length === 0 || isAllDownloaded || isDownloadingAny}
               className={`p-2 rounded-full transition-all cursor-pointer ${
                 isAllDownloaded
                   ? 'text-[#1ed760]'
@@ -397,10 +475,20 @@ export const PlaylistsView: React.FC = () => {
           ) : (
             playlistSongs.map((song, idx) => (
               <SongRow
-                key={song.id}
+                key={(song as any).playlistEntryId || `${song.id}_${idx}`}
                 song={song}
                 index={idx}
-                playlistContext={rawPlaylistSongs}
+                playlistContext={playableSongs}
+                onRemoveFromPlaylist={
+                  !activePlaylist.isSmart
+                    ? (songId, entryId) =>
+                        removeSongFromPlaylist(
+                          activePlaylist.id,
+                          songId,
+                          entryId || (song as any).playlistEntryId
+                        )
+                    : undefined
+                }
               />
             ))
           )}
@@ -472,7 +560,7 @@ export const PlaylistsView: React.FC = () => {
         /* Playlists Grid */
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {playlists.map((pl) => {
-            const count = pl.songIds?.length || 0;
+            const count = pl.entries && pl.entries.length > 0 ? pl.entries.length : (pl.songIds?.length || 0);
             const plSongs = getPlaylistSongs(pl);
             return (
               <div

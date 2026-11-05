@@ -1,6 +1,13 @@
-import { Song, Playlist, LibraryStats, LibraryHealth } from '../types/music';
+import { Song, Playlist, LibraryStats, LibraryHealth, PlaybackSession } from '../types/music';
 import { calculateLibraryHealth, healthToLegacyStats } from './healthService';
-import { normalizeSong } from '../utils/songUtils';
+import { normalizeSong, isLocalDeviceSong } from '../utils/songUtils';
+
+export interface DeviceScanSummary {
+  added: number;
+  updated: number;
+  removed: number;
+  total: number;
+}
 
 const DB_NAME = 'AuraMusicDB';
 const DB_VERSION = 2; // Incremented for upgraded indexes & directory handle store
@@ -119,6 +126,209 @@ class MusicDatabase {
       }
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /**
+   * Idempotent incremental sync for device songs.
+   * Compares newly discovered device tracks against existing IndexedDB records:
+   * - Inserts genuinely new songs.
+   * - Updates changed metadata without creating duplicate records.
+   * - Preserves user-customized fields (isFavorite, playCount, lastPlayedAt, lyrics).
+   * - Removes stale device records for audio files no longer present on device.
+   * - NEVER touches or deletes physical audio files.
+   */
+  async syncDeviceSongs(scannedSongs: Song[]): Promise<DeviceScanSummary> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('songs', 'readwrite');
+      const store = tx.objectStore('songs');
+      const getAllReq = store.getAll();
+
+      getAllReq.onerror = () => reject(getAllReq.error);
+      getAllReq.onsuccess = () => {
+        const allSongs: Song[] = (getAllReq.result || []).map(normalizeSong);
+
+        // Identify existing device tracks using strict local device song classifier
+        const existingDeviceSongs = allSongs.filter(isLocalDeviceSong);
+
+        // Safety Guard (Requirement 8):
+        // If scan returned 0 songs, do not purge the existing device library.
+        // It could be due to revoked permissions or empty/cancelled scan.
+        if (!scannedSongs || scannedSongs.length === 0) {
+          resolve({
+            added: 0,
+            updated: 0,
+            removed: 0,
+            total: existingDeviceSongs.length
+          });
+          return;
+        }
+
+        // Build multi-key lookup maps for existing device tracks:
+        // 1. By ID
+        // 2. By canonical MediaStore content URI
+        // 3. By raw physical file system path (exact file identity)
+        // 4. By canonical filePath
+        const existingById = new Map<string, Song>();
+        const existingByUri = new Map<string, Song>();
+        const existingByRawPath = new Map<string, Song>();
+        const existingByFilePath = new Map<string, Song>();
+
+        for (const s of existingDeviceSongs) {
+          existingById.set(s.id, s);
+          const uri = s.contentUri || (s.path && s.path.startsWith('content://') ? s.path : null);
+          if (uri) existingByUri.set(uri, s);
+          const raw = (s as any).rawFileSystemPath;
+          if (raw && typeof raw === 'string' && raw.length > 0) {
+            existingByRawPath.set(raw, s);
+          }
+          if (s.filePath && typeof s.filePath === 'string' && s.filePath.length > 0 && !s.filePath.startsWith('content://')) {
+            existingByFilePath.set(s.filePath, s);
+          }
+        }
+
+        const scannedProcessedIds = new Set<string>();
+        let addedCount = 0;
+        let updatedCount = 0;
+
+        for (const scanned of scannedSongs) {
+          const canonicalUri = scanned.contentUri || (scanned.path && scanned.path.startsWith('content://') ? scanned.path : null);
+          const rawPath = (scanned as any).rawFileSystemPath;
+          const filePath = scanned.filePath && !scanned.filePath.startsWith('content://') ? scanned.filePath : null;
+
+          // Stable identifier resolution (Rule 3: NEVER merge based only on title/artist/duration)
+          const existing =
+            existingById.get(scanned.id) ||
+            (canonicalUri ? existingByUri.get(canonicalUri) : undefined) ||
+            (rawPath ? existingByRawPath.get(rawPath) : undefined) ||
+            (filePath ? existingByFilePath.get(filePath) : undefined);
+
+          if (!existing) {
+            // Genuinely NEW song: insert into database
+            const newSong = normalizeSong({
+              ...scanned,
+              isOnline: false,
+              playCount: 0,
+              isFavorite: false,
+              dateAdded: scanned.dateAdded || Date.now()
+            });
+            store.put(newSong);
+            scannedProcessedIds.add(newSong.id);
+            addedCount++;
+
+            // Intra-batch deduplication: register immediately so duplicate rows in the same scan batch are merged
+            existingById.set(newSong.id, newSong);
+            if (canonicalUri) existingByUri.set(canonicalUri, newSong);
+            if (rawPath) existingByRawPath.set(rawPath, newSong);
+            if (filePath) existingByFilePath.set(filePath, newSong);
+          } else {
+            // Check if already processed in this current scan batch (intra-batch duplicate)
+            if (scannedProcessedIds.has(existing.id) || (existing.id !== scanned.id && scannedProcessedIds.has(scanned.id))) {
+              continue;
+            }
+
+            // EXISTING song: evaluate whether metadata actually changed
+            const normStr = (val?: string) => (val || '').trim();
+            const isTitleDiff = normStr(existing.title) !== normStr(scanned.title);
+            const isArtistDiff = normStr(existing.artist) !== normStr(scanned.artist);
+            const isAlbumDiff = normStr(existing.album) !== normStr(scanned.album);
+            const isDurDiff = Math.abs((existing.duration || 0) - (scanned.duration || 0)) > 1.5;
+            const isFolderDiff = normStr(existing.folder) !== normStr(scanned.folder);
+            const isArtworkNew = Boolean(scanned.artwork && !existing.artwork);
+            const isDateModDiff = Boolean(
+              scanned.lastModified &&
+              existing.lastModified &&
+              Math.abs(scanned.lastModified - existing.lastModified) > 1000
+            );
+
+            const isModified =
+              isTitleDiff ||
+              isArtistDiff ||
+              isAlbumDiff ||
+              isDurDiff ||
+              isFolderDiff ||
+              isArtworkNew ||
+              isDateModDiff;
+
+            const targetId = scanned.id || existing.id;
+            const merged: Song = normalizeSong({
+              ...existing,
+              id: targetId,
+              title: scanned.title || existing.title,
+              artist: scanned.artist || existing.artist,
+              album: scanned.album || existing.album,
+              duration: scanned.duration > 0 ? scanned.duration : existing.duration,
+              path: scanned.path || existing.path,
+              filePath: scanned.filePath || existing.filePath,
+              contentUri: scanned.contentUri || existing.contentUri || scanned.path,
+              rawFileSystemPath: rawPath || (existing as any).rawFileSystemPath || '',
+              folder: scanned.folder || existing.folder,
+              fileSize: scanned.fileSize > 0 ? scanned.fileSize : existing.fileSize,
+              format: scanned.format || existing.format,
+              bitrate: scanned.bitrate || existing.bitrate,
+              artwork: scanned.artwork || existing.artwork,
+              coverArt: scanned.artwork || existing.artwork,
+              lastModified: scanned.lastModified || existing.lastModified,
+              isOnline: false,
+              // Strictly preserve user preferences & engagement
+              isFavorite: existing.isFavorite,
+              playCount: existing.playCount,
+              lastPlayedAt: existing.lastPlayedAt,
+              lastPlayed: existing.lastPlayed,
+              dateAdded: existing.dateAdded || scanned.dateAdded || Date.now(),
+              lyrics: existing.lyrics || scanned.lyrics
+            });
+
+            if (isModified || existing.id !== merged.id) {
+              store.put(merged);
+              if (isModified) {
+                updatedCount++;
+              }
+            }
+
+            scannedProcessedIds.add(merged.id);
+
+            // If the old record had a different ID, delete the redundant old record to prevent duplicates
+            if (existing.id !== merged.id) {
+              store.delete(existing.id);
+            }
+
+            // Update lookup maps for subsequent items in the batch
+            existingById.set(merged.id, merged);
+            if (canonicalUri) existingByUri.set(canonicalUri, merged);
+            if (rawPath) existingByRawPath.set(rawPath, merged);
+            if (filePath) existingByFilePath.set(filePath, merged);
+          }
+        }
+
+        // Detect stale device records that no longer exist on device
+        let removedCount = 0;
+        for (const existing of existingDeviceSongs) {
+          const canonicalUri = existing.contentUri || (existing.path && existing.path.startsWith('content://') ? existing.path : null);
+          const raw = (existing as any).rawFileSystemPath;
+          const stillInScan =
+            scannedProcessedIds.has(existing.id) ||
+            (canonicalUri && scannedSongs.some((s) => (s.contentUri || s.path) === canonicalUri)) ||
+            (raw && scannedSongs.some((s) => (s as any).rawFileSystemPath === raw));
+
+          if (!stillInScan) {
+            store.delete(existing.id);
+            removedCount++;
+          }
+        }
+
+        tx.oncomplete = () => {
+          const survivingTotal = Math.max(0, existingDeviceSongs.length + addedCount - removedCount);
+          resolve({
+            added: addedCount,
+            updated: updatedCount,
+            removed: removedCount,
+            total: survivingTotal
+          });
+        };
+        tx.onerror = () => reject(tx.error);
+      };
     });
   }
 
@@ -248,6 +458,20 @@ class MusicDatabase {
     });
   }
 
+  async deleteSongsBatch(ids: string[]): Promise<void> {
+    if (!ids || ids.length === 0) return;
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('songs', 'readwrite');
+      const store = tx.objectStore('songs');
+      for (const id of ids) {
+        store.delete(id);
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
   async clearAllSongs(): Promise<void> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
@@ -343,6 +567,10 @@ class MusicDatabase {
     });
   }
 
+  async saveSetting<T>(key: string, value: T): Promise<void> {
+    return this.setSetting<T>(key, value);
+  }
+
   async deleteSetting(key: string): Promise<void> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
@@ -353,8 +581,22 @@ class MusicDatabase {
       req.onerror = () => reject(req.error);
     });
   }
+
+  // --- PLAYBACK SESSION PERSISTENCE ---
+  async savePlaybackSession(session: PlaybackSession): Promise<void> {
+    return this.setSetting<PlaybackSession>(AURA_PLAYBACK_SESSION_KEY, session);
+  }
+
+  async getPlaybackSession(): Promise<PlaybackSession | null> {
+    return this.getSetting<PlaybackSession | null>(AURA_PLAYBACK_SESSION_KEY, null);
+  }
+
+  async clearPlaybackSession(): Promise<void> {
+    return this.deleteSetting(AURA_PLAYBACK_SESSION_KEY);
+  }
 }
 
+export const AURA_PLAYBACK_SESSION_KEY = 'aura_playback_session';
 export const AURA_USER_AFFINITY_KEY = 'aura_user_affinity';
 export const AURA_PERSISTENT_SKIPS_KEY = 'aura_persistent_skips';
 export const AURA_DISCOVERY_PREFERENCE_KEY = 'aura_discovery_preference';

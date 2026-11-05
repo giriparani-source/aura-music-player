@@ -1,9 +1,8 @@
 import React, { useRef, useState } from 'react';
 import {
-  FolderPlus,
   RefreshCw,
   Trash2,
-  HardDrive,
+  Globe,
   CheckCircle2,
   AlertCircle,
   Copy,
@@ -27,7 +26,6 @@ import {
 import { useTranslation } from '../../i18n';
 import { useProfileStore } from '../../store/useProfileStore';
 import { useJamStore } from '../../store/useJamStore';
-import { MusicSourcePickerModal } from '../library/MusicSourcePickerModal';
 import { geminiAiService } from '../../services/geminiAiService';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { usePlayerStore } from '../../store/usePlayerStore';
@@ -47,15 +45,12 @@ import {
 export const SettingsView: React.FC = () => {
   const { t, language, setLanguage } = useTranslation();
   const { profiles, activeProfile, setProfileModalOpen } = useProfileStore();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
 
   const {
     songs,
     health,
     duplicates,
-    scanProgress,
-    scanFromFileList,
     clearLibrary,
     loadLibrary
   } = useLibraryStore();
@@ -67,7 +62,6 @@ export const SettingsView: React.FC = () => {
     message: string;
   } | null>(null);
 
-  const [isSourcePickerOpen, setIsSourcePickerOpen] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState(() => geminiAiService.getApiKey());
   const [isGeminiSaved, setIsGeminiSaved] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -141,13 +135,6 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-
-  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    await scanFromFileList(files);
-  };
-
   const handleExportBackup = async () => {
     setIsExporting(true);
     try {
@@ -193,9 +180,6 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const isScanning = scanProgress.status === 'scanning';
-  const result = scanProgress.result;
-
   return (
     <div className="p-6 sm:p-8 space-y-10 max-w-4xl mx-auto select-none pb-24">
       <div>
@@ -204,18 +188,6 @@ export const SettingsView: React.FC = () => {
           {t('settings.subtitle')}
         </p>
       </div>
-
-      {/* Hidden Folder Picker */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileInputChange}
-        // @ts-ignore
-        webkitdirectory="true"
-        directory="true"
-        multiple
-        className="hidden"
-      />
 
       {/* Hidden Backup File Picker */}
       <input
@@ -330,96 +302,43 @@ export const SettingsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Section 1: Music Folder Scanner */}
+      {/* Section 1: Pure Cloud Streaming Architecture */}
       <div className="glass-panel p-6 rounded-3xl space-y-5">
         <div className="flex items-center gap-3 border-b border-white/5 pb-4">
-          <HardDrive size={20} className="text-indigo-400" />
+          <Globe size={20} className="text-indigo-400" />
           <div>
-            <h3 className="text-base font-bold text-white">Music Folder Scanner</h3>
-            <p className="text-xs text-neutral-500">Scan audio files (MP3, OPUS, WAV, M4A, FLAC) from local storage</p>
+            <h3 className="text-base font-bold text-white">Pure Cloud Streaming Architecture</h3>
+            <p className="text-xs text-neutral-500">100% online streaming powered by JioSaavn 320kbps HD & YouTube Music</p>
           </div>
         </div>
 
-        {/* Scan Status Display */}
-        {isScanning && (
-          <div className="p-4 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-200 text-xs space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <RefreshCw size={15} className="animate-spin text-indigo-400" />
-                <span className="font-semibold">Differential scan in progress...</span>
-              </div>
-              <span className="font-mono tabular-nums">
-                {scanProgress.processedCount} / {scanProgress.totalCount}
-              </span>
-            </div>
-            <p className="text-[11px] text-indigo-300/70 truncate">{scanProgress.currentFile}</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5">
+            <span className="text-xs font-semibold text-emerald-400 block mb-1">Primary CDN</span>
+            <p className="text-sm font-bold text-white">JioSaavn 320k Lossless</p>
+            <p className="text-[11px] text-neutral-500 mt-0.5">Ultra-low latency studio streams</p>
           </div>
-        )}
-
-        {scanProgress.status === 'complete' && result && (
-          <div className="p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs space-y-2">
-            <div className="flex items-center gap-2 font-bold text-sm">
-              <CheckCircle2 size={18} />
-              <span>Scan Complete ({result.durationMs}ms)</span>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1 text-neutral-300">
-              <div className="p-2 rounded-lg bg-black/20 text-center">
-                <span className="text-emerald-400 font-bold block">{result.added}</span>
-                <span className="text-[10px] text-neutral-400">Added</span>
-              </div>
-              <div className="p-2 rounded-lg bg-black/20 text-center">
-                <span className="text-indigo-400 font-bold block">{result.updated}</span>
-                <span className="text-[10px] text-neutral-400">Updated</span>
-              </div>
-              <div className="p-2 rounded-lg bg-black/20 text-center">
-                <span className="text-neutral-300 font-bold block">{result.unchanged}</span>
-                <span className="text-[10px] text-neutral-400">Unchanged</span>
-              </div>
-              <div className="p-2 rounded-lg bg-black/20 text-center">
-                <span className="text-amber-400 font-bold block">{result.missing}</span>
-                <span className="text-[10px] text-neutral-400">Missing</span>
-              </div>
-              <div className="p-2 rounded-lg bg-black/20 text-center">
-                <span className="text-rose-400 font-bold block">{result.failed}</span>
-                <span className="text-[10px] text-neutral-400">Failed</span>
-              </div>
-            </div>
+          <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5">
+            <span className="text-xs font-semibold text-indigo-400 block mb-1">Failover Stream</span>
+            <p className="text-sm font-bold text-white">YouTube High-Bitrate</p>
+            <p className="text-[11px] text-neutral-500 mt-0.5">Automated multi-tier fallback</p>
           </div>
-        )}
-
-        {scanProgress.status === 'error' && (
-          <div className="p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2.5">
-            <AlertCircle size={16} />
-            <span>{scanProgress.errorMessage || 'Scan failed.'}</span>
+          <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5">
+            <span className="text-xs font-semibold text-rose-400 block mb-1">Live Broadcast</span>
+            <p className="text-sm font-bold text-white">24/7 Live Radio FM</p>
+            <p className="text-[11px] text-neutral-500 mt-0.5">Non-stop live Tamil stations</p>
           </div>
-        )}
+        </div>
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => setIsSourcePickerOpen(true)}
-            disabled={isScanning}
-            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs shadow-lg shadow-indigo-600/25 transition-all cursor-pointer"
-          >
-            <FolderPlus size={16} />
-            <span>Select Music Folder</span>
-          </button>
-
-          <button
-            onClick={() => setIsSourcePickerOpen(true)}
-            disabled={isScanning}
-            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-50 text-neutral-300 font-medium text-xs border border-white/10 transition-colors cursor-pointer"
-          >
-            <RefreshCw size={14} className={isScanning ? 'animate-spin' : ''} />
-            <span>Scan Storage & Drive</span>
-          </button>
-
+        <div className="flex items-center justify-between pt-2">
+          <p className="text-xs text-neutral-400">Manage saved streaming tracks and cloud cache</p>
           <button
             onClick={clearLibrary}
-            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-medium text-xs border border-rose-500/20 transition-colors ml-auto cursor-pointer"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-medium text-xs border border-rose-500/20 transition-colors cursor-pointer"
           >
             <Trash2 size={14} />
-            <span>Clear Library</span>
+            <span>Reset Library Cache</span>
           </button>
         </div>
       </div>
@@ -1063,10 +982,6 @@ export const SettingsView: React.FC = () => {
         </div>
       </div>
 
-      <MusicSourcePickerModal
-        isOpen={isSourcePickerOpen}
-        onClose={() => setIsSourcePickerOpen(false)}
-      />
     </div>
   );
 };
