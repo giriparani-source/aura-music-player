@@ -31,3 +31,4 @@ dist-ssr
 .vercel
 *.apk
 *.mp4
+.agents

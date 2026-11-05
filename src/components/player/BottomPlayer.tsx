@@ -79,7 +79,7 @@ export const BottomPlayer: React.FC = () => {
   const isMuted = usePlayerStore((s) => s.isMuted);
   const repeatMode = usePlayerStore((s) => s.repeatMode);
   const isShuffle = usePlayerStore((s) => s.isShuffle);
-  const queue = usePlayerStore((s) => s.queue);
+  const userQueue = usePlayerStore((s) => s.userQueue);
   const isQueueOpen = usePlayerStore((s) => s.isQueueOpen);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const nextSong = usePlayerStore((s) => s.nextSong);
@@ -163,6 +163,22 @@ export const BottomPlayer: React.FC = () => {
               title="Favorite"
             >
               <Heart size={18} className={currentSong.isFavorite ? 'fill-rose-500' : ''} />
+            </button>
+
+            <button
+              onClick={() => setQueueOpen(!isQueueOpen)}
+              className={`p-2 rounded-full transition-colors active:scale-90 cursor-pointer relative ${
+                isQueueOpen ? 'text-[#1ed760] bg-[#1ed760]/15' : 'text-[#998d9e] hover:text-white'
+              }`}
+              aria-label="Queue"
+              title={t('player.queue') || 'Queue'}
+            >
+              <ListMusic size={18} />
+              {userQueue.length > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-3.5 px-1 bg-[#1ed760] text-black rounded-full text-[8px] font-extrabold flex items-center justify-center shadow-sm">
+                  {userQueue.length}
+                </span>
+              )}
             </button>
 
             <button
@@ -462,9 +478,9 @@ export const BottomPlayer: React.FC = () => {
             title={t('player.queue') || 'Queue'}
           >
             <ListMusic size={18} />
-            {queue.length > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 bg-[#9d4edd] text-white rounded-full text-[9px] font-bold flex items-center justify-center">
-                {queue.length}
+            {userQueue.length > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 bg-[#1ed760] text-black rounded-full text-[9px] font-extrabold flex items-center justify-center">
+                {userQueue.length}
               </span>
             )}
           </button>

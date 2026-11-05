@@ -51,6 +51,27 @@ export interface Song {
   isDirectAudioStream?: boolean;
 }
 
+export interface QueuedSong extends Song {
+  queueItemId: string; // Unique ID per queue entry (e.g. `queue_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`)
+  addedAt: number;
+  isUserQueued: true;
+}
+
+export interface QueueDroppableLocation {
+  droppableId: string;
+  index: number;
+}
+
+export interface QueueMovementActions {
+  moveQueueItem: (
+    source: { droppableId: string; index: number },
+    destination: { droppableId: string; index: number }
+  ) => void;
+  reorderContextQueue: (sourceOffset: number, destinationOffset: number) => void;
+  moveContextToUserQueue: (contextOffset: number, destinationIndex: number) => void;
+  moveUserToContextQueue: (sourceIndex: number, destinationOffset: number) => void;
+}
+
 export type ShuffleMode = 'off' | 'fair' | 'smart';
 
 export type AuraRecommendationReason =

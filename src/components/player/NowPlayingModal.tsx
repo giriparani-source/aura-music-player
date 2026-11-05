@@ -102,7 +102,7 @@ export const NowPlayingModal: React.FC = () => {
     karaokeDepth,
     toggleKaraoke,
     spatialPreset,
-    queue,
+    userQueue,
     setQueueOpen
   } = usePlayerStore();
 
@@ -157,17 +157,9 @@ export const NowPlayingModal: React.FC = () => {
     return () => clearTimeout(timer);
   }, [isNowPlayingOpen, scrollActiveTabIntoView]);
 
-  // Close modal on Escape key press
-  useEffect(() => {
-    if (!isNowPlayingOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setNowPlayingOpen(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isNowPlayingOpen, setNowPlayingOpen]);
+  // Note: Escape key dismissal is coordinated globally by MainLayout.tsx (lines 289-295)
+  // to enforce strict modal hierarchy priority:
+  // ClearQueueDialog (z-[80]) -> QueueSheet (z-[70]) -> NowPlayingModal (z-[60]).
 
   if (!isNowPlayingOpen || !currentSong) {
     return null;
@@ -548,7 +540,6 @@ export const NowPlayingModal: React.FC = () => {
             {/* Up Next Queue Trigger with Live Badge */}
             <button
               onClick={() => {
-                setNowPlayingOpen(false);
                 setQueueOpen(true);
               }}
               className="relative flex items-center gap-1.5 py-1.5 px-3 rounded-full bg-[#1c1b22] hover:bg-[#201f26] border border-white/[0.06] text-[#d0c2d5] hover:text-white transition-all cursor-pointer"
@@ -556,9 +547,9 @@ export const NowPlayingModal: React.FC = () => {
             >
               <ListMusic size={16} className="text-[#e0b6ff]" />
               <span className="font-semibold text-xs">Queue</span>
-              {queue.length > 0 && (
-                <span className="min-w-[16px] h-4 px-1 rounded-full bg-[#9d4edd] text-white text-[9px] font-extrabold flex items-center justify-center">
-                  {queue.length}
+              {userQueue.length > 0 && (
+                <span className="min-w-[16px] h-4 px-1 rounded-full bg-[#1ed760] text-black text-[9px] font-extrabold flex items-center justify-center">
+                  {userQueue.length}
                 </span>
               )}
             </button>
