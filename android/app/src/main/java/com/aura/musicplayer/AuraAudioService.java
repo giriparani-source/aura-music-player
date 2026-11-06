@@ -13,6 +13,7 @@ import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.Drawable;
+import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
@@ -75,6 +76,7 @@ public class AuraAudioService extends Service {
     // Native ExoPlayer Engine
     private ExoPlayer exoPlayer;
     private boolean isNativePlayerActive = false;
+    private String currentMediaUri = "";
 
     private MediaSessionCompat mediaSession;
     private NotificationManager notificationManager;
@@ -82,7 +84,14 @@ public class AuraAudioService extends Service {
     private WifiManager.WifiLock wifiLock;
     private AudioManager audioManager;
 
-    // Queue Transition State & Bounded Locks (Android 16 Screen-Off Progression)
+    // Audio Focus & Phone Call State Management
+    private boolean wasPlayingBeforeCall = false;
+    private boolean isPausedByCall = false;
+    private long savedPositionBeforeCall = -1L;
+    private long callStartTimeMs = 0L;
+    private AudioFocusRequest audioFocusRequest;
+
+    // Queue Transition State & Bounded Locks (Android Screen-Off Continuous Progression)
     private boolean isQueueTransitioning = false;
     private static final long QUEUE_TRANSITION_TIMEOUT_MS = 25_000L;
     private final Runnable transitionTimeoutRunnable = new Runnable() {
@@ -132,8 +141,198 @@ public class AuraAudioService extends Service {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Handler progressHandler = new Handler(Looper.getMainLooper());
 
-    // Call interruption monitoring
-    private boolean wasInterruptedByCall = false;
+    // Audio Focus Listener for Phone Calls & System Audio Interruptions
+    private final AudioManager.OnAudioFocusChangeListener audioFocusChangeListener = new AudioManager.OnAudioFocusChangeListener() {
+        @Override
+        public void onAudioFocusChange(int focusChange) {
+            switch (focusChange) {
+                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                    handleTransientFocusLoss();
+                    break;
+                case AudioManager.AUDIOFOCUS_GAIN:
+                    handleFocusGain();
+                    break;
+                case AudioManager.AUDIOFOCUS_LOSS:
+                    handlePermanentFocusLoss();
+                    break;
+            }
+        }
+    };
+
+    private void handleTransientFocusLoss() {
+        Log.i(TAG, "Audio focus lost transiently (call/ringtone). isPlaying=" + isPlaying + ", isNativePlayerActive=" + isNativePlayerActive);
+
+        long currentPos = (isNativePlayerActive && exoPlayer != null) ? exoPlayer.getCurrentPosition() : currentPositionMs;
+        if (currentPos > 0) {
+            savedPositionBeforeCall = currentPos;
+        }
+
+        if (isPlaying) {
+            wasPlayingBeforeCall = true;
+            isPausedByCall = true;
+            callStartTimeMs = System.currentTimeMillis();
+
+            Log.i(TAG, "Phone call active: auto-pausing music at " + savedPositionBeforeCall + "ms. Auto-resume queued for call completion.");
+
+            if (isNativePlayerActive && exoPlayer != null) {
+                exoPlayer.pause();
+            }
+            isPlaying = false;
+            updatePlaybackStateCompat();
+            publishNotification();
+
+            if (savedPositionBeforeCall > 0) {
+                AuraMediaPlugin.dispatchPlaybackProgress((double) savedPositionBeforeCall / 1000.0, (double) trackDurationMs / 1000.0, false);
+            }
+            triggerMediaAction("call_pause", savedPositionBeforeCall > 0 ? (double) (savedPositionBeforeCall / 1000.0) : null);
+        } else {
+            // Requirement 5: If manually paused before the call, do NOT automatically resume it!
+            Log.i(TAG, "Audio focus lost transiently, but music was already paused by user -> do NOT mark for auto-resume.");
+            wasPlayingBeforeCall = false;
+            isPausedByCall = false;
+        }
+    }
+
+    private void handleFocusGain() {
+        Log.i(TAG, "Audio focus gained. wasPlayingBeforeCall=" + wasPlayingBeforeCall + ", isPausedByCall=" + isPausedByCall);
+
+        if (isPausedByCall && wasPlayingBeforeCall) {
+            long callDurationMs = (callStartTimeMs > 0) ? (System.currentTimeMillis() - callStartTimeMs) : 0L;
+            Log.i(TAG, "Phone call ended (call duration: " + (callDurationMs / 1000) + "s) -> auto-resuming from exact position " + savedPositionBeforeCall + "ms");
+
+            isPausedByCall = false;
+            wasPlayingBeforeCall = false;
+            callStartTimeMs = 0L;
+
+            resumePlaybackAfterCall(savedPositionBeforeCall);
+        } else {
+            Log.i(TAG, "Audio focus gained, but user was paused before or during call -> preserving paused state");
+            isPausedByCall = false;
+            wasPlayingBeforeCall = false;
+        }
+    }
+
+    private void handlePermanentFocusLoss() {
+        Log.i(TAG, "Audio focus lost permanently (another media player took focus).");
+        isPausedByCall = false;
+        wasPlayingBeforeCall = false;
+        if (isNativePlayerActive && exoPlayer != null) {
+            exoPlayer.pause();
+        }
+        isPlaying = false;
+        updatePlaybackStateCompat();
+        publishNotification();
+        releaseLocks();
+        triggerMediaAction("pause", null);
+    }
+
+    private boolean requestAudioFocusInternal() {
+        if (audioManager == null) return false;
+        try {
+            int result;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (audioFocusRequest == null) {
+                    android.media.AudioAttributes playbackAttributes = new android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build();
+
+                    audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                            .setAudioAttributes(playbackAttributes)
+                            .setAcceptsDelayedFocusGain(false)
+                            .setOnAudioFocusChangeListener(audioFocusChangeListener, mainHandler)
+                            .setWillPauseWhenDucked(true)
+                            .build();
+                }
+                result = audioManager.requestAudioFocus(audioFocusRequest);
+            } else {
+                result = audioManager.requestAudioFocus(
+                        audioFocusChangeListener,
+                        AudioManager.STREAM_MUSIC,
+                        AudioManager.AUDIOFOCUS_GAIN
+                );
+            }
+            return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        } catch (Exception e) {
+            Log.w(TAG, "Error requesting audio focus", e);
+            return false;
+        }
+    }
+
+    private void abandonAudioFocusInternal() {
+        if (audioManager == null) return;
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (audioFocusRequest != null) {
+                    audioManager.abandonAudioFocusRequest(audioFocusRequest);
+                }
+            } else {
+                audioManager.abandonAudioFocus(audioFocusChangeListener);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error abandoning audio focus", e);
+        }
+    }
+
+    private void resumePlaybackAfterCall(long targetPositionMs) {
+        if (!isNativePlayerActive || exoPlayer == null) {
+            triggerMediaAction("call_resume", targetPositionMs > 0 ? (double) (targetPositionMs / 1000.0) : null);
+            return;
+        }
+
+        acquireLocks();
+        startHeartbeat();
+        requestAudioFocusInternal();
+
+        int state = exoPlayer.getPlaybackState();
+        Log.i(TAG, "Resuming native ExoPlayer after call. Current state=" + state + ", targetPosition=" + targetPositionMs + "ms");
+
+        try {
+            if (state == Player.STATE_IDLE || exoPlayer.getPlayerError() != null) {
+                Log.w(TAG, "ExoPlayer idle/error after call -> re-preparing track at " + targetPositionMs + "ms");
+                if (currentMediaUri != null && !currentMediaUri.trim().isEmpty()) {
+                    String sanitized = sanitizeCapacitorUri(currentMediaUri);
+                    Uri mediaUri = sanitized.startsWith("/")
+                            ? Uri.parse("file://" + sanitized)
+                            : Uri.parse(sanitized);
+                    MediaItem mediaItem = MediaItem.fromUri(mediaUri);
+                    exoPlayer.setMediaItem(mediaItem, false);
+                }
+                if (targetPositionMs > 0) {
+                    exoPlayer.seekTo(targetPositionMs);
+                }
+                exoPlayer.prepare();
+            } else {
+                if (targetPositionMs > 0) {
+                    long current = exoPlayer.getCurrentPosition();
+                    if (Math.abs(current - targetPositionMs) > 1000) {
+                        Log.i(TAG, "Correcting position drift: " + current + "ms -> " + targetPositionMs + "ms");
+                        exoPlayer.seekTo(targetPositionMs);
+                    }
+                }
+            }
+
+            exoPlayer.play();
+            isPlaying = true;
+            updatePlaybackStateCompat();
+            publishNotification();
+
+            startCallStateMonitoring();
+            progressHandler.removeCallbacks(progressRunnable);
+            progressHandler.post(progressRunnable);
+
+            if (targetPositionMs > 0) {
+                AuraMediaPlugin.dispatchPlaybackProgress((double) targetPositionMs / 1000.0, (double) trackDurationMs / 1000.0, true);
+            }
+            triggerMediaAction("call_resume", targetPositionMs > 0 ? (double) (targetPositionMs / 1000.0) : null);
+        } catch (Exception e) {
+            Log.e(TAG, "Error resuming native playback after call", e);
+            triggerMediaAction("call_recovery_reload", (double) (targetPositionMs / 1000.0));
+        }
+    }
+
+    // Secondary Call State Monitor (Defense-in-depth polling)
     private final Runnable callStateCheckRunnable = new Runnable() {
         @Override
         public void run() {
@@ -145,28 +344,16 @@ public class AuraAudioService extends Service {
 
                 if (isCallActive) {
                     if (isPlaying) {
-                        Log.d(TAG, "Phone call / ringtone detected (mode=" + mode + ") -> pausing music");
-                        wasInterruptedByCall = true;
-                        if (isNativePlayerActive && exoPlayer != null) {
-                            exoPlayer.pause();
-                        }
-                        triggerMediaAction("pause", null);
+                        Log.d(TAG, "Phone call / ringtone detected via audio mode polling (mode=" + mode + ")");
+                        handleTransientFocusLoss();
                     }
-                } else if (wasInterruptedByCall) {
-                    Log.d(TAG, "Phone call ended (mode=MODE_NORMAL) -> auto-resuming music");
-                    wasInterruptedByCall = false;
-                    mainHandler.postDelayed(() -> {
-                        if (isNativePlayerActive && exoPlayer != null) {
-                            exoPlayer.play();
-                        }
-                        triggerMediaAction("play", null);
-                        acquireLocks();
-                        startHeartbeat();
-                    }, 600);
+                } else if (isPausedByCall && wasPlayingBeforeCall) {
+                    Log.d(TAG, "Phone call ended detected via audio mode polling (mode=MODE_NORMAL)");
+                    handleFocusGain();
                 }
             }
 
-            if (isPlaying || wasInterruptedByCall) {
+            if (isPlaying || isPausedByCall) {
                 mainHandler.postDelayed(this, 1000L);
             }
         }
@@ -194,7 +381,6 @@ public class AuraAudioService extends Service {
 
     private void stopCallStateMonitoring() {
         mainHandler.removeCallbacks(callStateCheckRunnable);
-        wasInterruptedByCall = false;
     }
 
     // Heartbeat: fires every 20s to keep WakeLock, WifiLock, and foreground service alive
@@ -206,6 +392,8 @@ public class AuraAudioService extends Service {
         public void onReceive(Context context, Intent intent) {
             if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) {
                 Log.d(TAG, "Audio becoming noisy (headphone/bluetooth disconnected) -> pausing playback");
+                wasPlayingBeforeCall = false;
+                isPausedByCall = false;
                 if (isNativePlayerActive && exoPlayer != null) {
                     exoPlayer.pause();
                 }
@@ -255,7 +443,8 @@ public class AuraAudioService extends Service {
                     .setUsage(C.USAGE_MEDIA)
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                     .build();
-            exoPlayer.setAudioAttributes(audioAttributes, /* handleAudioFocus= */ true);
+            // Handle audio focus explicitly in AuraAudioService to ensure custom long-call recovery & manual-pause protection
+            exoPlayer.setAudioAttributes(audioAttributes, /* handleAudioFocus= */ false);
             exoPlayer.setWakeMode(C.WAKE_MODE_NETWORK);
 
             exoPlayer.addListener(new Player.Listener() {
@@ -273,7 +462,22 @@ public class AuraAudioService extends Service {
                             Log.d(TAG, "Player.STATE_ENDED ignored: queue transition already in progress");
                             return;
                         }
-                        Log.i(TAG, "Track ended naturally (STATE_ENDED) -> starting queue transition window");
+
+                        // GUARD 1: If paused by call or call interruption is active, STATE_ENDED is a connection drop, NOT end of song
+                        if (isPausedByCall || wasPlayingBeforeCall) {
+                            Log.w(TAG, "Player.STATE_ENDED ignored during phone call interruption");
+                            return;
+                        }
+
+                        // GUARD 2: Premature STATE_ENDED check (socket timeout after long pause)
+                        long curPos = exoPlayer.getCurrentPosition();
+                        if (trackDurationMs > 5000 && curPos < (trackDurationMs - 2500)) {
+                            Log.w(TAG, "Premature STATE_ENDED at " + curPos + "ms / " + trackDurationMs + "ms -> socket dropped, re-preparing at current position");
+                            resumePlaybackAfterCall(curPos > 0 ? curPos : savedPositionBeforeCall);
+                            return;
+                        }
+
+                        Log.i(TAG, "Track ended naturally (STATE_ENDED at " + curPos + "ms) -> starting queue transition window");
                         isPlaying = false;
                         updatePlaybackStateCompat();
                         publishNotification();
@@ -306,7 +510,7 @@ public class AuraAudioService extends Service {
                         if (!isQueueTransitioning) {
                             releaseLocks();
                         } else {
-                            Log.i(TAG, "onIsPlayingChanged(false) during queue transition: retaining locks for next track");
+                            Log.i(TAG, "onIsPlayingChanged(false) while queue transitioning: retaining locks for seamless next track");
                         }
                     }
                 }
@@ -314,6 +518,11 @@ public class AuraAudioService extends Service {
                 @Override
                 public void onPlayerError(@NonNull PlaybackException error) {
                     Log.e(TAG, "ExoPlayer error: " + error.getMessage(), error);
+                    if (isPausedByCall || wasPlayingBeforeCall || savedPositionBeforeCall > 0) {
+                        Log.w(TAG, "ExoPlayer error encountered during call recovery -> notifying JS layer for stream reload");
+                        triggerMediaAction("call_recovery_reload", (double) (savedPositionBeforeCall / 1000.0));
+                        return;
+                    }
                     cancelQueueTransition();
                     isPlaying = false;
                     updatePlaybackStateCompat();
@@ -352,7 +561,6 @@ public class AuraAudioService extends Service {
                 if (!wakeLock.isHeld()) {
                     wakeLock.acquire();
                 } else if (isQueueTransitioning) {
-                    // Hand off from bounded transition lock to active playback lock
                     wakeLock.acquire();
                 }
             }
@@ -405,6 +613,9 @@ public class AuraAudioService extends Service {
             @Override
             public void onPlay() {
                 cancelQueueTransition();
+                wasPlayingBeforeCall = false;
+                isPausedByCall = false;
+                requestAudioFocusInternal();
                 if (isNativePlayerActive && exoPlayer != null) {
                     exoPlayer.play();
                 }
@@ -414,6 +625,8 @@ public class AuraAudioService extends Service {
             @Override
             public void onPause() {
                 cancelQueueTransition();
+                wasPlayingBeforeCall = false;
+                isPausedByCall = false;
                 if (isNativePlayerActive && exoPlayer != null) {
                     exoPlayer.pause();
                 }
@@ -449,6 +662,9 @@ public class AuraAudioService extends Service {
             @Override
             public void onStop() {
                 cancelQueueTransition();
+                wasPlayingBeforeCall = false;
+                isPausedByCall = false;
+                abandonAudioFocusInternal();
                 if (isNativePlayerActive && exoPlayer != null) {
                     exoPlayer.stop();
                     isNativePlayerActive = false;
@@ -476,6 +692,9 @@ public class AuraAudioService extends Service {
         switch (action) {
             case ACTION_PLAY:
                 cancelQueueTransition();
+                wasPlayingBeforeCall = false;
+                isPausedByCall = false;
+                requestAudioFocusInternal();
                 if (isNativePlayerActive && exoPlayer != null) {
                     exoPlayer.play();
                 }
@@ -483,6 +702,8 @@ public class AuraAudioService extends Service {
                 break;
             case ACTION_PAUSE:
                 cancelQueueTransition();
+                wasPlayingBeforeCall = false;
+                isPausedByCall = false;
                 if (isNativePlayerActive && exoPlayer != null) {
                     exoPlayer.pause();
                 }
@@ -504,6 +725,9 @@ public class AuraAudioService extends Service {
                 break;
             case ACTION_STOP:
                 cancelQueueTransition();
+                wasPlayingBeforeCall = false;
+                isPausedByCall = false;
+                abandonAudioFocusInternal();
                 if (isNativePlayerActive && exoPlayer != null) {
                     exoPlayer.stop();
                     isNativePlayerActive = false;
@@ -513,12 +737,15 @@ public class AuraAudioService extends Service {
                 stopServiceInternal();
                 break;
             case ACTION_STOP_NATIVE:
-                cancelQueueTransition();
                 if (exoPlayer != null) {
                     exoPlayer.stop();
                 }
                 isNativePlayerActive = false;
-                releaseLocks();
+                if (!isQueueTransitioning) {
+                    releaseLocks();
+                } else {
+                    Log.i(TAG, "ACTION_STOP_NATIVE received during queue transition: retaining locks for next track");
+                }
                 break;
             case ACTION_SEEK:
                 long seekPos = intent.getLongExtra("position", 0);
@@ -528,8 +755,6 @@ public class AuraAudioService extends Service {
                         exoPlayer.play();
                     }
                 }
-                // Do not echo triggerMediaAction("seek") back to JS:
-                // ACTION_SEEK was dispatched by the app UI; echoing it causes an infinite seek loop.
                 break;
             case ACTION_UPDATE_TRACK:
                 handleTrackUpdate(intent);
@@ -544,14 +769,12 @@ public class AuraAudioService extends Service {
 
     private String sanitizeCapacitorUri(String uri) {
         if (uri == null) return "";
-        // Strip Capacitor WebView internal wrappers: /_capacitor_file_/ and /_capacitor_content_/
         if (uri.contains("/_capacitor_content_/")) {
             uri = "content://" + uri.substring(uri.indexOf("/_capacitor_content_/") + "/_capacitor_content_/".length());
         }
         if (uri.contains("/_capacitor_file_/")) {
             uri = uri.substring(uri.indexOf("/_capacitor_file_/") + "/_capacitor_file_".length());
         }
-        // Strip any leading http(s)://localhost that Capacitor may prepend
         if (uri.startsWith("https://localhost/") || uri.startsWith("http://localhost/")) {
             int slashAfterHost = uri.indexOf('/', uri.indexOf("localhost/"));
             if (slashAfterHost >= 0) {
@@ -569,6 +792,10 @@ public class AuraAudioService extends Service {
     private void handlePlayNative(Intent intent) {
         cancelQueueTransition();
         initExoPlayer();
+        wasPlayingBeforeCall = false;
+        isPausedByCall = false;
+        savedPositionBeforeCall = -1L;
+
         String newId = intent.getStringExtra("id");
         String newTitle = intent.getStringExtra("title");
         String newArtist = intent.getStringExtra("artist");
@@ -583,6 +810,7 @@ public class AuraAudioService extends Service {
         if (newAlbum != null) this.trackAlbum = newAlbum;
         if (newDuration > 0) this.trackDurationMs = newDuration;
         this.currentPositionMs = newPosition;
+        if (uriString != null) this.currentMediaUri = uriString;
 
         boolean artworkChanged = (newArtwork != null && !newArtwork.equals(this.artworkUrl)) || (newId != null && !newId.equals(this.trackId));
         if (newId != null) this.trackId = newId;
@@ -596,7 +824,6 @@ public class AuraAudioService extends Service {
 
         if (uriString != null && !uriString.trim().isEmpty() && exoPlayer != null) {
             try {
-                // Sanitize any Capacitor WebView URL wrapper to get clean content:// or file:// URI
                 uriString = sanitizeCapacitorUri(uriString);
 
                 Uri mediaUri = uriString.startsWith("/")
@@ -608,6 +835,8 @@ public class AuraAudioService extends Service {
                 exoPlayer.setMediaItem(mediaItem, true);
                 exoPlayer.seekTo(newPosition > 0 ? newPosition : 0);
                 exoPlayer.prepare();
+
+                requestAudioFocusInternal();
                 exoPlayer.play();
                 isNativePlayerActive = true;
                 isPlaying = true;
@@ -640,17 +869,13 @@ public class AuraAudioService extends Service {
         if (newDuration > 0) this.trackDurationMs = newDuration;
         if (newPosition > 0) this.currentPositionMs = newPosition;
 
-        // CRITICAL GUARD: Never let a metadata sync (from MainLayout.tsx store subscriber)
-        // override isPlaying=true or release locks while ExoPlayer is actively playing audio.
-        // The JS store sets currentSong (triggers subscriber with isPlaying=false) BEFORE
-        // audioService.playSong sets isNativePlaying=true, causing a race condition that would
-        // pause the foreground service and release WakeLock/WifiLock mid-playback.
+        // CRITICAL GUARD: Never let a metadata sync override isPlaying=true or release locks while ExoPlayer is actively playing audio
         if (isNativePlayerActive && exoPlayer != null && exoPlayer.isPlaying()) {
-            // ExoPlayer is actively playing — do NOT override isPlaying from metadata sync
             Log.d(TAG, "handleTrackUpdate: ExoPlayer is actively playing, ignoring isPlaying=" + newIsPlaying + " from metadata sync");
         } else if (isQueueTransitioning) {
-            // Queue transition is in progress — keep transition locks held and do NOT release them!
             Log.d(TAG, "handleTrackUpdate: Queue transition in progress, retaining transition locks");
+        } else if (isPausedByCall) {
+            Log.d(TAG, "handleTrackUpdate: Currently paused by phone call, retaining call pause state");
         } else {
             this.isPlaying = newIsPlaying;
 
@@ -863,6 +1088,7 @@ public class AuraAudioService extends Service {
         stopCallStateMonitoring();
         stopHeartbeat();
         progressHandler.removeCallbacks(progressRunnable);
+        abandonAudioFocusInternal();
         releaseLocks();
         isPlaying = false;
         isForegroundActive = false;
@@ -887,6 +1113,7 @@ public class AuraAudioService extends Service {
         stopCallStateMonitoring();
         stopHeartbeat();
         progressHandler.removeCallbacks(progressRunnable);
+        abandonAudioFocusInternal();
         releaseLocks();
 
         if (exoPlayer != null) {

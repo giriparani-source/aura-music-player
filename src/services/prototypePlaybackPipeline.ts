@@ -516,10 +516,12 @@ class PrototypePlaybackPipeline {
         this.previous();
         break;
       case 'pause':
+      case 'call_pause':
         this.pause();
         break;
       case 'play':
       case 'resume':
+      case 'call_resume':
         this.resume();
         break;
       case 'seek':

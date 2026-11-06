@@ -235,6 +235,29 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       case 'pause':
         if (get().isPlaying) get().togglePlay();
         break;
+      case 'call_pause': {
+        // Phone call or transient audio focus loss: pause playback, preserve position & queue
+        if (get().isPlaying) {
+          const pausePos = typeof position === 'number' && position > 0 ? position : get().currentTime;
+          audioService.pause();
+          set({ currentTime: pausePos, isPlaying: false });
+        }
+        break;
+      }
+      case 'call_resume': {
+        // Phone call ended: resume playback from exact position without skipping
+        const resumePos = typeof position === 'number' && position > 0 ? position : get().currentTime;
+        set({ currentTime: resumePos, isPlaying: true });
+        break;
+      }
+      case 'call_recovery_reload':
+        // Long call recovery: streaming socket timed out; re-seek and resume
+        if (typeof position === 'number' && position > 0) {
+          set({ currentTime: position });
+          audioService.seek(position);
+          audioService.resume();
+        }
+        break;
       case 'toggle':
         get().togglePlay();
         break;

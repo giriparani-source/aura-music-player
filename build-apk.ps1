@@ -16,7 +16,9 @@ Write-Host "Building Android APK (assembleDebug)..."
 if ($LASTEXITCODE -eq 0) {
     Write-Host "SUCCESS: Gradle assembleDebug completed!"
     Copy-Item "app\build\outputs\apk\debug\app-debug.apk" "..\AuraMusic-latest.apk" -Force
-    Write-Host "COPIED TO: AuraMusic-latest.apk"
+    Copy-Item "app\build\outputs\apk\debug\app-debug.apk" "..\AuraMusic-v1.0.apk" -Force
+    Copy-Item "app\build\outputs\apk\debug\app-debug.apk" "..\AuraMusic-v1.1.apk" -Force
+    Write-Host "COPIED TO: AuraMusic-latest.apk, AuraMusic-v1.0.apk, AuraMusic-v1.1.apk"
 } else {
     Write-Host "BUILD FAILED with exit code $LASTEXITCODE"
 }
