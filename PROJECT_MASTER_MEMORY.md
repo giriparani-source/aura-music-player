@@ -1,10 +1,10 @@
 # 🧭 AURA MUSIC PLAYER - MASTER PROJECT MEMORY & STATE SNAPSHOT
 
 **Project Name:** Aura Music Player (Pure Cloud Streaming Music Ecosystem)  
-**Version:** 1.3.0 (Spotify Queue & Cross-Section Drag-and-Drop Edition)  
+**Version:** 1.4.0 (Continuous Background Playback & Android Telephony Audio Focus Edition)  
 **Type:** Cross-Platform React 19 + Capacitor 8.5 Android & Web Application  
 **Primary Path:** `d:\Antigravity Projects\music player`  
-**Last Checkpoint:** 2026-11-05 IST (Spotify Queue Experience, Cross-Section DnD, 666 Green Tests & Vercel Production Deploy)  
+**Last Checkpoint:** 2026-11-06 IST (Screen-Off Continuous Progression, Phone Call Audio Focus Management, 675 Green Tests)  
 **Active Phase:** Phase 6 - Production Release, Multi-Section Queue Mobility & Mobile Packaging  
 
 ---
@@ -111,19 +111,28 @@
   - `@hello-pangea/dnd` multi-droppable architecture enabling reordering across ALL upcoming songs within and between sections.
   - Currently Playing song stays strictly stationary at the top with live 3-bar animated equalizer and inline play/pause.
   - Safe confirmation dialog at `z-[80]` for clearing user queue without interrupting active playback.
+- **Decision 009 (Android Telephony Audio Focus & Battery Optimization):**
+  - Integrated modern `AudioFocusRequest` (API 26+) + `AudioManager.OnAudioFocusChangeListener` in `AuraAudioService.java`.
+  - Transient focus loss (`AUDIOFOCUS_LOSS_TRANSIENT`) records exact timestamp `savedPositionBeforeCall` and pauses ExoPlayer.
+  - Releases CPU WakeLock and Wi-Fi lock during calls to eliminate background battery drain while telephony modem keeps device active; re-acquires immediately upon `AUDIOFOCUS_GAIN`.
+  - Upon `AUDIOFOCUS_GAIN`, re-prepares media source if connection dropped during long call (1+ hour), and seeks directly to `savedPositionBeforeCall`.
+  - Dual guards in `STATE_ENDED` protect against socket timeouts being mistaken for song completion, preventing accidental track skipping.
+  - Manual pause protection: if user pauses before or during a call, auto-resume is inhibited.
 - **Gotcha 001 (Audio Backgrounding):** Background audio on Android requires native ExoPlayer foreground service with `FOREGROUND_SERVICE_MEDIA_PLAYBACK`.
 - **Gotcha 002 (Zero Fake Songs on Import):** Unavailable or deleted YouTube tracks must have `status: 'unavailable'` and `songId: null`.
 - **Gotcha 003 (Search Bar Dual-Sync):** Main header search bar and view-level search inputs synchronize bidirectionally via `searchQuery` state in `useLibraryStore`.
 - **Gotcha 004 (Vercel Deployment Branch Coupling):** Vercel's production environment is tied to `origin/main`. Changes committed to `web-player` must be merged into `main` and pushed to `origin main` to update `https://aura-music-player-omega.vercel.app/`.
 - **Gotcha 005 (Windows CRLF vs LF Normalization):** PowerShell and Git on Windows may insert CRLF line endings.
 - **Gotcha 006 (DnD Shuffle Index Safety):** When cross-dropping tracks in shuffle mode, tracks are appended to `queue` and spliced into `shuffledQueueOrder`, preserving exact 1-to-1 array permutations and preventing pointer drift.
+- **Gotcha 007 (Long Phone Call HTTP Socket Drop):** ExoPlayer streaming over HTTP/CDN drops socket during 30m-1h calls; `resumePlaybackAfterCall()` checks player state and re-prepares media item instead of crashing or skipping.
 
 ---
 
-## 🧪 VERIFICATION & TEST RESULTS (v1.3.0 Release)
+## 🧪 VERIFICATION & TEST RESULTS (v1.4.0 Release)
 
-- **Vitest Unit & Integration Tests:** 47 test suites, **666 tests passed (100% green)**.
+- **Vitest Unit & Integration Tests:** 48 test suites, **675 tests passed (100% green)**.
 - **Oxlint Static Code Analysis:** **0 errors** across all project files.
-- **TypeScript Typecheck & Vite Production Build:** Succeeded with zero errors (`tsc -b && vite build` in 2.55s).
+- **TypeScript Typecheck & Vite Production Build:** Succeeded with zero errors (`tsc -b && vite build`).
+- **Targeted Telephony Suite:** `src/services/__tests__/phoneCallAudioHandling.test.ts` (9/9 passed).
 - **Vercel Production Deployment:** Live at [https://aura-music-player-omega.vercel.app/](https://aura-music-player-omega.vercel.app/).
 - **Android APK Build:** `AuraMusic-latest.apk` & `AuraMusic-v1.0.apk` (zero storage permissions, background ExoPlayer playback verified).

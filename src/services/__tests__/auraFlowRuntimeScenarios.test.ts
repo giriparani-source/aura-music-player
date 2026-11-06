@@ -106,7 +106,8 @@ describe('Aura Flow Runtime Verification (Scenarios 1–10)', () => {
 
   const catalog = [songA, songB, songC, songLocal, songDownloaded];
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await auraFlowService.resetAuraMemory();
     auraFlowService.resetSession();
     auraFlowService.setWeights(DEFAULT_FLOW_WEIGHTS);
     usePlayerStore.setState({
